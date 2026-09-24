@@ -1,0 +1,74 @@
+info:
+  name: 用户_批量删除
+  type: http
+  seq: 25
+
+http:
+  method: POST
+  url: "{{host}}/apis/test.com/testapis/v1/users?action=batch_delete"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Referer
+      value: "{{Referer}}"
+    - name: Accept-Language
+      value: "{{Accept-language}}"
+  params:
+    - name: action
+      value: batch_delete
+      type: query
+  body:
+    type: json
+    data: |-
+      {
+        "ids": ["id-1"]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  ## 简要描述
+  - 用户批量删除接口
+
+  ## 请求URI
+  - `/apis/test.com/testapis/v1/users?action=batch_delete`
+
+  ## 请求方式
+  - POST
+
+  ## 请求头
+  - **Content-Type**: application/json
+  - **Authorization**: {{Token}}
+  - **Referer**: https://{{服务器地址}}
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:----    |:---|:----- |-----   |
+  |ids |是  |[]string |用户id列表   |
+
+  ## 响应说明
+  HTTP状态码200: 表示删除成功
+  HTTP状态码500: 删除失败
+
+  ## 请求示例
+  ```shell
+  curl --request POST \
+    --url 'https://10.0.0.65/apis/test.com/testapis/v1/users?action=batch_delete' \
+    --header 'accept-language: zh-CN,zh;q=0.9,en;q=0.8' \
+    --header 'authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJsaW5raW5nLXNydiIsInN1YiI6ImNseG9uZSIsImV4cCI6MTgxNTY0ODEzNCwibmJmIjoxNzg0MTEyMTM0LCJpYXQiOjE3ODQxMTIxMzQsIlVzZXJJZCI6ImNseG9uZSJ9.TvgUAnqpfP5tr1F3BitJoSYiTknasGRBsuVEUei2ZVY' \
+    --header 'content-type: application/json' \
+    --header 'referer: https://10.0.0.65' \
+    --data '{
+    "ids": [
+      "id-1"
+    ]
+  }'
+  ```
+
+  ## 备注
+  无

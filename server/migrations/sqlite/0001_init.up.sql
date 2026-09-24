@@ -1,0 +1,35 @@
+-- 0001_init：api-doc 初始结构（SQLite）。
+-- 由 data/genmigrate 从 AutoMigrate 导出，勿手改；模型变更后重新生成。
+CREATE TABLE `api` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`project_id` integer NOT NULL,`group_id` integer NOT NULL DEFAULT 0,`group_id_second` integer NOT NULL DEFAULT 0,`description` text,`protocol_type` text,`http_method_type` text,`url` text,`api_name` text,`object_name` text,`function_name` text,`develop_language` text,`http_request_header` text,`http_request_params` text,`http_return_type` text,`http_return_params` text,`http_return_sample` text);
+CREATE TABLE `bug` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`project_id` integer NOT NULL,`to_user_id` integer NOT NULL DEFAULT 0,`title` text NOT NULL,`content` text NOT NULL,`comment` text,`status` integer NOT NULL DEFAULT 1,`level` integer NOT NULL DEFAULT 1);
+CREATE TABLE `bug_assign` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`bug_id` integer NOT NULL,`from_user_id` integer NOT NULL DEFAULT 0,`to_user_id` integer NOT NULL DEFAULT 0,`comment` text,`status` integer NOT NULL DEFAULT 1);
+CREATE TABLE `database` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`address` text NOT NULL,`port` integer NOT NULL DEFAULT 0,`username` text NOT NULL,`password` text NOT NULL,`database_name` text NOT NULL,`project_id` integer NOT NULL,`user_id` integer NOT NULL DEFAULT 0,`type` integer NOT NULL DEFAULT 1,`description` text);
+CREATE TABLE `doc` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`user_id` integer NOT NULL,`project_id` integer NOT NULL,`group_id` integer NOT NULL DEFAULT 0,`title` text NOT NULL,`content` text NOT NULL,`state` integer NOT NULL DEFAULT 0,`view_count` integer NOT NULL DEFAULT 0,`like_count` integer NOT NULL DEFAULT 0,`is_top` integer NOT NULL DEFAULT 0,`priority` integer NOT NULL DEFAULT 0);
+CREATE TABLE `field_mapping` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`project_id` integer NOT NULL,`field` text NOT NULL,`type` text NOT NULL,`description` text);
+CREATE TABLE `file` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`title` text NOT NULL,`path` text);
+CREATE TABLE `group` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`p_id` integer NOT NULL DEFAULT 0,`project_id` integer NOT NULL DEFAULT 0,`title` text NOT NULL,`priority` integer NOT NULL DEFAULT 0,`type` integer NOT NULL DEFAULT 0);
+CREATE TABLE `message` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`content` text,`send_type` integer NOT NULL DEFAULT 0,`receive_source` text NOT NULL,`title` text,`expire_time` datetime NOT NULL,`used_time` datetime,`is_used` integer NOT NULL DEFAULT 0,`code` text);
+CREATE TABLE `notification` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`title` text,`content` text,`send_type` integer NOT NULL DEFAULT 0,`receiver` integer NOT NULL,`is_read` integer NOT NULL DEFAULT 0);
+CREATE TABLE `operation_log` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`user_id` integer NOT NULL,`action` text NOT NULL,`content` text,`object_id` integer NOT NULL DEFAULT 0,`type` integer NOT NULL DEFAULT 0,`project_id` integer NOT NULL);
+CREATE TABLE `project` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`title` text NOT NULL,`description` text,`version` text,`type` text);
+CREATE TABLE `property` (`id` integer PRIMARY KEY AUTOINCREMENT,`tag` text NOT NULL,`tag_name` text NOT NULL,`description` text);
+CREATE TABLE `user_info` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`name` text NOT NULL,`pwd` text NOT NULL,`email` text,`type` integer NOT NULL DEFAULT 1,`state` integer NOT NULL DEFAULT 1,`mobile_number` text,`nick_name` text,`last_login_ip` text,`last_login_time` datetime,`user_face` text);
+CREATE TABLE `user_project` (`id` integer PRIMARY KEY AUTOINCREMENT,`is_deleted` integer NOT NULL DEFAULT 0,`create_time` datetime,`update_time` datetime,`user_id` integer NOT NULL,`project_id` integer NOT NULL,`is_leader` integer NOT NULL DEFAULT 0,`permission` integer NOT NULL DEFAULT 1);
+CREATE INDEX `idx_api_group_id` ON `api`(`group_id`);
+CREATE INDEX `idx_api_project_id` ON `api`(`project_id`);
+CREATE INDEX `idx_bug_assign_bug_id` ON `bug_assign`(`bug_id`);
+CREATE INDEX `idx_bug_project_id` ON `bug`(`project_id`);
+CREATE INDEX `idx_database_project_id` ON `database`(`project_id`);
+CREATE INDEX `idx_doc_group_id` ON `doc`(`group_id`);
+CREATE INDEX `idx_doc_project_id` ON `doc`(`project_id`);
+CREATE INDEX `idx_doc_user_id` ON `doc`(`user_id`);
+CREATE INDEX `idx_field_mapping_project_id` ON `field_mapping`(`project_id`);
+CREATE INDEX `idx_group_p_id` ON `group`(`p_id`);
+CREATE INDEX `idx_group_project_id` ON `group`(`project_id`);
+CREATE INDEX `idx_notification_receiver` ON `notification`(`receiver`);
+CREATE INDEX `idx_operation_log_object_id` ON `operation_log`(`object_id`);
+CREATE INDEX `idx_operation_log_project_id` ON `operation_log`(`project_id`);
+CREATE INDEX `idx_operation_log_user_id` ON `operation_log`(`user_id`);
+CREATE UNIQUE INDEX `idx_project_title` ON `project`(`title`);
+CREATE INDEX `idx_user_project` ON `user_project`(`user_id`,`project_id`);
+CREATE UNIQUE INDEX `uk_name_email` ON `user_info`(`name`,`email`);

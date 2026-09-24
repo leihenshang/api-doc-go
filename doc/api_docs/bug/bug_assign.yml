@@ -1,0 +1,44 @@
+info:
+  name: BUG_指派
+  type: http
+  seq: 45
+
+http:
+  method: POST
+  url: "{{host}}/api/bug/assign"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - BUG_指派
+
+  ## 请求 URI
+  - `/api/bug/assign`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+|bug_id|是|uint|BUG ID|
+|to_user_id|是|uint|处理人（写 bug_assign 流转）|
+|comment|否|string|备注|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。

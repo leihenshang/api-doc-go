@@ -1,0 +1,43 @@
+info:
+  name: 接口_导出OpenAPI
+  type: http
+  seq: 30
+
+http:
+  method: GET
+  url: "{{host}}/api/api/export"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 接口_导出OpenAPI
+
+  ## 请求 URI
+  - `/api/api/export`
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+|project_id|是|uint|查询参数|
+|group_id|否|uint|可选限定分组|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。

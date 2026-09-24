@@ -1,0 +1,57 @@
+info:
+  name: 接口_创建
+  type: http
+  seq: 23
+
+http:
+  method: POST
+  url: "{{host}}/api/api"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 接口_创建
+
+  ## 请求 URI
+  - `/api/api`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+|project_id|是|uint|项目 ID|
+|group_id|否|uint|分组 ID|
+|group_id_second|否|uint|二级分组 ID|
+|api_name|是|string|接口名称|
+|http_method_type|否|string|GET/POST/...|
+|url|否|string|请求 URL|
+|protocol_type|否|string|协议|
+|http_return_type|否|string|返回类型（如 JSON）|
+|develop_language|否|string|开发语言|
+|object_name|否|string|对象名|
+|function_name|否|string|函数名|
+|description|否|string|说明|
+|http_request_header|否|json 数组|[{name,value,description}]|
+|http_request_params|否|json 数组|[{fieldName,type,required,description,example}]|
+|http_return_params|否|json 数组|创建时按项目字段映射回填 type/description|
+|http_return_sample|否|json|响应样例|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。

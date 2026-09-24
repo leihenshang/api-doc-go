@@ -1,0 +1,22 @@
+# ===== 操作系统 / 编辑器 =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+
+# ===== IDE =====
+.idea/
+.vscode/
+
+# ===== Go 构建产物（兜底，主规则在 server/.gitignore）=====
+*.exe
+*.out
+*.test
+
+# ===== 日志 / 进程号（兜底）=====
+*.log
+*.pid
+
+# ===== 依赖与构建（主规则在 web/.gitignore）=====
+node_modules/
+dist/

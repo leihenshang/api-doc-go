@@ -1,0 +1,45 @@
+info:
+  name: 字段映射_更新
+  type: http
+  seq: 41
+
+http:
+  method: PUT
+  url: "{{host}}/api/field-mapping"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 字段映射_更新
+
+  ## 请求 URI
+  - `/api/field-mapping`
+
+  ## 请求方式
+  - PUT
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+|id|是|uint|映射 ID|
+|field|是|string|字段名|
+|type|是|string|类型|
+|description|否|string|描述|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。

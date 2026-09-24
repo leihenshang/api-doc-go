@@ -1,0 +1,327 @@
+package handler
+
+import (
+	"io"
+	"strconv"
+
+	"apidoc/internal/dto"
+	"apidoc/internal/pkg/errcode"
+	"apidoc/internal/pkg/page"
+	"apidoc/internal/pkg/response"
+
+	"github.com/gin-gonic/gin"
+)
+
+// ---- 分组 ----
+
+// CreateGroup 处理 POST /api/group。
+func (h *Handler) CreateGroup(c *gin.Context) {
+	var req dto.GroupCreateReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.CreateGroup(c.Request.Context(), p.UserID, p.Type, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// ListGroups 处理 GET /api/group?project_id=&type=。
+func (h *Handler) ListGroups(c *gin.Context) {
+	typ := int8(-1)
+	if t, err := strconv.Atoi(c.Query("type")); err == nil {
+		typ = int8(t)
+	}
+	res, err := h.svc.ListGroups(c.Request.Context(), idQuery(c, "project_id"), typ)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// UpdateGroup 处理 PUT /api/group。
+func (h *Handler) UpdateGroup(c *gin.Context) {
+	var req dto.GroupUpdateReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.UpdateGroup(c.Request.Context(), p.UserID, p.Type, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// DeleteGroup 处理 DELETE /api/group/:id。
+func (h *Handler) DeleteGroup(c *gin.Context) {
+	p := principal(c)
+	if err := h.svc.DeleteGroup(c.Request.Context(), p.UserID, p.Type, idParam(c)); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ---- 接口 ----
+
+// CreateApi 处理 POST /api/api。
+func (h *Handler) CreateApi(c *gin.Context) {
+	var req dto.ApiCreateReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.CreateApi(c.Request.Context(), p.UserID, p.Type, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// UpdateApi 处理 PUT /api/api。
+func (h *Handler) UpdateApi(c *gin.Context) {
+	var req dto.ApiUpdateReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.UpdateApi(c.Request.Context(), p.UserID, p.Type, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// ListApis 处理 GET /api/api。
+func (h *Handler) ListApis(c *gin.Context) {
+	var q dto.ApiListQuery
+	if !bindQuery(c, &q) {
+		return
+	}
+	res, err := h.svc.ListApis(c.Request.Context(), q)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// GetApi 处理 GET /api/api/:id。
+func (h *Handler) GetApi(c *gin.Context) {
+	res, err := h.svc.GetApi(c.Request.Context(), idParam(c))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// DeleteApi 处理 DELETE /api/api/:id。
+func (h *Handler) DeleteApi(c *gin.Context) {
+	p := principal(c)
+	if err := h.svc.DeleteApi(c.Request.Context(), p.UserID, p.Type, idParam(c)); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// RestoreApi 处理 POST /api/api/restore。
+func (h *Handler) RestoreApi(c *gin.Context) {
+	var req dto.IDReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	if err := h.svc.RestoreApi(c.Request.Context(), p.UserID, p.Type, req.ID); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ImportOpenAPI 处理 POST /api/api/import，body 为标准 OpenAPI(JSON)。
+func (h *Handler) ImportOpenAPI(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil || len(body) == 0 {
+		response.Fail(c, errcode.CodeParamError, "请求体为空")
+		return
+	}
+	p := principal(c)
+	count, err := h.svc.ImportOpenAPI(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), idQuery(c, "group_id"), body)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"imported": count})
+}
+
+// ExportOpenAPI 处理 GET /api/api/export?project_id=&group_id=，导出标准 OpenAPI(JSON)。
+func (h *Handler) ExportOpenAPI(c *gin.Context) {
+	doc, err := h.svc.OpenAPIExport(c.Request.Context(), idQuery(c, "project_id"), idQuery(c, "group_id"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, doc)
+}
+
+// ExportCurl 处理 GET /api/api/curl?id=，返回单接口的 cURL 命令。
+func (h *Handler) ExportCurl(c *gin.Context) {
+	cmd, err := h.svc.ExportCurl(c.Request.Context(), idParam(c))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"curl": cmd})
+}
+
+// ---- 文档 ----
+
+// CreateDoc 处理 POST /api/doc。
+func (h *Handler) CreateDoc(c *gin.Context) {
+	var req dto.DocCreateReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.CreateDoc(c.Request.Context(), p.UserID, p.Type, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// UpdateDoc 处理 PUT /api/doc。
+func (h *Handler) UpdateDoc(c *gin.Context) {
+	var req dto.DocUpdateReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.UpdateDoc(c.Request.Context(), p.UserID, p.Type, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// ListDocs 处理 GET /api/doc。deleted=1 查回收站。
+func (h *Handler) ListDocs(c *gin.Context) {
+	var q page.Query
+	_ = c.ShouldBindQuery(&q)
+	deleted := int8(0)
+	if c.Query("deleted") == "1" {
+		deleted = 1
+	}
+	res, err := h.svc.ListDocs(c.Request.Context(), idQuery(c, "project_id"), idQuery(c, "group_id"), c.Query("keyword"), deleted, q)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// GetDoc 处理 GET /api/doc/:id。
+func (h *Handler) GetDoc(c *gin.Context) {
+	res, err := h.svc.GetDoc(c.Request.Context(), idParam(c))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// DeleteDoc 处理 DELETE /api/doc/:id。
+func (h *Handler) DeleteDoc(c *gin.Context) {
+	p := principal(c)
+	if err := h.svc.DeleteDoc(c.Request.Context(), p.UserID, p.Type, idParam(c)); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// RestoreDoc 处理 POST /api/doc/restore。
+func (h *Handler) RestoreDoc(c *gin.Context) {
+	var req dto.IDReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := h.svc.RestoreDoc(c.Request.Context(), req.ID); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// LikeDoc 处理 POST /api/doc/:id/like。
+func (h *Handler) LikeDoc(c *gin.Context) {
+	if err := h.svc.LikeDoc(c.Request.Context(), idParam(c)); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ---- 字段映射 ----
+
+// CreateFieldMapping 处理 POST /api/field-mapping。
+func (h *Handler) CreateFieldMapping(c *gin.Context) {
+	var req dto.FieldMappingReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.CreateFieldMapping(c.Request.Context(), p.UserID, p.Type, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// ListFieldMappings 处理 GET /api/field-mapping?project_id=。
+func (h *Handler) ListFieldMappings(c *gin.Context) {
+	res, err := h.svc.ListFieldMappings(c.Request.Context(), idQuery(c, "project_id"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// UpdateFieldMapping 处理 PUT /api/field-mapping。
+func (h *Handler) UpdateFieldMapping(c *gin.Context) {
+	var req dto.FieldMappingReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.UpdateFieldMapping(c.Request.Context(), p.UserID, p.Type, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// DeleteFieldMapping 处理 DELETE /api/field-mapping/:id。
+func (h *Handler) DeleteFieldMapping(c *gin.Context) {
+	p := principal(c)
+	if err := h.svc.DeleteFieldMapping(c.Request.Context(), p.UserID, p.Type, idParam(c)); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
+}

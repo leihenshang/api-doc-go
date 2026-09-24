@@ -1,0 +1,46 @@
+info:
+  name: 分组_创建
+  type: http
+  seq: 19
+
+http:
+  method: POST
+  url: "{{host}}/api/group"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 分组_创建
+
+  ## 请求 URI
+  - `/api/group`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+|project_id|是|uint|项目 ID|
+|title|是|string|分组名|
+|p_id|否|uint|父分组，0 为根|
+|type|否|int|1 接口 2 项目 3 文档|
+|priority|否|int|排序权重|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。

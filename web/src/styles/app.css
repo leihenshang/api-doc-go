@@ -1,0 +1,268 @@
+/* 全局版式与页面骨架样式。配色/间距取自统一刻度，组件外观交给 Naive UI 主题。 */
+
+:root {
+  --app-header-h: 52px;
+  --app-bg: #f5f6f8;
+  --app-panel: #ffffff;
+  --app-border: #ebedf0;
+  --app-text: #1f2329;
+  --app-muted: #7d8590;
+  --app-accent: #18a058;
+  --app-gap: 16px;
+  --app-gap-sm: 8px;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+}
+
+/* ---- 页面骨架 ---- */
+.page {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-gap);
+}
+
+.page-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-gap);
+}
+
+/* 操作区只余单个按钮时靠右排布 */
+.page-hd--end {
+  justify-content: flex-end;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 26px;
+}
+
+.page-sub {
+  margin: 2px 0 0;
+  color: var(--app-muted);
+  font-size: 13px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--app-gap-sm);
+  flex-wrap: wrap;
+}
+
+.toolbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--app-gap-sm);
+}
+
+/* ---- 工作台分栏（API接口 / 项目文档 页）：全出血两栏，左树 + 右内容 ---- */
+.split {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  background: var(--app-panel);
+}
+
+.split-tree {
+  flex: 0 0 272px;
+  width: 272px;
+  min-height: 0;
+  display: flex;
+  background: #fbfbfc;
+  border-right: 1px solid var(--app-border);
+}
+
+.split-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+/* 右侧内容区（详情等整块内容）：统一内边距并纵向撑满 */
+.pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-gap);
+  padding: 16px 20px;
+  overflow: auto;
+}
+
+/* 详情页内容由 NSpin 包裹时，内容层需显式撑满才能让内部 flex 布局生效 */
+.pane .n-spin-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 右侧整块内容卡片（新建接口/回收站）：四周留白，高度交给 .table-card */
+.pane-card {
+  margin: 16px 20px;
+}
+
+@media (max-width: 900px) {
+  .split {
+    flex-direction: column;
+  }
+  .split-tree {
+    flex: 0 0 auto;
+    max-height: 240px;
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border);
+  }
+}
+
+/* ---- 区块 ---- */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-gap-sm);
+}
+
+.section-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-gap-sm);
+}
+
+.section-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ---- 文本与链接 ---- */
+.muted {
+  color: var(--app-muted);
+}
+
+.meta {
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.link {
+  color: var(--app-accent);
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 表格容器 ---- */
+.table-card td {
+  vertical-align: middle;
+}
+
+/* 列表卡片撑满剩余高度，分页条固定在卡片底部（不随内容行数上下跳动） */
+.table-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* naive-ui 卡片内容层类名在不同版本为 n-card-content 或 n-card__content，两者都覆盖，
+   确保内容层成为纵向 flex，配合 .pager 的 margin-top:auto 让分页条贴住卡片底部。 */
+.table-card > .n-card-content,
+.table-card > .n-card__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 操作列按钮组：统一间距，避免按钮粘连 */
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+/* 窄屏时表格在卡片内横向滚动，而不是撑破卡片边框 */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* 操作列冻结在右侧：横向滚动时始终可见，列前加竖向分隔线 */
+.table-scroll th:last-child,
+.table-scroll td:last-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  border-left: 1px solid var(--app-border);
+}
+
+.table-scroll thead th:last-child {
+  z-index: 1;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.row-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* ---- 代码 / JSON 展示块 ---- */
+.code-block {
+  position: relative;
+  background: #fafbfc;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  padding: 12px 12px 12px 0;
+  overflow: auto;
+  max-height: 420px;
+}
+
+.code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* ---- 空状态 ---- */
+.empty-block {
+  padding: 40px 0;
+}

@@ -1,0 +1,34 @@
+# Binaries and build output（保留运维脚本与测试配置）
+/bin/*
+!/bin/run.sh
+!/bin/env.test
+/dist/
+*.exe
+*.out
+
+# Local database files (SQLite)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# 本地数据：只读 modcache / 构建缓存 / 临时 / 上传
+# genmigrate 为源码（main.go），不忽略
+/data/_modcache/
+/data/gocache/
+/data/tmp/
+/data/uploads/
+/data/apidoc-*
+
+# Env / local config
+/config.local.yaml
+.env
+.env.*
+
+# Logs & 进程号文件
+*.log
+*.pid
+
+# IDE
+.idea/
+.vscode/

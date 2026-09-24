@@ -1,0 +1,144 @@
+info:
+  name: 角色_创建
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: "{{host}}/apis/test.com/testapis/v1/roles"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Referer
+      value: "{{Referer}}"
+    - name: Accept-Language
+      value: "{{Accept-language}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "test-ipv6",
+        "comment": "test-coment",
+        "userLevel": "manager",
+        "menus": [
+          {
+            "id": "overview",
+            "name": "overview",
+            "permissions": []
+          },
+          {
+            "id": "xxxxx-overview",
+            "name": "xxxxx-overview",
+            "permissions": [
+              "READ"
+            ]
+          },
+          {
+            "id": "xxxxx",
+            "name": "xxxxx",
+            "permissions": []
+          },
+          {
+            "id": "network-v6",
+            "name": "network-v6",
+            "permissions": [
+              "READ",
+              "UPDATE"
+            ]
+          }
+        ]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  ## 简要描述
+  - 角色创建接口
+
+  ## 请求URI
+  - `/apis/test.com/testapis/v1/roles`
+
+  ## 请求方式
+  - POST
+
+  ## 请求头
+  - **Content-Type**: application/json
+  - **Authorization**: {{Token}}
+  - **Referer**: https://{{服务器地址}}
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:----    |:---|:----- |-----   |
+  |name |是  |string |角色名称   |
+  |userLevel |是  |string | 角色类型（见角色类型枚举）|
+  |comment | 否  |string | 备注 |
+  |menus |是  |菜单数组(见所选菜单) | 所选菜单 |
+
+  ## 所选菜单
+  |参数名|必选|类型|说明|
+  |:----    |:---|:----- |-----   |
+  |id |是  |string |菜单ID   |
+  |name |是  |string | 菜单名称|
+  |permissions | 是  | 菜单权限数组（见权限枚举） | 菜单权限 |
+
+  **角色类型枚举（userLevel）**
+  - admin: 超级管理员
+  - manager: 普通管理员
+  - user: 普通用户
+
+
+  **菜单权限枚举**
+  - READ: 读
+  - CREATE: 创建
+  - DELETE: 删除
+  - UPDATE: 更新
+  - IMPORT: 导入
+  - EXPORT: 导出
+
+  ## 条件约束
+  1. 角色所选菜单权限列表（如果是menu和table）不能为空
+  2. 菜单权限至少需要包含READ权限
+
+  ## 请求示例
+  ```json
+  {
+    "name": "test-ipv6",
+    "comment": "test-coment",
+    "userLevel": "manager",
+    "menus": [
+      {
+        "id": "overview",
+        "name": "overview",
+        "permissions": []
+      },
+      {
+        "id": "xxxxx-overview",
+        "name": "xxxxx-overview",
+        "permissions": [
+          "READ"
+        ]
+      },
+      {
+        "id": "xxxxx",
+        "name": "xxxxx",
+        "permissions": []
+      },
+      {
+        "id": "network-v6",
+        "name": "network-v6",
+        "permissions": [
+          "READ",
+          "UPDATE"
+        ]
+      }
+    ]
+  }
+  ```
+
+  ## 备注
+  创建角色权限之前，需要获取菜单权限列表，并且根据角色类型查询菜单

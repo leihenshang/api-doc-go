@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+*.tsbuildinfo
+.vscode/
+.idea/
+
+# env / 本地配置
+.env
+.env.*
+!.env.example
+
+# dev server 控制产物
+.dev.log
+.dev.pid

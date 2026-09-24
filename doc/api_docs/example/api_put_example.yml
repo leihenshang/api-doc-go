@@ -1,0 +1,93 @@
+info:
+  name: 用户组_更新
+  type: http
+  seq: 14
+
+http:
+  method: PUT
+  url: "{{host}}/apis/test.com/testapis/v1/usergroups/ac0a3d1b4085dd378097e3a2d22dce6a"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Referer
+      value: "{{Referer}}"
+    - name: Accept-Language
+      value: "{{Accept-language}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "group-ipv6",
+        "comment": "group-coment",
+        "userLevel": "manager",
+        "roles": [
+          {
+            "id": "13e87f3d40c5e005807196b58b24b293"
+          }
+        ],
+        "organizations": [
+          {
+            "id": "root"
+          }
+        ]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  ## 简要描述
+  - 用户组更新接口
+
+  ## 请求URI
+  - `/apis/test.com/testapis/v1/usergroups/:id`
+
+  ## 请求方式
+  - PUT
+
+  ## 请求头
+  - **Content-Type**: application/json
+  - **Authorization**: {{Token}}
+  - **Referer**: https://{{服务器地址}}
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:----    |:---|:----- |-----   |
+  |name |是 |string |用户组名称   |
+  |userLevel |是  |string | 角色类型（见角色类型枚举）|
+  |roles |是 |角色资源列表 | 所选角色列表（只需要填入id）   |
+  |organizations |是 |组织机构资源列表 |所选组织机构列表(只需要填入id)   |
+
+  **角色类型枚举（userLevel）**
+  - admin: 超级管理员
+  - manager: 普通管理员
+  - user: 普通用户
+
+  **约束**
+  目前仅支持选择一个角色，组织机构是级联多选。
+
+  ## 请求示例
+  ```json
+  {
+    "name": "group-ipv4",
+    "comment": "group-coment",
+    "userLevel": "manager",
+    "roles": [
+      {
+        "id": "3b544d9e4042904e8092b72f2de5dd86"
+      }
+    ],
+    "organizations": [
+      {
+        "id": "root"
+      }
+    ]
+  }
+  ```
+
+  ## 备注
+  无

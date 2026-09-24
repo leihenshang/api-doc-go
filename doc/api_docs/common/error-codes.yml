@@ -1,0 +1,25 @@
+info:
+  name: 约定_统一响应与错误码
+  type: doc
+  seq: 0
+
+docs: |-
+  ## 统一响应
+  - 所有接口返回 `{ "code": <int>, "msg": <string>, "data": <any|null> }`，HTTP 状态码恒为 200。
+
+  ## 错误码表
+  |code|含义|前端处理|
+  |:--|:--|:--|
+  |200|成功|取 data|
+  |22|参数错误（绑定/校验失败）|提示 msg|
+  |14|通用业务失败|提示 msg|
+  |34|未登录 / token 无效或过期|清登录态并跳转登录页|
+  |403|无操作权限（项目权限位不足 / 非管理员）|提示 msg|
+
+  ## 分页约定
+  - 入参：`page_num`（默认 1）、`page_size`（默认 10，最大 200）
+  - 出参 data：`{ items, total, pageNum, pageSize, pageTotal }`
+
+  ## 鉴权约定
+  - 登录返回 JWT（HS256），有效期 `JWT_EXPIRE_HOURS`（默认 24h）
+  - 请求携带 `Authorization: Bearer <token>`；兼容旧版 query/body `token` 参数

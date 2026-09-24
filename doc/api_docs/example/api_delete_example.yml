@@ -1,0 +1,46 @@
+info:
+  name: 用户_删除
+  type: http
+  seq: 24
+
+http:
+  method: DELETE
+  url: "{{host}}/apis/test.com/testapis/v1/users/4a0992e840427ee780e506a5cca62b42"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Referer
+      value: "{{Referer}}"
+    - name: Accept-Language
+      value: "{{Accept-language}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  ## 简要描述
+  - 用户删除接口
+
+  ## 请求URI
+  - `/apis/test.com/testapis/v1/users/:id`
+
+  ## 请求方式
+  - DELETE
+
+  ## 请求头
+  - **Content-Type**: application/json
+  - **Authorization**: {{Token}}
+  - **Referer**: https://{{服务器地址}}
+
+  ## 请求参数
+  无
+
+  ## 响应示例
+  无
+
+  ## 备注
+  无

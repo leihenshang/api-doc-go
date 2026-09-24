@@ -1,0 +1,32 @@
+{
+    "name": "apidoc-web",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "dev:start": "if [ -f .dev.pid ] && kill -0 $(cat .dev.pid) 2>/dev/null; then echo \"dev server already running: pid $(cat .dev.pid) http://localhost:5173\"; else nohup vite > .dev.log 2>&1 & echo $! > .dev.pid; sleep 1; echo \"dev server started: pid $(cat .dev.pid) http://localhost:5173 log: .dev.log\"; fi",
+        "dev:stop": "if [ -f .dev.pid ]; then kill $(cat .dev.pid) 2>/dev/null && echo \"dev server stopped (pid $(cat .dev.pid))\"; rm -f .dev.pid; else echo 'dev server not running'; fi",
+        "dev:status": "if [ -f .dev.pid ] && kill -0 $(cat .dev.pid) 2>/dev/null; then echo \"running: pid $(cat .dev.pid)\"; curl -s http://127.0.0.1:5173 >/dev/null && echo 'http 5173 OK' || echo 'http not ready'; else echo 'not running'; fi",
+        "build": "vue-tsc --noEmit && vite build",
+        "preview": "vite preview",
+        "type-check": "vue-tsc --noEmit"
+    },
+    "dependencies": {
+        "@vicons/ionicons5": "^0.13.0",
+        "axios": "^1.7.2",
+        "md-editor-v3": "^7.0.0",
+        "naive-ui": "^2.38.2",
+        "pinia": "^2.1.7",
+        "vue": "^3.4.27",
+        "vue-router": "^4.3.2",
+        "yaml": "^2.9.1"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.2",
+        "@vitejs/plugin-vue": "^5.0.4",
+        "typescript": "^5.4.5",
+        "vite": "^5.2.11",
+        "vue-tsc": "^2.0.19"
+    }
+}

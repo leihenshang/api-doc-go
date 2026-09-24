@@ -1,0 +1,45 @@
+info:
+  name: 属性_保存
+  type: http
+  seq: 51
+
+http:
+  method: POST
+  url: "{{host}}/api/property"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 属性_保存
+
+  ## 请求 URI
+  - `/api/property`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+|id|否|uint|0 新建，否则更新（仅管理员）|
+|tag|是|string|标记名|
+|tag_name|是|string|显示名|
+|description|否|string|描述|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
