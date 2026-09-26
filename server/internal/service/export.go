@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"apidoc/internal/model"
@@ -115,30 +114,9 @@ func exportResponses(a *model.Api) map[string]any {
 }
 
 // ExportCurl 依据接口记录生成可执行的 cURL 命令。
-func (s *Service) ExportCurl(ctx context.Context, apiID uint64) (string, error) {
-	a, err := s.repo.GetApi(ctx, apiID)
-	if err != nil {
-		return "", err
-	}
-	method := strings.ToUpper(strings.TrimSpace(a.HttpMethodType))
-	if method == "" {
-		method = "GET"
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "curl -X %s '%s'", method, a.URL)
-	if items := parseRows(a.HttpRequestHeader); items != nil {
-		for _, h := range items {
-			name, _ := h["name"].(string)
-			value, _ := h["value"].(string)
-			if name != "" {
-				fmt.Fprintf(&b, " \\\n  -H '%s: %s'", name, value)
-			}
-		}
-	}
-	if body := paramsBody(a.HttpRequestParams); body != "" {
-		fmt.Fprintf(&b, " \\\n  -d '%s'", body)
-	}
-	return b.String(), nil
+// envID/resolve 为真时用当前环境变量值替换 {{占位符}}（resolve=false 保持历史行为：占位符原样保留）。
+func (s *Service) ExportCurl(ctx context.Context, userID uint64, apiID, envID uint64, resolve bool) (string, error) {
+	return s.CodeSnippet(ctx, userID, apiID, envID, CodeLangCurl, resolve)
 }
 
 // parseRows 解析对象数组列；失败返回 nil。

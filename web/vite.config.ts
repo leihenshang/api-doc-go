@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => {
             proxy: {
                 '/api': { target, changeOrigin: true },
                 '/uploads': { target, changeOrigin: true },
+                // Mock 服务：与后端同源部署时不需要代理，dev 下转发到后端
+                '/mock': { target, changeOrigin: true },
             },
         },
     }

@@ -14,6 +14,8 @@ declare module 'vue-router' {
 
 const routes: RouteRecordRaw[] = [
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
+    // 免登录只读分享页（令牌在 URL 中，不需要登录态）
+    { path: '/share/:token', name: 'share', component: () => import('@/views/ShareView.vue') },
     { path: '/register', name: 'register', component: () => import('@/views/RegisterView.vue') },
     {
         path: '/',
@@ -52,19 +54,13 @@ const routes: RouteRecordRaw[] = [
                 path: 'projects/:projectId/bugs',
                 name: 'projectBugs',
                 component: () => import('@/views/project/BugView.vue'),
-                meta: { title: 'Bug 管理', requiresAuth: true },
+                meta: { title: '备忘清单', requiresAuth: true },
             },
             {
-                path: 'projects/:projectId/dict',
-                name: 'projectDict',
-                component: () => import('@/views/project/DataDictView.vue'),
-                meta: { title: '数据字典', requiresAuth: true },
-            },
-            {
-                path: 'projects/:projectId/logs',
-                name: 'projectLogs',
-                component: () => import('@/views/project/OpLogView.vue'),
-                meta: { title: '操作日志', requiresAuth: true },
+                path: 'projects/:projectId/variables',
+                name: 'projectVariables',
+                component: () => import('@/views/project/VariableView.vue'),
+                meta: { title: '变量', requiresAuth: true },
             },
 
             // 全局

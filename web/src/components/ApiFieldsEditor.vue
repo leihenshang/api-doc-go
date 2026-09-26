@@ -1,24 +1,22 @@
 <script setup lang="ts">
-// 接口结构化字段编辑器：请求头部 / 请求参数 / 返回参数 / 响应样例。
-// 新建与编辑共用；三段表格统一由 ApiParamTable 渲染（请求头经 headersToParams 归一化）。
+// 接口结构化字段编辑器：请求头部 / 请求参数 / 返回参数 / 响应样例 / 文档（放底部）。
+// 新建与编辑共用；三段表格统一由 ApiParamTable 渲染，文档一节用 MdEditor 写 Markdown。
+// 请求头直接以 ApiParam[] 承载（表格改的就是这份数组），提交前由调用方转回 ApiHeader[]。
 import ApiParamTable from '@/components/ApiParamTable.vue'
-import type { ApiHeader, ApiParam } from '@/types/entities'
-import { headersToParams, paramsToHeaders } from '@/utils/api-params'
+import { useMdUpload } from '@/composables/md-upload'
+import type { ApiParam } from '@/types/entities'
+import { MdEditor } from 'md-editor-v3'
+import 'md-editor-v3/lib/preview.css'
+import 'md-editor-v3/lib/style.css'
 import { NButton, NInput, NPopconfirm } from 'naive-ui'
-import { computed } from 'vue'
 
-const headers = defineModel<ApiHeader[]>('headers', { required: true })
+const headerRows = defineModel<ApiParam[]>('headerRows', { required: true })
 const reqParams = defineModel<ApiParam[]>('reqParams', { required: true })
 const resParams = defineModel<ApiParam[]>('resParams', { required: true })
 const sample = defineModel<string>('sample', { required: true })
+const description = defineModel<string>('description', { required: true })
 
-/** 请求头按参数行形态编辑，写入时还原为 ApiHeader。 */
-const headerRows = computed<ApiParam[]>({
-  get: () => headersToParams(headers.value),
-  set: (rows) => {
-    headers.value = paramsToHeaders(rows)
-  },
-})
+const onUploadImg = useMdUpload()
 
 /** 响应 JSON 生成字段后，样例框为空则顺带填入，避免两处内容不一致。 */
 function onSampleJson(text: string): void {
@@ -54,6 +52,19 @@ function onSampleJson(text: string): void {
         placeholder='{"code":200,"msg":"success","data":{"id":1,"name":"demo"}}'
       />
     </section>
+
+    <section class="sec">
+      <div class="sec-hd">
+        <h3 class="sec-title">文档</h3>
+        <span class="meta">该接口的说明文档，支持 Markdown</span>
+      </div>
+      <md-editor
+        v-model="description"
+        preview-theme="default"
+        class="md-edit"
+        @on-upload-img="onUploadImg"
+      />
+    </section>
   </div>
 </template>
 
@@ -85,5 +96,10 @@ function onSampleJson(text: string): void {
 
 .tip {
   margin: 0 0 -2px;
+}
+
+.md-edit {
+  width: 100%;
+  height: 320px;
 }
 </style>

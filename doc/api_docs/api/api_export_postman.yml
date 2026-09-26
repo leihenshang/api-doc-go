@@ -1,0 +1,44 @@
+info:
+  name: 接口_导出 Postman
+  type: http
+  seq: 83
+
+http:
+  method: GET
+  url: "{{host}}/api/api/export-postman?project_id=&group_id="
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 接口_导出 Postman
+
+  ## 请求 URI
+  - `/api/api/export-postman?project_id=&group_id=`
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |project_id|是|uint|项目 ID|
+  |group_id|否|uint|只导出该分组（含子分组）；缺省导出整个项目|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200（**Mock 服务除外**，见备注）
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 返回 Postman **Collection v2.1** JSON：分组 → `item` 文件夹，接口 → `request`（方法 / 请求头 / URL / JSON 体 / 响应样例）。
+    - 未分组或分组缺失的接口放在顶层；`info.schema` 为标准 v2.1 标识，可直接导入 Postman。

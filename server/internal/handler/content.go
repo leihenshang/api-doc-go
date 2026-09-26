@@ -141,11 +141,12 @@ func (h *Handler) RestoreApi(c *gin.Context) {
 		return
 	}
 	p := principal(c)
-	if err := h.svc.RestoreApi(c.Request.Context(), p.UserID, p.Type, req.ID); err != nil {
+	res, err := h.svc.RestoreApi(c.Request.Context(), p.UserID, p.Type, req.ID)
+	if err != nil {
 		fail(c, err)
 		return
 	}
-	response.OK(c, nil)
+	response.OK(c, res)
 }
 
 // ImportOpenAPI 处理 POST /api/api/import，body 为标准 OpenAPI(JSON)。
@@ -156,12 +157,27 @@ func (h *Handler) ImportOpenAPI(c *gin.Context) {
 		return
 	}
 	p := principal(c)
-	count, err := h.svc.ImportOpenAPI(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), idQuery(c, "group_id"), body)
+	res, err := h.svc.ImportOpenAPI(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), idQuery(c, "group_id"), c.Query("strategy"), body)
 	if err != nil {
 		fail(c, err)
 		return
 	}
-	response.OK(c, gin.H{"imported": count})
+	response.OK(c, res)
+}
+
+// ImportBruno 处理 POST /api/api/import-bruno，body 为 Bruno 集合目录内的文本文件（相对路径 + 内容）。
+func (h *Handler) ImportBruno(c *gin.Context) {
+	var req dto.BrunoImportReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.ImportBruno(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), c.Query("strategy"), req.Files)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
 }
 
 // ExportOpenAPI 处理 GET /api/api/export?project_id=&group_id=，导出标准 OpenAPI(JSON)。
@@ -174,14 +190,47 @@ func (h *Handler) ExportOpenAPI(c *gin.Context) {
 	response.OK(c, doc)
 }
 
-// ExportCurl 处理 GET /api/api/curl?id=，返回单接口的 cURL 命令。
+// ExportCurl 处理 GET /api/api/curl?id=&env_id=&resolve=，返回单接口的 cURL 命令。
+// resolve=1 时用当前环境变量值替换 {{占位符}}（含敏感值，服务端渲染并写审计日志）。
 func (h *Handler) ExportCurl(c *gin.Context) {
-	cmd, err := h.svc.ExportCurl(c.Request.Context(), idParam(c))
+	p := principal(c)
+	cmd, err := h.svc.ExportCurl(c.Request.Context(), p.UserID, idParam(c), idQuery(c, "env_id"), c.Query("resolve") == "1")
 	if err != nil {
 		fail(c, err)
 		return
 	}
 	response.OK(c, gin.H{"curl": cmd})
+}
+
+// CodeSnippet 处理 GET /api/code?api_id=&env_id=&lang=&resolve=，返回多语言请求示例。
+func (h *Handler) CodeSnippet(c *gin.Context) {
+	p := principal(c)
+	apiID := idOrFallback(c, "api_id")
+	envID := idQuery(c, "env_id")
+	resolve := c.Query("resolve") == "1"
+	lang := c.Query("lang")
+	code, err := h.svc.CodeSnippet(c.Request.Context(), p.UserID, apiID, envID, lang, resolve)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"lang": lang, "code": code, "resolved": resolve})
+}
+
+// ---- 拖拽排序 ----
+
+// SortNodes 处理 POST /api/sort，批量保存拖拽后的顺序。
+func (h *Handler) SortNodes(c *gin.Context) {
+	var req dto.SortReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	if err := h.svc.SortNodes(c.Request.Context(), p.UserID, p.Type, req); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
 }
 
 // ---- 文档 ----
@@ -258,11 +307,75 @@ func (h *Handler) RestoreDoc(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	if err := h.svc.RestoreDoc(c.Request.Context(), req.ID); err != nil {
+	p := principal(c)
+	res, err := h.svc.RestoreDoc(c.Request.Context(), p.UserID, p.Type, req.ID)
+	if err != nil {
 		fail(c, err)
 		return
 	}
-	response.OK(c, nil)
+	response.OK(c, res)
+}
+
+// ---- 回收站批量操作（T20）：批量恢复 / 批量彻底删除 ----
+
+// RestoreApiBatch 处理 POST /api/api/restore-batch，批量恢复接口（顺带恢复已删除的所属分组）。
+func (h *Handler) RestoreApiBatch(c *gin.Context) {
+	var req dto.IDsReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.RestoreApis(c.Request.Context(), p.UserID, p.Type, req.IDs)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// PurgeApiBatch 处理 POST /api/api/purge-batch，批量彻底删除接口。
+func (h *Handler) PurgeApiBatch(c *gin.Context) {
+	var req dto.IDsReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	n, err := h.svc.PurgeApis(c.Request.Context(), p.UserID, p.Type, req.IDs)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"purged": n})
+}
+
+// RestoreDocBatch 处理 POST /api/doc/restore-batch，批量恢复文档。
+func (h *Handler) RestoreDocBatch(c *gin.Context) {
+	var req dto.IDsReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.RestoreDocs(c.Request.Context(), p.UserID, p.Type, req.IDs)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// PurgeDocBatch 处理 POST /api/doc/purge-batch，批量彻底删除文档。
+func (h *Handler) PurgeDocBatch(c *gin.Context) {
+	var req dto.IDsReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	n, err := h.svc.PurgeDocs(c.Request.Context(), p.UserID, p.Type, req.IDs)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"purged": n})
 }
 
 // LikeDoc 处理 POST /api/doc/:id/like。

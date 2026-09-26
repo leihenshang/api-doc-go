@@ -95,6 +95,19 @@ func (r *Repository) CreateProject(ctx context.Context, p *model.Project) error 
 	return r.tx(ctx).Create(p).Error
 }
 
+// ProjectTitleTaken 判断未删除项目中是否已存在同名标题；excludeID 用于排除自身（重命名场景）。
+func (r *Repository) ProjectTitleTaken(ctx context.Context, title string, excludeID uint64) (bool, error) {
+	db := r.active(ctx).Model(&model.Project{}).Where("title = ?", title)
+	if excludeID > 0 {
+		db = db.Where("id <> ?", excludeID)
+	}
+	var count int64
+	if err := db.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // ProjectByID 按主键取项目。
 func (r *Repository) ProjectByID(ctx context.Context, id uint64) (*model.Project, error) {
 	var p model.Project

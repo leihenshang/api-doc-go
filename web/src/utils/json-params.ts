@@ -1,4 +1,5 @@
 // 响应/请求 JSON → 结构化参数表：扁平化解析与既有行合并（保留人工填写的说明）。
+import { translate } from '@/i18n'
 import type { ApiParam } from '@/types/entities'
 
 /** JSON 值的类型名；整数与浮点区分，便于文档表达。 */
@@ -51,11 +52,11 @@ export function flattenJson(value: unknown, prefix = '', out: ApiParam[] = []): 
 /** 解析 JSON 文本为参数行；空文本或非法 JSON 返回 error。 */
 export function jsonToParams(raw: string): { rows: ApiParam[]; error?: string } {
   const text = raw.trim()
-  if (!text) return { rows: [], error: '请输入 JSON 内容' }
+  if (!text) return { rows: [], error: translate('json.empty') }
   try {
     return { rows: flattenJson(JSON.parse(text) as unknown) }
   } catch (e) {
-    return { rows: [], error: 'JSON 解析失败：' + (e as Error).message }
+    return { rows: [], error: translate('json.invalid', { msg: (e as Error).message }) }
   }
 }
 

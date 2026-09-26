@@ -1,44 +1,51 @@
-// 顶部横向 tab 与面包屑：把原左侧菜单改造成「API-DOC-GO」下方的一排 tab。
-// 项目内 tab = 概况/API接口/项目文档/字段映射/Bug/数据字典/操作日志，右侧另有「回收站」。
+// 顶部横向 tab：把原左侧菜单改造成「API-DOC-GO」下方的一排 tab。
+// 项目内 tab = 概况/API接口/项目文档/字段映射/变量/备忘清单，右侧另有「回收站」。
 // 分组与回收站经路由 query（group / trash）表达，列表页据此取数；分组树在页面内左侧展示。
-import { useProjectStore } from '@/stores/project'
 import { useUserStore } from '@/stores/user'
 import {
   BookOutline,
   BugOutline,
-  CubeOutline,
+  CodeSlashOutline,
   GitCompareOutline,
   GridOutline,
   HomeOutline,
-  ListOutline,
   OptionsOutline,
   PeopleOutline,
   PulseOutline
 } from '@vicons/ionicons5'
 import type { Component } from 'vue'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
-export type Crumb = { label: string; to?: { name: string; params?: Record<string, number> } }
 
-/** 横向 tab 项：key 为路由名（回收站用保留字 'trash'）。 */
+/** 横向 tab 项：key 为路由名（回收站用保留字 'trash'），label 为按当前语言解析后的文案。 */
 export type TabItem = { key: string; label: string; icon: Component }
 
-const API_TABS: TabItem[] = [
-  { key: 'projectOverview', label: '项目概况', icon: HomeOutline },
-  { key: 'projectApis', label: 'API接口', icon: PulseOutline },
-  { key: 'projectDocs', label: '项目文档', icon: BookOutline },
-  { key: 'projectFields', label: '字段映射', icon: GitCompareOutline },
-  { key: 'projectBugs', label: 'Bug 管理', icon: BugOutline },
-  { key: 'projectDict', label: '数据字典', icon: CubeOutline },
-  { key: 'projectLogs', label: '操作日志', icon: ListOutline },
+/** 页签定义：存 labelKey 而非文案，切语言时由 tabs 重新解析；adminOnly 仅管理员可见。 */
+type TabDef = { key: string; labelKey: string; icon: Component; adminOnly?: boolean }
+
+const API_TABS: TabDef[] = [
+  { key: 'projectOverview', labelKey: 'nav.overview', icon: HomeOutline },
+  { key: 'projectApis', labelKey: 'nav.apis', icon: PulseOutline },
+  { key: 'projectDocs', labelKey: 'nav.docs', icon: BookOutline },
+  { key: 'projectFields', labelKey: 'nav.fields', icon: GitCompareOutline },
+  { key: 'projectVariables', labelKey: 'nav.variables', icon: CodeSlashOutline },
+  { key: 'projectBugs', labelKey: 'nav.bugs', icon: BugOutline },
+]
+
+/** 全局页签（非项目内）：用户管理与公共属性。 */
+const GLOBAL_TABS: TabDef[] = [
+  { key: 'projects', labelKey: 'nav.projectList', icon: GridOutline },
+  { key: 'users', labelKey: 'nav.users', icon: PeopleOutline },
+  { key: 'properties', labelKey: 'nav.properties', icon: OptionsOutline, adminOnly: true },
 ]
 
 export function useProjectNav() {
   const route = useRoute()
   const router = useRouter()
   const user = useUserStore()
-  const project = useProjectStore()
+  const { t } = useI18n()
 
   const projectId = computed(() => Number(route.params.projectId) || 0)
   const inProject = computed(() => projectId.value > 0)
@@ -54,14 +61,19 @@ export function useProjectNav() {
     () => (route.name === 'projectApis' || route.name === 'projectDocs') && route.query.trash === '1',
   )
 
-  const globalTabs = computed<TabItem[]>(() => [
-    { key: 'projects', label: '项目列表', icon: GridOutline },
-    { key: 'users', label: '用户管理', icon: PeopleOutline },
-    ...(user.isAdmin ? [{ key: 'properties', label: '公共属性', icon: OptionsOutline } as TabItem] : []),
-  ])
+  /** 按当前语言解析页签文案（切语言时 computed 自动重算）。 */
+  function resolve(defs: TabDef[]): TabItem[] {
+    return defs.map((d) => ({ key: d.key, label: t(d.labelKey), icon: d.icon }))
+  }
+
+  const apiTabs = computed<TabItem[]>(() => resolve(API_TABS))
+
+  const globalTabs = computed<TabItem[]>(() =>
+    resolve(GLOBAL_TABS.filter((d) => !d.adminOnly || user.isAdmin)),
+  )
 
   const tabs = computed<TabItem[]>(() =>
-    inProject.value ? API_TABS : globalTabs.value,
+    inProject.value ? apiTabs.value : globalTabs.value,
   )
 
   /** 高亮项：回收站态下高亮 trash。 */
@@ -88,39 +100,5 @@ export function useProjectNav() {
     void router.push({ name: 'projectApis', params: { projectId: id } })
   }
 
-  const groupTitle = (kind: 'apis' | 'docs', id: number): string | undefined => {
-    const list = kind === 'apis' ? project.apiGroups : project.docGroups
-    return list.find((g) => g.id === id)?.title
-  }
-
-  const crumbs = computed<Crumb[]>(() => {
-    const list: Crumb[] = [{ label: '首页', to: { name: 'projects' } }]
-    if (!inProject.value) {
-      if (route.meta.title && route.meta.title !== '项目列表') list.push({ label: route.meta.title })
-      return list
-    }
-    list.push({
-      label: project.title || '项目详情',
-      to: { name: 'projectOverview', params: { projectId: projectId.value } },
-    })
-    const kind = sectionKind.value
-    if (kind) {
-      list.push({
-        label: kind === 'apis' ? 'API接口' : '项目文档',
-        to: { name: kind === 'apis' ? 'projectApis' : 'projectDocs', params: { projectId: projectId.value } },
-      })
-      if (trashActive.value) list.push({ label: '回收站' })
-      else if (kind === 'apis' && route.query.api) list.push({ label: '接口详情' })
-      else if (kind === 'docs' && route.query.doc) list.push({ label: '文档详情' })
-      else {
-        const name = groupTitle(kind, Number(route.query.group) || 0)
-        if (name) list.push({ label: name })
-      }
-    } else if (route.meta.title && route.name !== 'projectOverview') {
-      list.push({ label: route.meta.title })
-    }
-    return list
-  })
-
-  return { projectId, inProject, tabs, activeTab, trashActive, onTab, switchProject, crumbs }
+  return { projectId, inProject, tabs, activeTab, trashActive, onTab, switchProject }
 }

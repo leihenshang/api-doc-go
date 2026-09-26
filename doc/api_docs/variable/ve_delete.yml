@@ -1,0 +1,45 @@
+info:
+  name: 环境_删除
+  type: http
+  seq: 69
+
+http:
+  method: DELETE
+  url: "{{host}}/api/variable-env?id="
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 环境_删除
+
+  ## 请求 URI
+  - `/api/variable-env?id=`
+
+  ## 请求方式
+  - DELETE
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |id|是|uint|环境 ID（查询参数）|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 拒绝删除的两种情况（返回 14 并给出明细）：
+    - 默认环境且项目仍有其它环境：`「dev」是项目默认环境，请先把其它环境设为默认`（**唯一的默认环境允许删除**，项目回到无环境状态）。
+    - 仍被变量引用：`环境「dev」被 3 个变量引用，无法删除：baseUrl、token、apiKey；请先删除或改绑这些变量`。
+    - 需项目 `delete` 权限。

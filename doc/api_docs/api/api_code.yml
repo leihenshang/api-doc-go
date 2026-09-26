@@ -1,0 +1,48 @@
+info:
+  name: 接口_请求代码片段
+  type: http
+  seq: 76
+
+http:
+  method: GET
+  url: "{{host}}/api/api/code?api_id=&env_id=&lang=&resolve="
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 接口_请求代码片段
+
+  ## 请求 URI
+  - `/api/api/code?api_id=&env_id=&lang=&resolve=`
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |api_id|是|uint|接口 ID（查询参数；兼容 id）|
+  |lang|否|string|curl（默认）/ fetch / axios / go / python|
+  |env_id|否|uint|当前环境 ID：用于解析项目变量（0 = 未选环境）|
+  |resolve|否|int|1 = 用变量实际值替换 {{占位符}}；缺省 0 = 保留占位符|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 返回 `{ lang, code, resolved }`。片段包含方法、URL、请求头与 JSON 请求体（同 cURL 口径）。
+    - `resolve=1` 时**敏感变量由服务端用原文渲染**（单个变量明文不外传），并写操作日志 `导出含敏感变量的请求代码：接口 X；变量 a, b`（只记变量名）。
+    - `GET /api/api/curl` 为同一实现的 cURL 快捷入口：`?id=&env_id=&resolve=`，**不带新参数时与历史行为逐字节一致**。
+    - 权限：登录即可（含只读成员）；未定义变量在 `resolve=1` 时原样保留。

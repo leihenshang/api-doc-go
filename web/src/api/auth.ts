@@ -35,8 +35,9 @@ export function listUsers(params: { keyword?: string; page_num?: number; page_si
     return get<Page<User>>('/user/list', params)
 }
 
-export function updateProfile(id: number, payload: Record<string, unknown>): Promise<ApiResponse<User>> {
-    return put<User>(`/user/profile?id=${id}`, payload)
+/** 更新资料；id 省略（undefined/0）表示改自己（后端按当前登录用户回退）。 */
+export function updateProfile(id: number | undefined, payload: Record<string, unknown>): Promise<ApiResponse<User>> {
+    return put<User>(`/user/profile${id ? `?id=${id}` : ''}`, payload)
 }
 
 export function updatePwd(payload: { old_pwd: string; pwd: string; re_pwd: string }): Promise<ApiResponse<null>> {

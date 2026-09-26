@@ -17,6 +17,8 @@ type Doc struct {
 	GroupID   uint64 `gorm:"column:group_id;not null;default:0;index" json:"group_id"`
 	Title     string `gorm:"column:title;size:100;not null" json:"title"`
 	Content   string `gorm:"column:content;type:text;not null" json:"content"`
+	// Icon 文档图标：上传图片的 URL 或单个 emoji（空则前端用默认文档图标）。
+	Icon      string `gorm:"column:icon;size:500" json:"icon"`
 	State     int8   `gorm:"column:state;not null;default:0" json:"state"`
 	ViewCount int    `gorm:"column:view_count;not null;default:0" json:"view_count"`
 	LikeCount int    `gorm:"column:like_count;not null;default:0" json:"like_count"`
@@ -44,6 +46,8 @@ type Bug struct {
 	Comment   string `gorm:"column:comment;size:1000" json:"comment"`
 	Status    int8   `gorm:"column:status;not null;default:1" json:"status"`
 	Level     int8   `gorm:"column:level;not null;default:1" json:"level"`
+	// IsTop 备忘置顶（1 置顶 / 0 普通），列表按 is_top 优先排序。
+	IsTop int8 `gorm:"column:is_top;not null;default:0" json:"is_top"`
 }
 
 // TableName 指定表名。
@@ -124,23 +128,6 @@ type FileRecord struct {
 // TableName 指定表名。
 func (FileRecord) TableName() string { return "file" }
 
-// DatabaseConn 对应外部数据库连接表 database（密码加密存储）。
-type DatabaseConn struct {
-	BaseModel
-	Address      string `gorm:"column:address;size:100;not null" json:"address"`
-	Port         int    `gorm:"column:port;not null;default:0" json:"port"`
-	Username     string `gorm:"column:username;size:100;not null" json:"username"`
-	Password     string `gorm:"column:password;size:255;not null" json:"-"`
-	DatabaseName string `gorm:"column:database_name;size:100;not null" json:"database_name"`
-	ProjectID    uint64 `gorm:"column:project_id;not null;index" json:"project_id"`
-	UserID       uint64 `gorm:"column:user_id;not null;default:0" json:"user_id"`
-	Type         int8   `gorm:"column:type;not null;default:1" json:"type"`
-	Description  string `gorm:"column:description;size:500" json:"description"`
-}
-
-// TableName 指定表名。
-func (DatabaseConn) TableName() string { return "database" }
-
 // 操作日志对象类型。
 const (
 	LogObjectProject int8 = 1
@@ -148,6 +135,10 @@ const (
 	LogObjectAPI     int8 = 3
 	LogObjectUser    int8 = 4
 	LogObjectDoc     int8 = 5
+	// LogObjectVariable 变量（请求级/项目级/全局共用）。
+	LogObjectVariable int8 = 6
+	// LogObjectVariableEnv 项目级环境。
+	LogObjectVariableEnv int8 = 7
 )
 
 // OperationLog 对应操作日志表 operation_log。

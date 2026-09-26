@@ -23,3 +23,16 @@ docs: |-
   ## 鉴权约定
   - 登录返回 JWT（HS256），有效期 `JWT_EXPIRE_HOURS`（默认 24h）
   - 请求携带 `Authorization: Bearer <token>`；兼容旧版 query/body `token` 参数
+
+  ## 限流约定（T18）
+  - 全局限流：每客户端 IP 每分钟 `RATE_LIMIT_PER_MIN`（默认 300，0 = 关闭）
+  - 敏感接口（`POST /api/user/login`、`POST /api/user/register`）额外限流：每 IP 每分钟 `AUTH_RATE_LIMIT_PER_MIN`（默认 10）
+  - 客户端 IP 取 `X-Forwarded-For` 首个地址 → `X-Real-IP` → `RemoteAddr`
+  - 超限返回 **HTTP 200 + `code: 14` + `msg: 请求过于频繁，请稍后再试`**（保持统一响应约定，前端只认 body.code），并带 `Retry-After` 头
+  - `GET /api/health` 注册在限流之前，探活/监控不消耗配额
+
+  ## 上传与静态资源约定（T18）
+  - 上传接口：`POST /api/file/upload`（multipart 字段 `file`，需登录）
+  - 校验顺序：大小 ≤ `UPLOAD_MAX_MB`（默认 5MB）→ 扩展名在 `UPLOAD_ALLOW_EXT` 白名单内（默认 `png/jpg/jpeg/gif/webp/bmp/ico/pdf`，**不含 svg**）→ 文件头嗅探（内容类型必须与扩展名同族）→ 随机文件名（32 位十六进制，防枚举）
+  - 静态读取：`GET /uploads/<文件名>`——仅服务白名单扩展名，`Content-Type` 由扩展名固定（绝不 `text/html`），响应头含 `X-Content-Type-Options: nosniff` + `Content-Disposition: inline`
+  - 配置 `UPLOAD_SIGN_KEY` 后访问需带 `?s=<hmac>` 签名（默认不启用，保证分享页/文档内嵌图片可用）

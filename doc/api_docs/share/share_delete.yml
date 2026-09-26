@@ -1,0 +1,43 @@
+info:
+  name: 分享链接_失效
+  type: http
+  seq: 80
+
+http:
+  method: DELETE
+  url: "{{host}}/api/share?id="
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 分享链接_失效
+
+  ## 请求 URI
+  - `/api/share?id=`
+
+  ## 请求方式
+  - DELETE
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |id|是|uint|分享链接 ID（查询参数）|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200（**Mock 服务除外**，见备注）
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 软删除；失效后公开读取接口立即返回 14（`分享链接不存在或已失效`）。
+    - 权限：需项目 `update` 位。

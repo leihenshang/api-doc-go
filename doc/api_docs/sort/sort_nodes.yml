@@ -1,0 +1,64 @@
+info:
+  name: 拖拽排序_保存
+  type: http
+  seq: 60
+
+http:
+  method: POST
+  url: "{{host}}/api/sort"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 拖拽排序_保存（分组 / 接口 / 文档通用，批量写入同级顺序与父级）
+
+  ## 请求 URI
+  - `/api/sort`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+  - 需要项目「修改」权限
+
+  ## 请求参数（body JSON）
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |project_id|是|uint|项目 ID|
+  |kind|是|string|排序对象：`group` 分组 / `api` 接口 / `doc` 文档|
+  |items|是|array|排序项列表（至少 1 项）|
+  |items[].id|是|uint|被拖拽节点 ID|
+  |items[].parent_id|是|uint|目标父级：分组为 `p_id`；接口/文档为 `group_id`（0 表示根分组/未分组）|
+  |items[].priority|是|int|同级顺序，越小越靠前（通常取容器内索引）|
+
+  > 只需提交「顺序发生变化」的容器内的全部节点（含移动时涉及的源容器与目标容器）；
+  > 列表按 `priority` 升序、`id` 升序返回。
+
+  ## 请求示例
+  ```json
+  {
+    "project_id": 2,
+    "kind": "api",
+    "items": [
+      { "id": 9, "parent_id": 4, "priority": 0 },
+      { "id": 8, "parent_id": 4, "priority": 1 }
+    ]
+  }
+  ```
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": null }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误（含节点不属于该项目、把分组移到自身或子分组下）/ 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go`、`internal/handler/content.go` 与 `internal/service/content.go`。
+  - 分组移动校验环（禁止挂到自身或其后代下）。

@@ -36,6 +36,7 @@ docs: |-
 |nick_name|否|string|昵称|
 |email|否|string|邮箱|
 |user_face|否|string|头像|
+|lang|否|string|界面语言 zh-CN / en-US（本人即可改；其它值返回 22；空串=不改）|
 |state|否|int|1 正常 2 禁用（管理员）|
 |type|否|int|1 普通 2 管理员 3 超管（管理员）|
 
@@ -45,3 +46,4 @@ docs: |-
 
   ## 备注
   - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 本人可改 `nick_name` / `email` / `user_face` / `lang`；`state` / `type` 仅管理员。`lang` 为 i18n 语言偏好，登录与 `/api/user/me` 的 user 对象会带上；前端切换语言后即调用本接口持久化（未登录时仅存 localStorage）。

@@ -1,0 +1,294 @@
+package service
+
+// Bruno 集合导入：解析 Bruno（OpenCollection 1.x）目录内的 yml 文件并落库。
+// 目录（folder.yml）映射为接口分组（支持多级），请求文件映射为接口；
+// 查询参数与 JSON 请求体展平为请求参数，docs（Markdown）存入接口说明。
+
+import (
+	"context"
+	"encoding/json"
+	"path"
+	"sort"
+	"strconv"
+	"strings"
+
+	"apidoc/internal/dto"
+	"apidoc/internal/model"
+	"apidoc/internal/pkg/errcode"
+
+	"gopkg.in/yaml.v3"
+)
+
+type brunoInfo struct {
+	Name string `yaml:"name"`
+	Type string `yaml:"type"`
+}
+
+type brunoKV struct {
+	Name  string `yaml:"name"`
+	Value string `yaml:"value"`
+}
+
+type brunoHTTP struct {
+	Method  string    `yaml:"method"`
+	URL     string    `yaml:"url"`
+	Params  []brunoKV `yaml:"params"`
+	Headers []brunoKV `yaml:"headers"`
+	Body    struct {
+		Type string `yaml:"type"`
+		Data string `yaml:"data"`
+	} `yaml:"body"`
+}
+
+type brunoRequest struct {
+	Info brunoInfo `yaml:"info"`
+	HTTP brunoHTTP `yaml:"http"`
+	Docs string    `yaml:"docs"`
+}
+
+type brunoFolder struct {
+	Info brunoInfo `yaml:"info"`
+}
+
+// apiHeaderRow / apiParamRow 与前端 ApiHeader / ApiParam 的 JSON 契约对齐。
+type apiHeaderRow struct {
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+	Description string `json:"description"`
+}
+
+type apiParamRow struct {
+	FieldName   string `json:"fieldName"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+	Description string `json:"description"`
+	Example     string `json:"example"`
+}
+
+// ImportBruno 导入 Bruno 集合目录。files 为集合内的 yml 文本文件（相对路径 + 内容），
+// 目录（folder.yml）映射为分组，请求文件映射为接口，写入来源 bruno-import。
+func (s *Service) ImportBruno(ctx context.Context, userID uint64, typ int8, projectID uint64, strategy string, files []dto.BrunoFile) (ImportResult, error) {
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermCreate); err != nil {
+		return ImportResult{}, err
+	}
+	if len(files) == 0 {
+		return ImportResult{}, newBiz(errcode.CodeParamError, "请选择 Bruno 集合目录")
+	}
+	keys, err := s.prepareImport(ctx, projectID, strategy)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	groups, err := s.repo.ListGroups(ctx, projectID, model.GroupTypeAPI)
+	if err != nil {
+		return ImportResult{}, err
+	}
+
+	gids, reqs, err := splitBrunoFiles(files)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	ensure := s.brunoGroupEnsurer(ctx, projectID, &groups, gids)
+
+	var res ImportResult
+	for _, f := range reqs {
+		var req brunoRequest
+		if err := yaml.Unmarshal([]byte(f.Content), &req); err != nil {
+			res.addFailure(f.Path + "：YAML 解析失败")
+			continue
+		}
+		if req.Info.Type != "http" {
+			// 环境变量、脚本等非请求文件，按设计跳过，不计入失败
+			continue
+		}
+		if strings.TrimSpace(req.HTTP.URL) == "" || strings.TrimSpace(req.HTTP.Method) == "" {
+			res.addFailure(f.Path + "：缺少 method 或 url")
+			continue
+		}
+		gid, err := ensure(path.Dir(f.Path))
+		if err != nil {
+			return res, err
+		}
+		key := apiUniqueKey(req.HTTP.Method, req.HTTP.URL)
+		if _, dup := keys[key]; dup {
+			res.Skipped++
+			continue
+		}
+		a, err := s.buildBrunoApi(projectID, gid, req)
+		if err != nil {
+			res.addFailure(f.Path + "：" + err.Error())
+			continue
+		}
+		if err := s.repo.CreateApi(ctx, a); err != nil {
+			return res, err
+		}
+		keys[key] = struct{}{}
+		res.Imported++
+	}
+	s.recordOp(ctx, projectID, userID, projectID, model.LogObjectAPI, "import",
+		"导入 Bruno 接口 "+itoa(res.Imported)+" 条（跳过 "+itoa(res.Skipped)+"，失败 "+itoa(res.Failed)+"）")
+	return res, nil
+}
+
+// splitBrunoFiles 把集合文件拆成「目录 -> folder.yml 内容」与「请求文件」两类。
+func splitBrunoFiles(files []dto.BrunoFile) (map[string]string, []dto.BrunoFile, error) {
+	gids := map[string]string{}
+	var reqs []dto.BrunoFile
+	for _, f := range files {
+		p := path.Clean(strings.ReplaceAll(f.Path, "\\", "/"))
+		base := path.Base(p)
+		switch {
+		case base == "folder.yml" || base == "folder.yaml":
+			gids[path.Dir(p)] = f.Content
+		case base == "opencollection.yml" || base == "bruno.json" || strings.HasPrefix(base, "."):
+			// 集合描述 / 忽略项，跳过
+		case strings.HasSuffix(base, ".yml") || strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".bru"):
+			reqs = append(reqs, dto.BrunoFile{Path: p, Content: f.Content})
+		}
+	}
+	return gids, reqs, nil
+}
+
+// brunoGroupEnsurer 返回「目录 -> 分组 id」的惰性建组器：父目录先建，同名同级分组复用。
+func (s *Service) brunoGroupEnsurer(ctx context.Context, projectID uint64, groups *[]model.Group, folderYAML map[string]string) func(dir string) (uint64, error) {
+	gidByDir := map[string]uint64{".": 0, "": 0}
+	var ensure func(dir string) (uint64, error)
+	ensure = func(dir string) (uint64, error) {
+		if gid, ok := gidByDir[dir]; ok {
+			return gid, nil
+		}
+		parent, err := ensure(path.Dir(dir))
+		if err != nil {
+			return 0, err
+		}
+		name := path.Base(dir)
+		if raw, ok := folderYAML[dir]; ok {
+			var fd brunoFolder
+			if yaml.Unmarshal([]byte(raw), &fd) == nil && strings.TrimSpace(fd.Info.Name) != "" {
+				name = strings.TrimSpace(fd.Info.Name)
+			}
+		}
+		for _, g := range *groups {
+			if g.PID == parent && g.Title == name {
+				gidByDir[dir] = g.ID
+				return g.ID, nil
+			}
+		}
+		g := &model.Group{ProjectID: projectID, PID: parent, Title: name, Type: model.GroupTypeAPI}
+		if err := s.repo.CreateGroup(ctx, g); err != nil {
+			return 0, err
+		}
+		*groups = append(*groups, *g)
+		gidByDir[dir] = g.ID
+		return g.ID, nil
+	}
+	return ensure
+}
+
+// buildBrunoApi 把 Bruno 请求文件转为接口记录：方法/路径/说明 + 请求头 + 查询参数与 JSON 请求体展平。
+func (s *Service) buildBrunoApi(projectID, groupID uint64, req brunoRequest) (*model.Api, error) {
+	a := &model.Api{
+		ProjectID:      projectID,
+		GroupID:        groupID,
+		ApiName:        strings.TrimSpace(req.Info.Name),
+		HttpMethodType: strings.ToUpper(strings.TrimSpace(req.HTTP.Method)),
+		URL:            strings.TrimSpace(req.HTTP.URL),
+		ProtocolType:   "http",
+		Description:    req.Docs,
+		Source:         SourceBruno,
+	}
+	if a.ApiName == "" {
+		a.ApiName = a.HttpMethodType + " " + a.URL
+	}
+
+	params := make([]apiParamRow, 0, len(req.HTTP.Params))
+	for _, p := range req.HTTP.Params {
+		params = append(params, apiParamRow{FieldName: p.Name, Type: "string", Example: p.Value})
+	}
+	if strings.EqualFold(req.HTTP.Body.Type, "json") && strings.TrimSpace(req.HTTP.Body.Data) != "" {
+		var v any
+		if err := json.Unmarshal([]byte(req.HTTP.Body.Data), &v); err != nil {
+			return nil, newBiz(errcode.CodeParamError, "请求体 JSON 解析失败（%s）：%v", a.ApiName, err)
+		}
+		params = append(params, flattenJSON("", v, nil)...)
+	}
+	if len(params) > 0 {
+		if b, err := json.Marshal(params); err == nil {
+			a.HttpRequestParams = string(b)
+		}
+	}
+	if len(req.HTTP.Headers) > 0 {
+		headers := make([]apiHeaderRow, 0, len(req.HTTP.Headers))
+		for _, h := range req.HTTP.Headers {
+			headers = append(headers, apiHeaderRow{Name: h.Name, Value: h.Value})
+		}
+		if b, err := json.Marshal(headers); err == nil {
+			a.HttpRequestHeader = string(b)
+		}
+	}
+	return a, nil
+}
+
+// flattenJSON 把 JSON 值展平为 a.b[] 形式的参数行（对象逐层展开，数组按首元素推断结构）。
+func flattenJSON(prefix string, v any, out []apiParamRow) []apiParamRow {
+	switch t := v.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			p := k
+			if prefix != "" {
+				p = prefix + "." + k
+			}
+			out = append(out, apiParamRow{FieldName: p, Type: jsonTypeName(t[k]), Example: jsonExample(t[k])})
+			out = flattenJSON(p, t[k], out)
+		}
+	case []any:
+		if prefix == "" || len(t) == 0 {
+			return out
+		}
+		if m, ok := t[0].(map[string]any); ok {
+			out = flattenJSON(prefix+"[]", m, out)
+		}
+	}
+	return out
+}
+
+// jsonTypeName 返回 JSON 值的类型名（整数与浮点区分）。
+func jsonTypeName(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "boolean"
+	case string:
+		return "string"
+	case float64:
+		if t == float64(int64(t)) {
+			return "integer"
+		}
+		return "number"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	}
+	return "string"
+}
+
+// jsonExample 取标量示例值（对象/数组不填）。
+func jsonExample(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case bool:
+		return strconv.FormatBool(t)
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	}
+	return ""
+}

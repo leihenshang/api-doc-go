@@ -37,6 +37,10 @@ func principal(c *gin.Context) middleware.Principal {
 func fail(c *gin.Context, err error) {
 	var be *service.BizError
 	if errors.As(err, &be) {
+		// 业务错误对外的信息是 Msg，底层原因仅落日志，避免泄漏 SQL 细节
+		if be.Cause != nil {
+			log.Printf("handler: %v", be.Cause)
+		}
 		response.Fail(c, be.Code, be.Msg)
 		return
 	}

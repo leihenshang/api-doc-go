@@ -1,0 +1,105 @@
+info:
+  name: 用户-列表
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: /api/user/list?name=tzq
+  params:
+    - name: name
+      value: tzq
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+docs: |-
+  ## 简要描述
+  - 用户查询接口
+
+  ## 请求URI
+  - `/apis/xxxxxx.com/test/user/v1/users/:id`
+
+  ## 请求方式
+  - GET
+
+  ## 请求头
+  - **Content-Type**: application/json
+  - **Authorization**: {{Token}}
+  - **Referer**: https://{{服务器地址}}
+
+  ## 请求参数
+  无
+
+  ## 返回用户资源字段说明
+  |参数名|类型|说明|
+  |:----    |:----- |-----   |
+  |id |string |用户ID  
+  |name |string |用户名称 |
+  |account |string |用户账号 |
+  |userLevel | 枚举 | 角色类型（见角色类型枚举）|
+  |telephone |string |电话 |
+  |email |string |邮箱 |
+  |disabled |bool |是否被禁用 |
+  |comment |string |备注 |
+  |userGroups |用户组资源数组 | 所属用户组列表 |
+
+
+  ## 响应示例
+  ```json
+  {
+    "id": "4a0992e840427ee780e506a5cca62b42",
+    "type": "user",
+    "links": {
+      "collection": "/apis/xxxxxx.com/test/user/v1/users",
+      "remove": "/apis/xxxxxx.com/test/user/v1/users/4a0992e840427ee780e506a5cca62b42",
+      "self": "/apis/xxxxxx.com/test/user/v1/users/4a0992e840427ee780e506a5cca62b42",
+      "update": "/apis/xxxxxx.com/test/user/v1/users/4a0992e840427ee780e506a5cca62b42"
+    },
+    "creationTimestamp": "2026-07-16T17:02:15+08:00",
+    "deletionTimestamp": null,
+    "account": "test_admin",
+    "name": "测试管理员",
+    "telephone": "13666666666",
+    "email": "test@xxxxxx.com",
+    "comment": "我是一个测试用户",
+    "disabled": false,
+    "userLevel": "manager",
+    "userSource": "local",
+    "firstLoginTime": "2026-07-16T18:14:31.303286+08:00",
+    "lastLoginTime": "2026-07-17T17:29:11.81121+08:00",
+    "lastLogoutTime": "0001-01-01T08:05:43+08:05",
+    "lastUpdatePasswordTime": "0001-01-01T08:05:43+08:05",
+    "userGroups": [
+      {
+        "id": "71abb2a94079ee2180a3cd6192262445",
+        "creationTimestamp": "2026-07-16T15:51:55+08:00",
+        "deletionTimestamp": null,
+        "name": "group-ipv6",
+        "userLevel": "manager",
+        "comment": "group-coment",
+        "roles": null,
+        "organizations": null
+      },
+      {
+        "id": "b1ae561d40ecc96280ded266c213f547",
+        "creationTimestamp": "2026-07-16T15:52:21+08:00",
+        "deletionTimestamp": null,
+        "name": "group-ipv4",
+        "userLevel": "manager",
+        "comment": "group-coment",
+        "roles": null,
+        "organizations": null
+      }
+    ]
+  }
+  ```
+
+  ## 备注
+  无

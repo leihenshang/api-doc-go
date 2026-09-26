@@ -1,0 +1,46 @@
+info:
+  name: 全局搜索
+  type: http
+  seq: 77
+
+http:
+  method: GET
+  url: "{{host}}/api/search?keyword=&limit="
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 全局搜索
+
+  ## 请求 URI
+  - `/api/search?keyword=&limit=`
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |keyword|是|string|关键词（空或空白返回空结果，不报错）|
+  |limit|否|int|每组返回条数上限，默认 10、最大 50|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 返回 `{ keyword, projects[], apis[], docs[] }`；`apis` 匹配接口名 / URL / 说明，`docs` 匹配标题 / **正文（Markdown 内容）**，`projects` 匹配项目名。
+    - 命中项字段：`kind`（project|api|doc）、`id`、`project_id`、`project_name`、`title`、`subtitle`（URL 或正文摘要）、`method`、`update_time`。
+    - **可见性**：管理员搜索全部项目；其它用户只搜索**自己参与的项目**（按 `user_project`），因此只读成员也搜不到未参与项目的内容。
+    - 相关度：名称/标题命中优先，其余按更新时间倒序；每组各自截断到 `limit`。

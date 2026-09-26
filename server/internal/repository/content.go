@@ -25,6 +25,11 @@ func (r *Repository) DeleteGroup(ctx context.Context, id uint64) error {
 	return gmSoftDelete[model.Group](ctx, r.db, id)
 }
 
+// UpdateGroupSort 更新分组的父级与同级顺序。
+func (r *Repository) UpdateGroupSort(ctx context.Context, id, pid uint64, priority int) error {
+	return gmUpdateSort[model.Group](ctx, r.db, id, pid, "p_id", priority)
+}
+
 // ListGroups 返回某项目某类型的分组（按优先级、id 排序）。
 func (r *Repository) ListGroups(ctx context.Context, projectID uint64, typ int8) ([]model.Group, error) {
 	var items []model.Group
@@ -52,6 +57,66 @@ func (r *Repository) RestoreApi(ctx context.Context, id uint64) error {
 	return gmRestore[model.Api](ctx, r.db, id)
 }
 
+// RestoreApis 批量恢复接口。
+func (r *Repository) RestoreApis(ctx context.Context, ids []uint64) (int64, error) {
+	return gmRestoreMany[model.Api](ctx, r.db, ids)
+}
+
+// PurgeApis 批量彻底删除接口（回收站清理）。
+func (r *Repository) PurgeApis(ctx context.Context, ids []uint64) (int64, error) {
+	return gmPurgeMany[model.Api](ctx, r.db, ids)
+}
+
+// RestoreDocs 批量恢复文档。
+func (r *Repository) RestoreDocs(ctx context.Context, ids []uint64) (int64, error) {
+	return gmRestoreMany[model.Doc](ctx, r.db, ids)
+}
+
+// PurgeDocs 批量彻底删除文档（回收站清理）。
+func (r *Repository) PurgeDocs(ctx context.Context, ids []uint64) (int64, error) {
+	return gmPurgeMany[model.Doc](ctx, r.db, ids)
+}
+
+// RestoreGroups 批量恢复分组。
+func (r *Repository) RestoreGroups(ctx context.Context, ids []uint64) (int64, error) {
+	return gmRestoreMany[model.Group](ctx, r.db, ids)
+}
+
+// ApisByIDsAny 取指定 id 的接口（**含已软删除**，供回收站批量恢复用）。
+func (r *Repository) ApisByIDsAny(ctx context.Context, ids []uint64) ([]model.Api, error) {
+	var items []model.Api
+	if len(ids) == 0 {
+		return items, nil
+	}
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&items).Error
+	return items, err
+}
+
+// DocsByIDsAny 取指定 id 的文档（**含已软删除**）。
+func (r *Repository) DocsByIDsAny(ctx context.Context, ids []uint64) ([]model.Doc, error) {
+	var items []model.Doc
+	if len(ids) == 0 {
+		return items, nil
+	}
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&items).Error
+	return items, err
+}
+
+// GroupsByProjectsAny 取项目下指定类型的分组（**含已软删除**），供恢复时回溯父级链。
+func (r *Repository) GroupsByProjectsAny(ctx context.Context, projectIDs []uint64, typ int8) ([]model.Group, error) {
+	var items []model.Group
+	if len(projectIDs) == 0 {
+		return items, nil
+	}
+	err := r.db.WithContext(ctx).Where("project_id IN ? AND type = ?", projectIDs, typ).Find(&items).Error
+	return items, err
+}
+
+// UpdateApiSort 更新接口的所属分组与同级顺序。
+func (r *Repository) UpdateApiSort(ctx context.Context, id, groupID uint64, priority int) error {
+	return gmUpdateSort[model.Api](ctx, r.db, id, groupID, "group_id", priority)
+}
+
 // ListApis 分页查询接口。deleted=0 正常、1 回收站。
 func (r *Repository) ListApis(ctx context.Context, projectID, groupID uint64, deleted int8, keyword string, q page.Query) ([]model.Api, int64, error) {
 	db := r.db.WithContext(ctx).Where("project_id = ?", projectID).Where("is_deleted = ?", deleted)
@@ -67,8 +132,38 @@ func (r *Repository) ListApis(ctx context.Context, projectID, groupID uint64, de
 		return nil, 0, err
 	}
 	var items []model.Api
-	err = db.Order("id DESC").Limit(q.PageSize).Offset(q.Offset()).Find(&items).Error
+	err = db.Order("priority ASC, id ASC").Limit(q.PageSize).Offset(q.Offset()).Find(&items).Error
 	return items, total, err
+}
+
+// ListApisByProject 取项目下全部未删除接口（导入去重用）。
+func (r *Repository) ListApisByProject(ctx context.Context, projectID uint64) ([]model.Api, error) {
+	var items []model.Api
+	err := r.db.WithContext(ctx).Where("project_id = ? AND is_deleted = ?", projectID, 0).Find(&items).Error
+	return items, err
+}
+
+// ApisByIDs 取项目下指定 id 的未删除接口（批量变量徽标用，避免逐条查询）。
+func (r *Repository) ApisByIDs(ctx context.Context, projectID uint64, ids []uint64) ([]model.Api, error) {
+	var items []model.Api
+	if len(ids) == 0 {
+		return items, nil
+	}
+	err := r.db.WithContext(ctx).
+		Where("project_id = ? AND is_deleted = 0 AND id IN ?", projectID, ids).Find(&items).Error
+	return items, err
+}
+
+// SoftDeleteApisByProject 软删除项目下全部接口（导入「完全覆盖」时清空现状）。
+func (r *Repository) SoftDeleteApisByProject(ctx context.Context, projectID uint64) error {
+	return r.db.WithContext(ctx).Model(&model.Api{}).
+		Where("project_id = ? AND is_deleted = 0", projectID).Update("is_deleted", 1).Error
+}
+
+// SoftDeleteGroupsByProject 软删除项目下某类型的全部分组（导入「完全覆盖」时清空接口目录）。
+func (r *Repository) SoftDeleteGroupsByProject(ctx context.Context, projectID uint64, typ int8) error {
+	return r.db.WithContext(ctx).Model(&model.Group{}).
+		Where("project_id = ? AND type = ? AND is_deleted = 0", projectID, typ).Update("is_deleted", 1).Error
 }
 
 // ================= 文档 =================
@@ -87,6 +182,11 @@ func (r *Repository) RestoreDoc(ctx context.Context, id uint64) error {
 	return gmRestore[model.Doc](ctx, r.db, id)
 }
 
+// UpdateDocSort 更新文档的所属分组与同级顺序。
+func (r *Repository) UpdateDocSort(ctx context.Context, id, groupID uint64, priority int) error {
+	return gmUpdateSort[model.Doc](ctx, r.db, id, groupID, "group_id", priority)
+}
+
 // ListDocs 分页查询文档（置顶优先）。deleted=0 正常、1 回收站。
 func (r *Repository) ListDocs(ctx context.Context, projectID, groupID uint64, keyword string, deleted int8, q page.Query) ([]model.Doc, int64, error) {
 	db := r.db.WithContext(ctx).Where("project_id = ?", projectID).Where("is_deleted = ?", deleted)
@@ -101,7 +201,7 @@ func (r *Repository) ListDocs(ctx context.Context, projectID, groupID uint64, ke
 		return nil, 0, err
 	}
 	var items []model.Doc
-	err = db.Order("is_top DESC, priority DESC, id DESC").Limit(q.PageSize).Offset(q.Offset()).Find(&items).Error
+	err = db.Order("is_top DESC, priority ASC, id ASC").Limit(q.PageSize).Offset(q.Offset()).Find(&items).Error
 	return items, total, err
 }
 
@@ -139,7 +239,7 @@ func (r *Repository) ListBugs(ctx context.Context, projectID uint64, status int8
 		return nil, 0, err
 	}
 	var items []model.Bug
-	err = db.Order("id DESC").Limit(q.PageSize).Offset(q.Offset()).Find(&items).Error
+	err = db.Order("is_top DESC, id DESC").Limit(q.PageSize).Offset(q.Offset()).Find(&items).Error
 	return items, total, err
 }
 
@@ -237,26 +337,6 @@ func (r *Repository) MarkNotificationRead(ctx context.Context, id uint64) error 
 
 func (r *Repository) CreateFile(ctx context.Context, v *model.FileRecord) error {
 	return gmCreate(ctx, r.db, v)
-}
-
-// ================= 外部数据库连接 =================
-
-func (r *Repository) CreateDatabaseConn(ctx context.Context, v *model.DatabaseConn) error {
-	return gmCreate(ctx, r.db, v)
-}
-func (r *Repository) GetDatabaseConn(ctx context.Context, id uint64) (*model.DatabaseConn, error) {
-	return gmGet[model.DatabaseConn](ctx, r.db, id)
-}
-func (r *Repository) UpdateDatabaseConn(ctx context.Context, v *model.DatabaseConn) error {
-	return gmSave(ctx, r.db, v)
-}
-func (r *Repository) DeleteDatabaseConn(ctx context.Context, id uint64) error {
-	return gmSoftDelete[model.DatabaseConn](ctx, r.db, id)
-}
-func (r *Repository) ListDatabaseConns(ctx context.Context, projectID uint64) ([]model.DatabaseConn, error) {
-	var items []model.DatabaseConn
-	err := r.active(ctx).Where("project_id = ?", projectID).Find(&items).Error
-	return items, err
 }
 
 // ================= 操作日志 =================

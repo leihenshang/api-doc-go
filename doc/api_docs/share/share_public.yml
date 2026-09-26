@@ -1,0 +1,44 @@
+info:
+  name: 分享链接_公开读取
+  type: http
+  seq: 81
+
+http:
+  method: GET
+  url: "{{host}}/api/share/:token"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: noauth
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 分享链接_公开读取
+
+  ## 请求 URI
+  - `/api/share/:token`
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - **免登录**（公开接口，令牌即凭证）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |token|是|string|分享令牌（路径参数）|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200（**Mock 服务除外**，见备注）
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - **免登录**：返回 `{ project, groups, apis, docs, remark, expire_time }`，均为未删除数据，不含权限/日志等内部字段。
+    - 令牌不存在或已失效 → 14；超过 `expire_time` → 14（`分享链接已过期`）。
+    - 前端路由 `/share/<token>` 即只读文档站视图（左目录树 + 右接口/文档详情，无任何编辑入口）。

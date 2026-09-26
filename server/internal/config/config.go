@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+	"apidoc/internal/pkg/fileutil"
 )
 
 // Config 是应用运行期配置。
@@ -21,10 +23,10 @@ type Config struct {
 	JWT JWTConfig
 	// Upload 文件上传配置。
 	Upload UploadConfig
+	// Security 安全策略（限流等）。
+	Security SecurityConfig
 	// Backup 定时备份配置。
 	Backup BackupConfig
-	// Encrypt 敏感字段存储加密配置。
-	Encrypt EncryptConfig
 	// Log 操作日志保留策略。
 	Log LogConfig
 	// Admin 初始超管账号（种子）。
@@ -35,12 +37,6 @@ type Config struct {
 type LogConfig struct {
 	// RetentionDays 保留天数，超期硬删除；默认 70。
 	RetentionDays int
-}
-
-// EncryptConfig 外部数据源口令等敏感字段的加密配置。
-type EncryptConfig struct {
-	// SecretKey AES-256-GCM 主密钥（环境变量 SECRET_ENCRYPT_KEY）。
-	SecretKey string
 }
 
 // JWTConfig 签名令牌配置。
@@ -55,6 +51,20 @@ type JWTConfig struct {
 type UploadConfig struct {
 	// Dir 本地存储目录。
 	Dir string
+	// MaxMB 单文件大小上限（MB）。
+	MaxMB int64
+	// AllowExt 允许的扩展名白名单（小写、带点）。
+	AllowExt []string
+	// SignKey 上传目录访问签名密钥；为空表示 /uploads 公开可读（默认，便于分享页内嵌图片）。
+	SignKey string
+}
+
+// SecurityConfig 安全相关配置。
+type SecurityConfig struct {
+	// RateLimitPerMin 全局限流：每 IP 每分钟请求数（0 = 关闭）。
+	RateLimitPerMin int
+	// AuthRateLimitPerMin 敏感接口（登录/注册）限流：每 IP 每分钟请求数（0 = 关闭）。
+	AuthRateLimitPerMin int
 }
 
 // BackupConfig 定时备份配置。
@@ -105,8 +115,16 @@ func Load() (*Config, error) {
 		Secret:      getEnv("JWT_SECRET", "change-me-in-prod-apidoc-jwt-secret"),
 		ExpireHours: getEnvInt("JWT_EXPIRE_HOURS", 24),
 	}
-	cfg.Upload = UploadConfig{Dir: getEnv("UPLOAD_DIR", "data/uploads")}
-	cfg.Encrypt = EncryptConfig{SecretKey: getEnv("SECRET_ENCRYPT_KEY", "apidoc-dev-encrypt-key-change-me")}
+	cfg.Upload = UploadConfig{
+		Dir:      getEnv("UPLOAD_DIR", "data/uploads"),
+		MaxMB:    int64(getEnvInt("UPLOAD_MAX_MB", 5)),
+		AllowExt: fileutil.ParseAllowExt(getEnv("UPLOAD_ALLOW_EXT", "")),
+		SignKey:  getEnv("UPLOAD_SIGN_KEY", ""),
+	}
+	cfg.Security = SecurityConfig{
+		RateLimitPerMin:     getEnvInt("RATE_LIMIT_PER_MIN", 300),
+		AuthRateLimitPerMin: getEnvInt("AUTH_RATE_LIMIT_PER_MIN", 10),
+	}
 	cfg.Log = LogConfig{RetentionDays: getEnvInt("LOG_RETENTION_DAYS", 70)}
 	cfg.Backup = BackupConfig{
 		Enabled:         getEnv("BACKUP_ENABLED", "false") == "true",

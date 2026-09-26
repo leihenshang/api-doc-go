@@ -1,0 +1,56 @@
+info:
+  name: 变量_创建
+  type: http
+  seq: 70
+
+http:
+  method: POST
+  url: "{{host}}/api/variable"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 变量_创建
+
+  ## 请求 URI
+  - `/api/variable`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |scope|是|int|1 请求变量 / 2 项目变量 / 3 全局变量|
+  |project_id|条件|uint|请求变量与项目变量必填；全局变量忽略|
+  |api_id|条件|uint|scope=1 必填（需属于该项目）|
+  |env_id|否|uint|scope=2 生效：0 通用、>0 绑定环境（需属于该项目）|
+  |name|是|string|变量名：字母或下划线开头，仅字母数字下划线，最长 64|
+  |value|否|string|变量值（允许为空）|
+  |description|否|string|说明|
+  |is_secret|否|int|1 = 敏感值（列表与解析结果脱敏）|
+  |enabled|否|int|缺省 1；0 = 停用（解析时视为不存在）|
+  |priority|否|int|排序|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 变量作用域 scope：1 请求变量（绑定 api_id）/ 2 项目变量（env_id=0 通用、>0 绑定环境）/ 3 全局变量（应用级，跨项目共享，仅管理员可写）。
+    - 解析优先级：请求变量 > 项目变量（当前环境）> 项目变量（通用）> 全局变量；未命中即「未定义」。
+    - 敏感变量（is_secret=1）明文入库，但列表 / 解析 / 徽标接口一律只回掩码 `••••••` 与 `has_value`；`with_value=1` 时对具备写权限者（管理员或项目负责人 / update 权限）回明文，并写操作日志。
+  - 权限：请求变量 / 项目变量需项目 `create` 位；**全局变量仅管理员**（否则 403）。
+    - 同层同环境不允许重名：`同名变量「x」已存在（该项目环境中）`；不同环境同名允许。
+    - 创建响应中敏感值也已是掩码。

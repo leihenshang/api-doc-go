@@ -27,6 +27,12 @@ func gmSave[T any](ctx context.Context, db *gorm.DB, v *T) error {
 	return db.WithContext(ctx).Save(v).Error
 }
 
+// gmUpdateSort 仅更新排序相关列：parentCol 为父级列名（p_id / group_id），priority 为同级顺序。
+func gmUpdateSort[T any](ctx context.Context, db *gorm.DB, id, parentID uint64, parentCol string, priority int) error {
+	return db.WithContext(ctx).Model(new(T)).Where("id = ? AND is_deleted = 0", id).
+		Updates(map[string]any{parentCol: parentID, "priority": priority}).Error
+}
+
 // gmSoftDelete 标记软删除。
 func gmSoftDelete[T any](ctx context.Context, db *gorm.DB, id uint64) error {
 	return db.WithContext(ctx).Model(new(T)).Where("id = ?", id).Update("is_deleted", 1).Error
@@ -35,6 +41,24 @@ func gmSoftDelete[T any](ctx context.Context, db *gorm.DB, id uint64) error {
 // gmRestore 撤销软删除。
 func gmRestore[T any](ctx context.Context, db *gorm.DB, id uint64) error {
 	return db.WithContext(ctx).Model(new(T)).Where("id = ?", id).Update("is_deleted", 0).Error
+}
+
+// gmRestoreMany 批量撤销软删除，返回受影响行数。
+func gmRestoreMany[T any](ctx context.Context, db *gorm.DB, ids []uint64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	tx := db.WithContext(ctx).Model(new(T)).Where("id IN ?", ids).Update("is_deleted", 0)
+	return tx.RowsAffected, tx.Error
+}
+
+// gmPurgeMany 批量**彻底删除**（回收站清理，绕过软删除），返回受影响行数。
+func gmPurgeMany[T any](ctx context.Context, db *gorm.DB, ids []uint64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	tx := db.WithContext(ctx).Unscoped().Where("id IN ?", ids).Delete(new(T))
+	return tx.RowsAffected, tx.Error
 }
 
 // gmCount 统计满足作用域的记录数。

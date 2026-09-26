@@ -106,6 +106,13 @@ func (s *Service) UpdateUser(ctx context.Context, operator model.UserInfo, targe
 	if req.UserFace != "" {
 		u.UserFace = req.UserFace
 	}
+	// 界面语言：本人即可改（与昵称/邮箱同级），且只接受白名单取值。
+	if req.Lang != "" {
+		if !model.IsSupportedLang(req.Lang) {
+			return nil, newBiz(errcode.CodeParamError, "不支持的界面语言：%s", req.Lang)
+		}
+		u.Lang = req.Lang
+	}
 	if isAdmin(operator.Type) {
 		if req.State > 0 {
 			u.State = req.State

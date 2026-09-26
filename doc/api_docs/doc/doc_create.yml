@@ -36,6 +36,7 @@ docs: |-
 |group_id|否|uint|分组 ID|
 |title|是|string|标题|
 |content|否|string|Markdown 内容|
+|icon|否|string|文档图标：上传图片的 URL 或 emoji（空串表示清除）|
 
   ## 统一响应
   - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200

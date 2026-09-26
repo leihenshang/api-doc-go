@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"apidoc/internal/dto"
 	"apidoc/internal/model"
@@ -21,9 +22,13 @@ type MemberView struct {
 
 // CreateProject 创建项目并把创建者设为负责人。
 func (s *Service) CreateProject(ctx context.Context, creatorID uint64, req dto.ProjectCreateReq) (*model.Project, error) {
+	if err := s.ensureTitleFree(ctx, req.Title, 0); err != nil {
+		return nil, err
+	}
 	p := &model.Project{Title: req.Title, Description: req.Description, Version: req.Version, Type: req.Type}
 	if err := s.repo.CreateProject(ctx, p); err != nil {
-		return nil, newBiz(errcode.CodeFailed, "创建失败：项目标题可能重复")
+		// 并发同名由唯一索引兜底，保留原始错误供排查
+		return nil, wrapBiz(errcode.CodeFailed, err, "创建项目失败，请稍后重试")
 	}
 	if err := s.repo.AddMember(ctx, &model.UserProject{
 		UserID: creatorID, ProjectID: p.ID, IsLeader: 1, Permission: model.PermAll,
@@ -43,17 +48,32 @@ func (s *Service) UpdateProject(ctx context.Context, userID uint64, typ int8, re
 	if err != nil {
 		return nil, err
 	}
-	if req.Title != "" {
+	if req.Title != "" && req.Title != p.Title {
+		if err := s.ensureTitleFree(ctx, req.Title, p.ID); err != nil {
+			return nil, err
+		}
 		p.Title = req.Title
 	}
 	p.Description = req.Description
 	p.Version = req.Version
 	p.Type = req.Type
 	if err := s.repo.UpdateProject(ctx, p); err != nil {
-		return nil, err
+		return nil, wrapBiz(errcode.CodeFailed, err, "保存项目失败，请稍后重试")
 	}
 	s.recordOp(ctx, p.ID, userID, p.ID, model.LogObjectProject, "update", "项目:"+p.Title)
 	return p, nil
+}
+
+// ensureTitleFree 校验项目名称未被其它未删除项目占用（软删除的项目不占用名称）。
+func (s *Service) ensureTitleFree(ctx context.Context, title string, excludeID uint64) error {
+	taken, err := s.repo.ProjectTitleTaken(ctx, title, excludeID)
+	if err != nil {
+		return fmt.Errorf("service: 校验项目名称: %w", err)
+	}
+	if taken {
+		return newBiz(errcode.CodeFailed, "项目名称「%s」已存在，请更换名称", title)
+	}
+	return nil
 }
 
 // GetProject 取项目详情。

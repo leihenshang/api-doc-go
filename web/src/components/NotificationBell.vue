@@ -7,10 +7,12 @@ import { fmtTime } from '@/utils/format'
 import { NotificationsOutline } from '@vicons/ionicons5'
 import { NBadge, NButton, NEmpty, NIcon, NPopover, NSpin, useMessage } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const message = useMessage()
+const { t } = useI18n()
 
 const items = ref<Notification[]>([])
 const loading = ref(false)
@@ -28,7 +30,7 @@ async function reload(): Promise<void> {
 
 async function read(id: number): Promise<void> {
   const res = await markNotificationRead(id)
-  if (res.code !== ErrCode.Success) message.error(res.msg || '操作失败')
+  if (res.code !== ErrCode.Success) message.error(res.msg || t('common.opFailed'))
   await reload()
 }
 
@@ -42,7 +44,7 @@ onMounted(reload)
 <template>
   <n-popover trigger="hover" placement="bottom-end" :width="380" @update:show="(v: boolean) => v && reload()">
     <template #trigger>
-      <span class="bell" role="button" tabindex="0" aria-label="我的通知" title="我的通知" @keyup.enter="goAll">
+      <span class="bell" role="button" tabindex="0" :aria-label="t('notice.title')" :title="t('notice.title')" @keyup.enter="goAll">
         <n-badge :value="unread" :max="99" :show="unread > 0" :offset="[-2, 2]">
           <n-icon :component="NotificationsOutline" :size="20" />
         </n-badge>
@@ -51,12 +53,12 @@ onMounted(reload)
 
     <div class="panel">
       <div class="hd">
-        <span class="hd-title">我的通知</span>
-        <span class="meta">未读 {{ unread }}</span>
+        <span class="hd-title">{{ t('notice.title') }}</span>
+        <span class="meta">{{ t('notice.unread', { n: unread }) }}</span>
       </div>
 
       <n-spin :show="loading">
-        <n-empty v-if="!items.length && !loading" size="small" class="empty" description="暂无通知" />
+        <n-empty v-if="!items.length && !loading" size="small" class="empty" :description="t('notice.empty')" />
         <ul v-else class="list">
           <li v-for="n in items" :key="n.id" :class="{ unread: n.read !== 1 }">
             <div class="row">
@@ -64,13 +66,13 @@ onMounted(reload)
               <span class="meta">{{ fmtTime(n.create_time) }}</span>
             </div>
             <div class="body ellipsis" :title="n.content">{{ n.content }}</div>
-            <n-button v-if="n.read !== 1" text type="primary" size="tiny" @click="read(n.id)">标记已读</n-button>
+            <n-button v-if="n.read !== 1" text type="primary" size="tiny" @click="read(n.id)">{{ t('notice.markRead') }}</n-button>
           </li>
         </ul>
       </n-spin>
 
       <div class="ft">
-        <n-button text type="primary" size="small" @click="goAll">查看全部</n-button>
+        <n-button text type="primary" size="small" @click="goAll">{{ t('notice.viewAll') }}</n-button>
       </div>
     </div>
   </n-popover>

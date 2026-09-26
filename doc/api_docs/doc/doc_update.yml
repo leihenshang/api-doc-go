@@ -35,6 +35,7 @@ docs: |-
 |id|是|uint|文档 ID|
 |title|否|string|标题|
 |content|否|string|内容|
+|icon|否|string|文档图标：上传图片的 URL 或 emoji（空串表示清除）|
 |group_id|否|uint|分组|
 |is_top|否|int|1 置顶|
 

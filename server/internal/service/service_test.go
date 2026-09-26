@@ -32,7 +32,6 @@ func newTestService(t *testing.T) *Service {
 	cfg := &config.Config{}
 	cfg.JWT.Secret = "test-secret"
 	cfg.JWT.ExpireHours = 1
-	cfg.Encrypt.SecretKey = "test-key"
 	return New(repository.New(db, cfg), cfg)
 }
 
@@ -108,5 +107,89 @@ func TestProjectPermissionFlow(t *testing.T) {
 	// 管理员始终放行。
 	if perm := s.MyPermission(ctx, admin.ID, admin.Type, proj.ID); perm != model.PermAll {
 		t.Fatalf("admin perm want %d, got %d", model.PermAll, perm)
+	}
+}
+
+// TestProjectTitleReuse 覆盖名称唯一性的两条边界：
+// 未删除项目重名必须被拒；软删除后同名必须可以重建（曾被全局唯一索引阻挡）。
+func TestProjectTitleReuse(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	admin, err := s.InitAdmin(ctx, "admin", "admin123")
+	if err != nil {
+		t.Fatalf("InitAdmin: %v", err)
+	}
+
+	first, err := s.CreateProject(ctx, admin.ID, dto.ProjectCreateReq{Title: "reuse"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if _, err := s.CreateProject(ctx, admin.ID, dto.ProjectCreateReq{Title: "reuse"}); err == nil {
+		t.Fatal("expected duplicate title rejected")
+	}
+
+	other, err := s.CreateProject(ctx, admin.ID, dto.ProjectCreateReq{Title: "other"})
+	if err != nil {
+		t.Fatalf("CreateProject other: %v", err)
+	}
+	if _, err := s.UpdateProject(ctx, admin.ID, admin.Type, dto.ProjectUpdateReq{ID: other.ID, Title: "reuse"}); err == nil {
+		t.Fatal("expected rename to existing title rejected")
+	}
+	// 未改名时不应被自身名称挡住。
+	if _, err := s.UpdateProject(ctx, admin.ID, admin.Type, dto.ProjectUpdateReq{ID: other.ID, Title: "other"}); err != nil {
+		t.Fatalf("UpdateProject same title: %v", err)
+	}
+
+	if err := s.DeleteProject(ctx, admin.ID, admin.Type, first.ID); err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	if _, err := s.CreateProject(ctx, admin.ID, dto.ProjectCreateReq{Title: "reuse"}); err != nil {
+		t.Fatalf("expected title reusable after soft delete: %v", err)
+	}
+}
+
+// TestUserLangPreference 界面语言偏好：本人可改、白名单校验、登录响应带回、不可改他人。
+func TestUserLangPreference(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	if _, err := s.InitAdmin(ctx, "admin", "admin123"); err != nil {
+		t.Fatalf("InitAdmin: %v", err)
+	}
+	bob, err := s.Register(ctx, dto.RegisterReq{Name: "bob", Pwd: "p123456", RePwd: "p123456"})
+	if err != nil {
+		t.Fatalf("Register bob: %v", err)
+	}
+	carol, err := s.Register(ctx, dto.RegisterReq{Name: "carol", Pwd: "p123456", RePwd: "p123456"})
+	if err != nil {
+		t.Fatalf("Register carol: %v", err)
+	}
+	if bob.Lang != "" {
+		t.Fatalf("新用户 lang 应为空（未选择），got %q", bob.Lang)
+	}
+
+	// 本人即可改自己的界面语言，且登录响应（/me 同源）带回。
+	if _, err := s.UpdateUser(ctx, *bob, bob.ID, dto.UserUpdateReq{Lang: model.LangEnUS}); err != nil {
+		t.Fatalf("本人改语言应放行: %v", err)
+	}
+	res, err := s.Login(ctx, dto.LoginReq{Name: "bob", Pwd: "p123456"})
+	if err != nil || res.User.Lang != model.LangEnUS {
+		t.Fatalf("登录响应应带回 lang: %v %+v", err, res.User)
+	}
+
+	// 非管理员改他人语言 → 403。
+	var be *BizError
+	_, err = s.UpdateUser(ctx, *bob, carol.ID, dto.UserUpdateReq{Lang: model.LangEnUS})
+	if !errors.As(err, &be) || be.Code != errcode.CodeForbidden {
+		t.Fatalf("改他人语言应 403，got %v", err)
+	}
+
+	// 白名单外的语言 → 参数错误，且不改动已存值。
+	_, err = s.UpdateUser(ctx, *bob, bob.ID, dto.UserUpdateReq{Lang: "fr-FR"})
+	if !errors.As(err, &be) || be.Code != errcode.CodeParamError {
+		t.Fatalf("非法语言应参数错误，got %v", err)
+	}
+	after, err := s.GetUser(ctx, bob.ID)
+	if err != nil || after.Lang != model.LangEnUS {
+		t.Fatalf("非法请求不应改动已存语言: %v %q", err, after.Lang)
 	}
 }

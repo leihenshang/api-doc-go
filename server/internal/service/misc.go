@@ -50,6 +50,9 @@ func (s *Service) UpdateBug(ctx context.Context, userID uint64, typ int8, req dt
 		b.Status = req.Status
 	}
 	b.Comment = req.Comment
+	if req.IsTop != nil {
+		b.IsTop = *req.IsTop
+	}
 	if err := s.repo.UpdateBug(ctx, b); err != nil {
 		return nil, err
 	}

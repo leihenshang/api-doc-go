@@ -1,37 +1,38 @@
 <script setup lang="ts">
-// 应用外壳：顶栏（品牌 + 通知铃铛 + 账户浮层）+ 横向 tab 导航（含项目切换与回收站）
-// + 面包屑（左侧圆形返回按钮）。tab/面包屑/回收站逻辑见 composables/projectNav.ts。
+// 应用外壳：顶栏（品牌 + 项目切换 + 全局搜索 + 通知铃铛 + 用户菜单）+ 横向 tab 导航
+//（最左「主页」入口 / 中间页签 / 右侧页面操作与回收站）。tab/回收站逻辑见 composables/projectNav.ts。
+// 文案走 i18n（语言切换入口在 UserMenu）；挂载时按用户表 lang 对齐界面语言。
+import GlobalSearch from '@/components/GlobalSearch.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import RepoMark from '@/components/RepoMark.vue'
-import UserAccountPanel from '@/components/UserAccountPanel.vue'
+import UserMenu from '@/components/UserMenu.vue'
+import { useLogout } from '@/composables/logout'
+import { syncLocaleFromUser } from '@/composables/locale'
 import { useProjectNav } from '@/composables/projectNav'
+import { me } from '@/api/auth'
 import { useProjectStore } from '@/stores/project'
 import { useUserStore } from '@/stores/user'
-import { ArrowBackOutline, TrashOutline } from '@vicons/ionicons5'
+import { ErrCode } from '@/types/api'
+import { HomeOutline, TrashOutline } from '@vicons/ionicons5'
 import {
-    NAvatar,
-    NBreadcrumb,
-    NBreadcrumbItem,
     NButton,
     NIcon,
-    NPopover,
     NSelect,
     NSpace,
-    useMessage,
 } from 'naive-ui'
 import { computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
-const message = useMessage()
-const user = useUserStore()
 const project = useProjectStore()
+const user = useUserStore()
+const { t } = useI18n()
 
-const { projectId, inProject, tabs, activeTab, trashActive, onTab, switchProject, crumbs } = useProjectNav()
+const { projectId, inProject, tabs, activeTab, trashActive, onTab, switchProject } = useProjectNav()
 
 const projectOptions = computed(() => project.projects.map((p) => ({ label: p.title, value: p.id })))
-const initials = computed(() => user.nickName.slice(0, 1).toUpperCase() || 'U')
 
 /** 首页（项目列表）无需返回按钮与面包屑。 */
 const isHome = computed(() => route.name === 'projects' && !inProject.value)
@@ -50,7 +51,19 @@ watch(
 
 onMounted(() => {
   void project.loadProjects()
+  void syncUserLocale()
 })
+
+/** 刷新/登录后按用户表偏好对齐界面语言（跨设备一致；未登录或未设置则保持本地选择）。 */
+async function syncUserLocale(): Promise<void> {
+  if (!user.isLogged) return
+  try {
+    const res = await me()
+    if (res.code === ErrCode.Success && res.data) syncLocaleFromUser(res.data.lang)
+  } catch {
+    // 语言同步失败不阻塞界面（保持本地选择）。
+  }
+}
 
 // 回到项目列表时刷新下拉，保证新建的项目可切换。
 watch(
@@ -68,109 +81,85 @@ watch(
   { immediate: true },
 )
 
-/** 有站内历史则真返回，否则回项目列表。 */
-const hasHistory = computed(() => Boolean((window.history.state as { back?: string } | null)?.back))
-
-function goBack(): void {
-  if (hasHistory.value) {
-    router.back()
-    return
-  }
-  void router.push({ name: 'projects' })
-}
-
-const backLabel = computed(() => (hasHistory.value ? '返回上一页' : '返回项目列表'))
-
+/** 「主页」= 项目列表；无论历史栈如何都直接回首页（不做浏览器级返回）。 */
 function goHome(): void {
   void router.push({ name: 'projects' })
 }
 
-function logout(): void {
-  user.clear()
-  project.clear()
-  message.info('已退出登录')
-  void router.push('/login')
-}
+const logout = useLogout()
 </script>
 
 <template>
   <div class="app">
     <header class="hdr">
-      <div class="brand" title="API-DOC-GO" @click="goHome">
-        <span class="brand-mark"><repo-mark /></span>
-        <span class="brand-text">API-DOC-GO</span>
-      </div>
-      <div v-if="inProject" class="hdr-center">
+      <div class="hdr-left">
+        <div class="brand" title="API-DOC-GO" @click="goHome">
+          <span class="brand-mark"><repo-mark /></span>
+          <span class="brand-text">API-DOC-GO</span>
+        </div>
         <n-select
+          v-if="inProject"
           :value="projectId"
           :options="projectOptions"
-          size="small"
+          size="medium"
           filterable
           class="switch"
-          title="切换当前项目"
+          :title="t('nav.switchProject')"
           @update:value="switchProject"
         />
       </div>
+      <global-search />
       <n-space align="center" :size="18" class="hdr-right">
         <notification-bell />
-        <n-popover trigger="hover" placement="bottom-end" :width="380">
-          <template #trigger>
-            <span class="account">
-              <n-avatar round :size="28" class="avatar">{{ initials }}</n-avatar>
-              <span class="who">hello, {{ user.nickName }}</span>
-            </span>
-          </template>
-          <user-account-panel @logout="logout" />
-        </n-popover>
+        <user-menu @logout="logout" />
       </n-space>
     </header>
 
-    <nav class="tabbar" aria-label="主导航">
+    <nav class="tabbar" :aria-label="t('nav.mainNav')">
+      <div class="tabbar-left">
+        <n-button
+          v-if="!isHome"
+          circle
+          size="small"
+          class="back-btn"
+          :title="t('nav.home')"
+          :aria-label="t('nav.home')"
+          @click="goHome"
+        >
+          <template #icon><n-icon :component="HomeOutline" /></template>
+        </n-button>
+      </div>
       <div class="tabs">
         <button
-          v-for="t in tabs"
-          :key="t.key"
+          v-for="tab in tabs"
+          :key="tab.key"
           class="tab"
-          :class="{ 'tab--active': activeTab === t.key }"
-          :aria-current="activeTab === t.key ? 'page' : undefined"
-          @click="onTab(t.key)"
+          :class="{ 'tab--active': activeTab === tab.key }"
+          :aria-current="activeTab === tab.key ? 'page' : undefined"
+          @click="onTab(tab.key)"
         >
-          <n-icon :component="t.icon" :size="16" />
-          <span>{{ t.label }}</span>
+          <n-icon :component="tab.icon" :size="16" />
+          <span>{{ tab.label }}</span>
         </button>
       </div>
-      <div v-if="inProject" class="tabbar-right">
+      <div class="tabbar-right">
+        <!-- 列表页经 Teleport 把导入/导出/搜索等操作注入到横向菜单右侧 -->
+        <div id="crumb-actions" class="page-actions" />
         <button
+          v-if="inProject"
           class="tab tab--trash"
           :class="{ 'tab--active': trashActive }"
           :aria-current="trashActive ? 'page' : undefined"
           @click="onTab('trash')"
         >
           <n-icon :component="TrashOutline" :size="16" />
-          <span>回收站</span>
+          <span>{{ t('nav.trash') }}</span>
         </button>
       </div>
     </nav>
 
     <div class="content">
-      <div class="content-inner">
-        <div v-if="!isHome" class="crumb-bar">
-          <n-button circle size="small" class="back-btn" :title="backLabel" :aria-label="backLabel" @click="goBack">
-            <template #icon><n-icon :component="ArrowBackOutline" /></template>
-          </n-button>
-          <n-breadcrumb>
-            <n-breadcrumb-item
-              v-for="(c, i) in crumbs"
-              :key="i"
-              :clickable="Boolean(c.to)"
-              @click="c.to && void router.push(c.to)"
-            >
-              {{ c.label }}
-            </n-breadcrumb-item>
-          </n-breadcrumb>
-          <!-- 列表页经 Teleport 把导入/导出/搜索等操作注入到面包屑行右侧 -->
-          <div id="crumb-actions" class="crumb-actions" />
-        </div>
+      <div class="content-inner" :class="{ 'content-inner--flush': flushBody }">
         <div class="page-body" :class="{ 'page-body--flush': flushBody }">
           <router-view />
         </div>
@@ -202,10 +191,11 @@ function logout(): void {
   flex: 0 0 auto;
 }
 
-.hdr-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+.hdr-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
 .brand {
@@ -229,51 +219,44 @@ function logout(): void {
   letter-spacing: 0.3px;
 }
 
-.account {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.avatar {
-  background: var(--app-accent);
-  color: #fff;
-}
-
-.who {
-  color: var(--app-text);
-  font-size: 13px;
-}
-
 /* ---- 横向 tab 栏 ---- */
 .tabbar {
-  position: relative;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 12px;
-  padding: 0 16px 0 20px;
+  padding: 0 16px;
   background: #fff;
   border-bottom: 1px solid var(--app-border);
 }
 
-.tabs {
+.tabbar-left,
+.tabbar-right {
   display: flex;
   align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.tabs {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 2px;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
-.tabbar-right {
-  position: absolute;
-  right: 16px;
+/* 列表页 Teleport 注入的页面操作（回收站搜索等） */
+.page-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.page-actions:empty {
+  display: none;
 }
 
 .tab {
@@ -314,8 +297,35 @@ function logout(): void {
   color: var(--app-muted);
 }
 
+/* 项目切换：紧跟品牌标题，加粗 + 外框（更显眼），下拉箭头贴近文字 */
 .switch {
-  width: 180px;
+  width: 142px;
+  margin-left: 4px;
+}
+
+.switch :deep(.n-base-selection) {
+  /* 收窄右侧为箭头预留的宽度，让箭头贴近项目名 */
+  --n-padding-single-right: 18px;
+  --n-padding-single-left: 10px;
+  border-radius: 5px;
+  background: #fff;
+}
+
+.switch :deep(.n-base-selection-label),
+.switch :deep(.n-base-selection-input) {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.switch :deep(.n-base-selection-overlay__wrapper) {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+/* naive-ui 的箭头绝对定位在右侧 10px，收紧到 4px */
+.switch :deep(.n-base-suffix) {
+  right: 4px;
 }
 
 /* ---- 内容区 ---- */
@@ -332,24 +342,10 @@ function logout(): void {
   flex-direction: column;
 }
 
-.crumb-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 20px;
-  border-bottom: 1px solid var(--app-border);
-  background: #fff;
-}
-
-.crumb-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.crumb-actions:empty {
-  display: none;
+/* 工作台（接口/文档页）需要「外壳不滚、内部各栏自己滚」：显式定高，否则内容会把外层撑高 */
+.content-inner--flush {
+  height: 100%;
+  min-height: 0;
 }
 
 .back-btn {
@@ -366,5 +362,46 @@ function logout(): void {
 
 .page-body--flush {
   padding: 0;
+}
+
+/* ---- 移动端：顶栏换行、页签横向滑动 ---- */
+@media (max-width: 768px) {
+  .hdr {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: var(--app-header-h);
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .hdr-left {
+    flex: 1 1 auto;
+  }
+
+  .switch {
+    width: 118px;
+  }
+
+  .tabbar {
+    gap: 8px;
+    padding: 0 8px 0 12px;
+  }
+
+  .tabbar-left,
+  .tabbar-right {
+    gap: 6px;
+  }
+
+  .tabs {
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab {
+    height: 38px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
 }
 </style>

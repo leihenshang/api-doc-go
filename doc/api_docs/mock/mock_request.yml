@@ -1,0 +1,47 @@
+info:
+  name: Mock_请求
+  type: http
+  seq: 82
+
+http:
+  method: ANY
+  url: "{{host}}/mock/:project_id/*path"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: noauth
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - Mock_请求
+
+  ## 请求 URI
+  - `/mock/:project_id/*path`
+
+  ## 请求方式
+  - ANY
+
+  ## 鉴权
+  - **免登录**（公开接口，令牌即凭证）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |project_id|是|uint|项目 ID（路径参数）|
+  |path|是|string|接口路径（通配，如 /user/list）|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200（**Mock 服务除外**，见备注）
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - **免登录**：按「请求方法 + 路径」匹配项目内接口，命中后返回其**响应样例**作为响应体。
+    - 路径比较时忽略 scheme/host/query；方法不匹配但路径命中也返回样例（兜底），完全未命中返回 **HTTP 404** + `{"code":404,"msg":"未匹配到接口…"}`。
+    - 样例中的 `{{变量}}` 会按项目**通用变量**（env_id=0）渲染；样例不是合法 JSON 时按 `text/plain` 返回。
+    - 未配置响应样例时返回 `{"code":200,"msg":"该接口未配置响应样例","data":null}`。
+    - 前端在接口详情「代码」下拉提供「复制 Mock 地址」；dev 环境经 Vite 代理 `/mock` 转发到后端。

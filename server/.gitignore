@@ -6,11 +6,18 @@
 *.exe
 *.out
 
-# Local database files (SQLite)
+# Local database files (SQLite)：主库 + WAL/SHM/journal 旁路文件 + .bak 备份
+# 旁路文件与备份同样是完整数据库内容（变量表可能含令牌等明文），必须一并忽略。
+# 注意 .gitignore 不支持行尾注释：`#` 只在行首才是注释，故模式与说明分行写。
 *.db
-*.db-journal
+# .db-wal / .db-shm / .db-journal（journal 原本单独一行，已被通配覆盖）
+*.db-*
+# .db.bak-<时间戳> 等备份
+*.db.bak*
 *.sqlite
 *.sqlite3
+# .sqlite-wal / .sqlite3-shm 等旁路文件
+*.sqlite*-*
 
 # 本地数据：只读 modcache / 构建缓存 / 临时 / 上传
 # genmigrate 为源码（main.go），不忽略
@@ -19,6 +26,8 @@
 /data/tmp/
 /data/uploads/
 /data/apidoc-*
+# 备份目录（BACKUP_DIR 默认 data/backups，存完整数据库副本）
+/data/backups/
 
 # Env / local config
 /config.local.yaml

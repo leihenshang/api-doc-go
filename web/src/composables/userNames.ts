@@ -1,5 +1,6 @@
 // 用户 id → 显示名的全局缓存：多处列表需展示作者/操作人，避免每页重复拉取。
 import { listUsers } from '@/api/auth'
+import { translate } from '@/i18n'
 import { ErrCode } from '@/types/api'
 import { ref } from 'vue'
 
@@ -22,7 +23,7 @@ export function useUserNames() {
     }
 
     function nameOf(id: number): string {
-        return names.value[id] ?? `用户 #${id}`
+        return names.value[id] ?? translate('user.fallbackName', { id })
     }
 
     return { ensure, nameOf }

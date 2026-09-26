@@ -93,6 +93,34 @@ body {
   border-right: 1px solid var(--app-border);
 }
 
+/* 左栏收起：仅留窄条，点击箭头恢复 */
+.split-tree--collapsed {
+  flex: 0 0 32px;
+  width: 32px;
+  padding-top: 8px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.tree-rail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--app-muted);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.tree-rail:hover {
+  color: var(--app-accent);
+  background: #eceef1;
+}
+
 .split-main {
   flex: 1 1 auto;
   min-width: 0;
@@ -132,6 +160,7 @@ body {
   }
   .split-tree {
     flex: 0 0 auto;
+    width: auto;
     max-height: 240px;
     border-right: 0;
     border-bottom: 1px solid var(--app-border);
@@ -265,4 +294,103 @@ body {
 /* ---- 空状态 ---- */
 .empty-block {
   padding: 40px 0;
+}
+
+/* ---- 回收站：勾选列左冻结 / 操作列右冻结 ---- */
+.trash-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.trash-bar .row-actions {
+  margin-left: auto;
+}
+
+.trash-table .col-check,
+.trash-table .col-ops {
+  position: sticky;
+  background: #fff;
+}
+
+.trash-table th.col-check,
+.trash-table th.col-ops {
+  z-index: 3;
+  background: #fafafc;
+}
+
+.trash-table td.col-check,
+.trash-table td.col-ops {
+  z-index: 2;
+}
+
+.trash-table .col-check {
+  left: 0;
+  width: 40px;
+  padding-right: 4px;
+  text-align: center;
+}
+
+.trash-table th.col-check {
+  box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.16);
+}
+
+.trash-table .col-ops {
+  right: 0;
+  box-shadow: -6px 0 6px -6px rgba(0, 0, 0, 0.16);
+}
+
+/* 冻结列无需换行，避免撑高行 */
+.trash-table .col-ops .row-actions {
+  flex-wrap: nowrap;
+}
+
+/* ---- 移动端适配（≤768px）----
+   原则：外壳与页面收紧内边距、搜索/筛选/操作区允许换行、表格横向滚动、
+   弹窗与抽屉按视口收窄（naive-ui 的宽度是内联样式，必须 !important 覆盖）。 */
+@media (max-width: 768px) {
+  .page {
+    gap: 10px;
+  }
+
+  .page-hd {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .page-title {
+    font-size: 17px;
+    line-height: 24px;
+  }
+
+  .page-sub {
+    font-size: 12px;
+  }
+
+  .toolbar,
+  .row-actions {
+    flex-wrap: wrap;
+  }
+
+  /* 表格一律可横向滚动，避免列被压扁 */
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .n-table {
+    font-size: 12px;
+  }
+
+  .n-modal {
+    width: 94vw !important;
+    max-width: 94vw !important;
+  }
+
+  .n-drawer {
+    width: 96vw !important;
+    max-width: 96vw !important;
+  }
 }

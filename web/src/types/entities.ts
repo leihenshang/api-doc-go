@@ -14,6 +14,8 @@ export interface User extends BaseEntity {
   state: number
   user_face: string
   mobile_number: string
+  /** 界面语言偏好：''=未选择（前端按浏览器语言兜底）/ 'zh-CN' / 'en-US'。 */
+  lang: string
 }
 
 export interface LoginResult {
@@ -48,6 +50,7 @@ export interface ApiDoc extends BaseEntity {
   project_id: number
   group_id: number
   group_id_second: number
+  priority: number
   api_name: string
   protocol_type: string
   http_method_type: string
@@ -69,10 +72,31 @@ export interface DocItem extends BaseEntity {
   group_id: number
   title: string
   content: string
+  /** 文档图标：上传图片 URL 或 emoji（空则用默认图标）。 */
+  icon: string
   view_count: number
   like_count: number
   is_top: number
   priority: number
+}
+
+/** 分享链接：免登录只读入口（token 可随时失效、可设有效期）。 */
+export interface ShareLink extends BaseEntity {
+  project_id: number
+  user_id: number
+  token: string
+  remark: string
+  expire_time: string | null
+}
+
+/** 分享页数据（无权限/日志等内部字段）。 */
+export interface ShareView {
+  project: { id: number; title: string; description: string; version: string }
+  groups: Group[]
+  apis: ApiDoc[]
+  docs: DocItem[]
+  remark: string
+  expire_time: string | null
 }
 
 export interface Bug extends BaseEntity {
@@ -83,6 +107,8 @@ export interface Bug extends BaseEntity {
   comment: string
   status: number
   level: number
+  /** 置顶（1 置顶 / 0 普通），列表按置顶优先排序。 */
+  is_top: number
 }
 
 export interface BugAssign extends BaseEntity {
@@ -100,14 +126,51 @@ export interface FieldMapping extends BaseEntity {
   description: string
 }
 
-export interface Conn extends BaseEntity {
-  address: string
-  port: number
-  username: string
-  database_name: string
+/** 项目级环境：项目变量的取值维度（dev/test/prod）。 */
+export interface VariableEnv extends BaseEntity {
   project_id: number
-  type: number
+  name: string
   description: string
+  color: string
+  /** 是否项目默认环境（1 默认 / 0 普通）。 */
+  is_default: number
+  priority: number
+}
+
+/** 变量（三级共用）：scope 1 请求级 / 2 项目级 / 3 全局（应用级）。 */
+export interface Variable extends BaseEntity {
+  scope: number
+  project_id: number
+  api_id: number
+  env_id: number
+  name: string
+  /** 敏感值（is_secret=1）在列表与解析结果中为掩码。 */
+  value: string
+  description: string
+  is_secret: number
+  has_value: boolean
+  enabled: number
+  priority: number
+}
+
+/** 解析结果项：变量 + 生效来源。 */
+export interface ResolveItem extends Variable {
+  source: 'request' | 'project' | 'global'
+}
+
+/** 接口列表的变量徽标统计。 */
+export interface VarSummary {
+  defined: string[]
+  undefined: string[]
+  request_count: number
+  undefined_count: number
+}
+
+/** 环境删除前预检结果（variables 为引用该环境的变量，blocked 表示禁止删除）。 */
+export interface EnvRefs {
+  env: { id: number; name: string; is_default: number }
+  variables: Variable[]
+  blocked: boolean
 }
 
 export interface Notification extends BaseEntity {

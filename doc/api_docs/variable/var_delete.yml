@@ -1,0 +1,46 @@
+info:
+  name: 变量_删除
+  type: http
+  seq: 73
+
+http:
+  method: DELETE
+  url: "{{host}}/api/variable?id="
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 变量_删除
+
+  ## 请求 URI
+  - `/api/variable?id=`
+
+  ## 请求方式
+  - DELETE
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |id|是|uint|变量 ID（查询参数）|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 变量作用域 scope：1 请求变量（绑定 api_id）/ 2 项目变量（env_id=0 通用、>0 绑定环境）/ 3 全局变量（应用级，跨项目共享，仅管理员可写）。
+    - 解析优先级：请求变量 > 项目变量（当前环境）> 项目变量（通用）> 全局变量；未命中即「未定义」。
+    - 敏感变量（is_secret=1）明文入库，但列表 / 解析 / 徽标接口一律只回掩码 `••••••` 与 `has_value`；`with_value=1` 时对具备写权限者（管理员或项目负责人 / update 权限）回明文，并写操作日志。
+  - 权限：项目变量需 `delete` 位；请求变量随接口内容维护，需 `update` 位；全局变量仅管理员。
+    - 软删除（is_deleted=1），删除后同名变量可重建。

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Bug 管理：列表、提交、状态流转、指派处理人、删除。
+// 备忘清单：列表（支持置顶）、新建、状态流转、指派处理人、删除。
 import { listUsers } from '@/api/auth'
 import { assignBug, createBug, deleteBug, listBugAssign, listBugs, updateBug } from '@/api/misc'
 import TablePager from '@/components/TablePager.vue'
@@ -105,7 +105,7 @@ async function submit(): Promise<void> {
         message.error(res.msg || (isEdit ? '保存失败' : '提交失败'))
         return
     }
-    message.success(isEdit ? '已保存' : '已提交')
+    message.success(isEdit ? '已保存' : '已新建')
     showCreate.value = false
     editingId.value = 0
     Object.assign(form, { title: '', content: '', level: 2 })
@@ -148,9 +148,20 @@ async function changeStatus(bug: Bug, value: number): Promise<void> {
     await load()
 }
 
+/** 置顶/取消置顶：仅提交 is_top，避免覆盖其它字段。 */
+async function toggleTop(bug: Bug): Promise<void> {
+    const res = await updateBug({ id: bug.id, is_top: bug.is_top ? 0 : 1 })
+    if (res.code !== ErrCode.Success) {
+        message.error(res.msg || '操作失败')
+        return
+    }
+    message.success(bug.is_top ? '已取消置顶' : '已置顶')
+    await load()
+}
+
 function remove(bug: Bug): void {
     dialog.warning({
-        title: '删除 Bug',
+        title: '删除备忘',
         content: `确认删除「${bug.title}」？`,
         positiveText: '删除',
         negativeText: '取消',
@@ -173,10 +184,10 @@ onMounted(async () => {
     <div class="page">
         <div class="page-hd">
             <div>
-                <h1 class="page-title">Bug 管理</h1>
-                <p class="page-sub">共 {{ total }} 条记录</p>
+                <h1 class="page-title">备忘清单</h1>
+                <p class="page-sub">共 {{ total }} 条备忘 · 置顶优先</p>
             </div>
-            <n-button v-if="canCreate" type="primary" @click="openCreate">提交 Bug</n-button>
+            <n-button v-if="canCreate" type="primary" @click="openCreate">新建备忘</n-button>
         </div>
 
         <n-card :bordered="true" class="table-card" content-style="padding: 0">
@@ -185,7 +196,7 @@ onMounted(async () => {
                     @update:value="(v: number | null) => { status = v && v > 0 ? v : null; reload(1) }" />
             </div>
             <n-spin :show="loading">
-                <n-empty v-if="!rows.length && !loading" class="empty-block" description="暂无 Bug" />
+                <n-empty v-if="!rows.length && !loading" class="empty-block" description="暂无备忘" />
                 <n-table v-else :single-line="false" size="medium">
                     <thead>
                         <tr>
@@ -199,8 +210,11 @@ onMounted(async () => {
                         </tr>
                     </thead>
                     <tbody>
-                        <tr v-for="b in rows" :key="b.id">
-                            <td class="ellipsis" :title="b.title">{{ b.title }}</td>
+                        <tr v-for="b in rows" :key="b.id" :class="{ 'row--pinned': b.is_top === 1 }">
+                            <td class="ellipsis" :title="b.title">
+                                <n-tag v-if="b.is_top === 1" size="tiny" type="warning" :bordered="false" class="pin">置顶</n-tag>
+                                {{ b.title }}
+                            </td>
                             <td><n-tag :type="levelTag(b.level)" size="small" :bordered="false">{{ b.level }} 级</n-tag>
                             </td>
                             <td>
@@ -218,6 +232,9 @@ onMounted(async () => {
                             <td class="muted nowrap">{{ fmtTime(b.create_time) }}</td>
                             <td>
                                 <div class="row-actions">
+                                    <n-button v-if="canUpdate" text size="small" @click="toggleTop(b)">
+                                        {{ b.is_top === 1 ? '取消置顶' : '置顶' }}
+                                    </n-button>
                                     <n-button v-if="canUpdate" text size="small" @click="openEdit(b)">编辑</n-button>
                                     <n-button v-if="canUpdate" text size="small" @click="openAssign(b)">指派</n-button>
                                     <n-button text size="small" @click="openHistory(b)">记录</n-button>
@@ -232,7 +249,7 @@ onMounted(async () => {
             <table-pager :total="total" :page-num="pageNum" :page-size="pageSize" @update:page-num="reload" />
         </n-card>
 
-        <n-modal v-model:show="showCreate" preset="card" :title="editingId > 0 ? '编辑 Bug' : '提交 Bug'" style="width: 460px">
+        <n-modal v-model:show="showCreate" preset="card" :title="editingId > 0 ? '编辑备忘' : '新建备忘'" style="width: 460px">
             <n-form label-placement="left" label-width="56">
                 <n-form-item label="标题"><n-input v-model:value="form.title" /></n-form-item>
                 <n-form-item label="内容"><n-input v-model:value="form.content" type="textarea" :rows="5" /></n-form-item>
@@ -241,7 +258,7 @@ onMounted(async () => {
             <template #footer>
                 <div class="foot">
                     <n-button size="small" @click="showCreate = false">取消</n-button>
-                    <n-button type="primary" size="small" @click="submit">提交</n-button>
+                    <n-button type="primary" size="small" @click="submit">保存</n-button>
                 </div>
             </template>
         </n-modal>
@@ -295,6 +312,14 @@ onMounted(async () => {
 
 .status-select {
     width: 150px;
+}
+
+.pin {
+    margin-right: 6px;
+}
+
+.row--pinned td {
+    background: #fffbf2;
 }
 
 .foot {

@@ -2,135 +2,12 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+	"strings"
 
-	"apidoc/internal/dto"
 	"apidoc/internal/model"
-	"apidoc/internal/pkg/crypto"
 	"apidoc/internal/pkg/errcode"
-	"apidoc/internal/service/datasource"
 )
-
-// ---- 外部数据库连接（数据字典） ----
-
-// CreateConn 新建外部库连接；口令以 AES-256-GCM 加密后存储。
-func (s *Service) CreateConn(ctx context.Context, userID uint64, typ int8, req dto.DatabaseReq) (*model.DatabaseConn, error) {
-	if err := s.ensureProjectPermission(ctx, userID, typ, req.ProjectID, model.PermCreate); err != nil {
-		return nil, err
-	}
-	if req.Password == "" {
-		return nil, newBiz(errcode.CodeParamError, "连接口令不能为空")
-	}
-	pwd, err := crypto.Encrypt(req.Password, s.cfg.Encrypt.SecretKey)
-	if err != nil {
-		return nil, err
-	}
-	v := &model.DatabaseConn{
-		ProjectID: req.ProjectID, UserID: userID, Address: req.Address, Port: req.Port,
-		Username: req.Username, Password: pwd, DatabaseName: req.DatabaseName,
-		Type: req.Type, Description: req.Description,
-	}
-	if v.Type == 0 {
-		v.Type = datasource.TypeMySQL
-	}
-	if err := s.repo.CreateDatabaseConn(ctx, v); err != nil {
-		return nil, err
-	}
-	return v, nil
-}
-
-// ListConns 列出项目的外部库连接。
-func (s *Service) ListConns(ctx context.Context, projectID uint64) ([]model.DatabaseConn, error) {
-	return s.repo.ListDatabaseConns(ctx, projectID)
-}
-
-// UpdateConn 更新连接。
-func (s *Service) UpdateConn(ctx context.Context, userID uint64, typ int8, req dto.DatabaseReq) (*model.DatabaseConn, error) {
-	v, err := s.repo.GetDatabaseConn(ctx, req.ID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.ensureProjectPermission(ctx, userID, typ, v.ProjectID, model.PermUpdate); err != nil {
-		return nil, err
-	}
-	v.Address, v.Port, v.Username = req.Address, req.Port, req.Username
-	if req.Password != "" {
-		pwd, err := crypto.Encrypt(req.Password, s.cfg.Encrypt.SecretKey)
-		if err != nil {
-			return nil, err
-		}
-		v.Password = pwd
-	}
-	v.DatabaseName, v.Type, v.Description = req.DatabaseName, req.Type, req.Description
-	if err := s.repo.UpdateDatabaseConn(ctx, v); err != nil {
-		return nil, err
-	}
-	return v, nil
-}
-
-// DeleteConn 删除连接。
-func (s *Service) DeleteConn(ctx context.Context, userID uint64, typ int8, id uint64) error {
-	v, err := s.repo.GetDatabaseConn(ctx, id)
-	if err != nil {
-		return err
-	}
-	if err := s.ensureProjectPermission(ctx, userID, typ, v.ProjectID, model.PermDelete); err != nil {
-		return err
-	}
-	return s.repo.DeleteDatabaseConn(ctx, id)
-}
-
-// ConnTables 读取外部库连接的表清单（只读元数据查询）。
-func (s *Service) ConnTables(ctx context.Context, userID uint64, typ int8, connID uint64) ([]datasource.TableInfo, error) {
-	db, conn, err := s.openExternal(ctx, userID, typ, connID)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	tables, err := datasource.ListTables(db, conn.Type)
-	if err != nil {
-		return nil, newBiz(errcode.CodeFailed, "%v", err)
-	}
-	return tables, nil
-}
-
-// ConnColumns 读取外部库连接指定表的列信息。
-func (s *Service) ConnColumns(ctx context.Context, userID uint64, typ int8, connID uint64, table string) ([]datasource.ColumnInfo, error) {
-	db, conn, err := s.openExternal(ctx, userID, typ, connID)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	cols, err := datasource.ListColumns(db, conn.Type, table)
-	if err != nil {
-		return nil, newBiz(errcode.CodeFailed, "%v", err)
-	}
-	return cols, nil
-}
-
-// openExternal 校验查询权限后解密口令并建立外部库连接。
-func (s *Service) openExternal(ctx context.Context, userID uint64, typ int8, connID uint64) (*sql.DB, *model.DatabaseConn, error) {
-	conn, err := s.repo.GetDatabaseConn(ctx, connID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := s.ensureProjectPermission(ctx, userID, typ, conn.ProjectID, model.PermQuery); err != nil {
-		return nil, nil, err
-	}
-	pwd, err := crypto.Decrypt(conn.Password, s.cfg.Encrypt.SecretKey)
-	if err != nil {
-		return nil, nil, newBiz(errcode.CodeFailed, "口令解密失败，请重新保存连接")
-	}
-	db, err := datasource.Open(datasource.ConnInfo{
-		Type: conn.Type, Host: conn.Address, Port: conn.Port,
-		User: conn.Username, Password: pwd, Name: conn.DatabaseName,
-	})
-	if err != nil {
-		return nil, nil, newBiz(errcode.CodeFailed, "%v", err)
-	}
-	return db, conn, nil
-}
 
 // SaveFile 记录已上传文件。
 func (s *Service) SaveFile(ctx context.Context, title, path string) (*model.FileRecord, error) {
@@ -141,7 +18,73 @@ func (s *Service) SaveFile(ctx context.Context, title, path string) (*model.File
 	return f, nil
 }
 
-// ---- OpenAPI 导入 ----
+// ---- 接口导入（OpenAPI / Bruno） ----
+
+// 导入来源标记，写入 api.source；空表示手工创建。
+const (
+	SourceOpenAPI = "openapi-import"
+	SourceBruno   = "bruno-import"
+	SourcePostman = "postman-import"
+)
+
+// 导入策略：覆盖=清空项目现有接口与接口目录后整体导入；追加=保留现状只新增（同方法+路径跳过）。
+const (
+	StrategyOverwrite = "overwrite"
+	StrategyAppend    = "append"
+)
+
+// ImportResult 导入结果：imported 新增条数、skipped 因已存在跳过条数、failed 解析失败条数。
+// Failures 给出失败明细（最多 10 条，供前端展示「状态说明」）。
+type ImportResult struct {
+	Imported int      `json:"imported"`
+	Skipped  int      `json:"skipped"`
+	Failed   int      `json:"failed"`
+	Failures []string `json:"failures,omitempty"`
+}
+
+// addFailure 记录一条失败明细（明细最多保留 10 条，避免响应过大）。
+func (r *ImportResult) addFailure(msg string) {
+	r.Failed++
+	if len(r.Failures) < 10 {
+		r.Failures = append(r.Failures, msg)
+	}
+}
+
+// normalizeStrategy 归一化导入策略，空值与未知值按「只新增」处理。
+func normalizeStrategy(s string) string {
+	if s == StrategyOverwrite {
+		return StrategyOverwrite
+	}
+	return StrategyAppend
+}
+
+// apiUniqueKey 接口的去重键：大写方法 + 路径。
+func apiUniqueKey(method, url string) string {
+	return strings.ToUpper(strings.TrimSpace(method)) + " " + strings.TrimSpace(url)
+}
+
+// prepareImport 按策略准备项目：覆盖时清空现有接口与接口目录（结果集为纯导入内容），
+// 追加时返回现存接口去重键集合（同键跳过）。
+func (s *Service) prepareImport(ctx context.Context, projectID uint64, strategy string) (map[string]struct{}, error) {
+	apis, err := s.repo.ListApisByProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if normalizeStrategy(strategy) == StrategyOverwrite {
+		if err := s.repo.SoftDeleteApisByProject(ctx, projectID); err != nil {
+			return nil, err
+		}
+		if err := s.repo.SoftDeleteGroupsByProject(ctx, projectID, model.GroupTypeAPI); err != nil {
+			return nil, err
+		}
+		return map[string]struct{}{}, nil
+	}
+	keys := make(map[string]struct{}, len(apis))
+	for _, a := range apis {
+		keys[apiUniqueKey(a.HttpMethodType, a.URL)] = struct{}{}
+	}
+	return keys, nil
+}
 
 // openAPI 是标准 OpenAPI 3.x 文档的最小解析模型（JSON 形式）。
 type openAPI struct {
@@ -156,44 +99,58 @@ type openAPI struct {
 }
 
 // ImportOpenAPI 解析标准 OpenAPI(JSON) 并转为接口记录落库到指定项目+分组。
-// 返回导入条数。每个 (path, method) 生成一条接口记录；tag 映射为二级分组。
-func (s *Service) ImportOpenAPI(ctx context.Context, userID uint64, typ int8, projectID, groupID uint64, body []byte) (int, error) {
+// 每个 (path, method) 生成一条接口记录；tag 映射为二级分组；写入来源 openapi-import。
+func (s *Service) ImportOpenAPI(ctx context.Context, userID uint64, typ int8, projectID, groupID uint64, strategy string, body []byte) (ImportResult, error) {
 	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermCreate); err != nil {
-		return 0, err
+		return ImportResult{}, err
+	}
+	keys, err := s.prepareImport(ctx, projectID, strategy)
+	if err != nil {
+		return ImportResult{}, err
 	}
 	var doc openAPI
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return 0, newBiz(errcode.CodeParamError, "OpenAPI 解析失败：%v", err)
+		return ImportResult{}, newBiz(errcode.CodeParamError, "OpenAPI 解析失败：%v", err)
 	}
 	groups, err := s.repo.ListGroups(ctx, projectID, model.GroupTypeAPI)
 	if err != nil {
-		return 0, err
+		return ImportResult{}, err
 	}
-	count := 0
+	var res ImportResult
 	for path, ops := range doc.Paths {
 		for method, op := range ops {
+			if _, dup := keys[apiUniqueKey(method, path)]; dup {
+				res.Skipped++
+				continue
+			}
 			target := s.resolveGroup(ctx, projectID, groupID, op.Tags, groups)
 			a := &model.Api{
 				ProjectID: projectID, GroupID: target,
 				ApiName:        firstNonEmpty(op.Summary, op.OperationID, method+" "+path),
 				HttpMethodType: upperMethod(method), URL: path, ProtocolType: "http",
+				Source: SourceOpenAPI,
 			}
 			if err := s.repo.CreateApi(ctx, a); err != nil {
-				return count, err
+				return res, err
 			}
-			count++
+			keys[apiUniqueKey(method, path)] = struct{}{}
+			res.Imported++
 		}
 	}
-	s.recordOp(ctx, projectID, userID, projectID, model.LogObjectAPI, "import", "导入 OpenAPI 接口 "+itoa(count)+" 条")
-	return count, nil
+	s.recordOp(ctx, projectID, userID, projectID, model.LogObjectAPI, "import",
+		"导入 OpenAPI 接口 "+itoa(res.Imported)+" 条（跳过 "+itoa(res.Skipped)+"）")
+	return res, nil
 }
 
-// resolveGroup 依据 tag 找到或创建二级分组，返回其 id。
+// resolveGroup 依据 tag 找到或创建二级分组，返回其 id；空白 tag 归入默认分组，避免生成无标题的空分组。
 func (s *Service) resolveGroup(ctx context.Context, projectID, defaultGroup uint64, tags []string, existing []model.Group) uint64 {
 	if len(tags) == 0 {
 		return defaultGroup
 	}
-	tag := tags[0]
+	tag := strings.TrimSpace(tags[0])
+	if tag == "" {
+		return defaultGroup
+	}
 	for _, g := range existing {
 		if g.Title == tag {
 			return g.ID

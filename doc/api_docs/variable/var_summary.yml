@@ -1,0 +1,46 @@
+info:
+  name: 变量_列表徽标批量统计
+  type: http
+  seq: 75
+
+http:
+  method: GET
+  url: "{{host}}/api/variable/summary?project_id=&env_id=&api_ids="
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 变量_列表徽标批量统计
+
+  ## 请求 URI
+  - `/api/variable/summary?project_id=&env_id=&api_ids=`
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |project_id|是|uint|项目 ID|
+  |env_id|否|uint|当前环境|
+  |api_ids|是|string|逗号分隔的接口 ID，单次上限 **200**（超出返回 22，由前端分批）|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 返回 `data: { "<api_id>": { defined: [...], undefined: [...], request_count, undefined_count } }`。
+    - `defined` = 该接口的请求变量名；`undefined` = 接口 URL / 请求头 value / 请求参数示例中引用但四层都未命中的变量名。
+    - 与 `resolve` 使用**同一套解析器**，保证列表徽标与详情页口径一致；现有 `GET /api/api` 契约不受影响。

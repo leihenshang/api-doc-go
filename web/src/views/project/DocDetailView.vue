@@ -2,23 +2,30 @@
 // 文档详情整页：Markdown 渲染查看 + 就地编辑（含图床上传）、点赞、删除。
 import { deleteDoc, getDoc, likeDoc, updateDoc } from '@/api/content'
 import { uploadImg } from '@/api/misc'
+import { useMdUpload } from '@/composables/md-upload'
 import { useNumParam } from '@/composables/params'
 import { useUserNames } from '@/composables/userNames'
 import { useProjectStore } from '@/stores/project'
 import { ErrCode } from '@/types/api'
 import type { DocItem } from '@/types/entities'
 import { fmtTime } from '@/utils/format'
+import { DEFAULT_DOC_ICON, isImageIcon } from '@/utils/icon'
 import { ArrowBackOutline } from '@vicons/ionicons5'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
-import { NButton, NCard, NForm, NFormItem, NIcon, NInput, NSpin, useDialog, useMessage } from 'naive-ui'
+import {
+    NButton, NCard, NForm, NFormItem, NIcon, NInput, NSpin, NUpload, useDialog, useMessage,
+    type UploadFileInfo,
+} from 'naive-ui'
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
+const { t } = useI18n()
 const dialog = useDialog()
 const project = useProjectStore()
 const { ensure: ensureUsers, nameOf } = useUserNames()
@@ -34,7 +41,27 @@ const doc = ref<DocItem | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const editing = ref(route.query.edit === '1')
-const form = reactive({ title: '', content: '' })
+/** icon：文档图标（emoji 或上传后的图片 URL）。 */
+const form = reactive({ title: '', content: '', icon: '' })
+const iconUploading = ref(false)
+
+/** 上传文档图标：复用图床接口 /file/upload，成功后回填图片 URL。 */
+async function onIconFile(list: UploadFileInfo[]): Promise<void> {
+    const file = list[0]?.file
+    if (!file) return
+    iconUploading.value = true
+    try {
+        const res = await uploadImg(file)
+        if (res.code !== ErrCode.Success || !res.data) {
+            message.error(res.msg || t('docDetail.iconUploadFailed'))
+            return
+        }
+        form.icon = res.data.url
+        message.success(t('docDetail.iconUploaded'))
+    } finally {
+        iconUploading.value = false
+    }
+}
 
 const canUpdate = computed(() => project.can(4))
 const canDelete = computed(() => project.can(8))
@@ -44,12 +71,12 @@ async function load(): Promise<void> {
     try {
         const res = await getDoc(docId.value)
         if (res.code !== ErrCode.Success || !res.data) {
-            message.error(res.msg || '文档加载失败')
+            message.error(res.msg || t('docDetail.loadFailed'))
             void back()
             return
         }
         doc.value = res.data
-        Object.assign(form, { title: res.data.title, content: res.data.content })
+        Object.assign(form, { title: res.data.title, content: res.data.content, icon: res.data.icon ?? '' })
     } finally {
         loading.value = false
     }
@@ -75,17 +102,37 @@ function clearEditQuery(): void {
 
 async function save(): Promise<void> {
     if (!form.title.trim()) {
-        message.warning('请输入标题')
+        message.warning(t('doc.titleRequired'))
         return
     }
     saving.value = true
     try {
-        const res = await updateDoc({ id: docId.value, title: form.title.trim(), content: form.content })
+        const res = await updateDoc({
+            id: docId.value,
+            title: form.title.trim(),
+            content: form.content,
+            icon: form.icon.trim(),
+            // 乐观锁：他人已保存时服务端会拒绝覆盖。
+            expected_update_time: doc.value?.update_time ?? '',
+        })
         if (res.code !== ErrCode.Success) {
-            message.error(res.msg || '保存失败')
+            message.error(res.msg || t('common.saveFailed'))
+            if ((res.msg || '').includes('已被他人修改')) {
+                dialog.warning({
+                    title: t('detail.conflictTitle'),
+                    content: t('detail.conflictContent', { msg: res.msg }),
+                    positiveText: t('detail.conflictReload'),
+                    negativeText: t('detail.conflictLater'),
+                    onPositiveClick: async () => {
+                        await load()
+                        editing.value = false
+                        clearEditQuery()
+                    },
+                })
+            }
             return
         }
-        message.success('已保存')
+        message.success(t('common.saved'))
         editing.value = false
         clearEditQuery()
         emit('changed')
@@ -96,25 +143,16 @@ async function save(): Promise<void> {
 }
 
 function cancel(): void {
-    if (doc.value) Object.assign(form, { title: doc.value.title, content: doc.value.content })
+    if (doc.value) Object.assign(form, { title: doc.value.title, content: doc.value.content, icon: doc.value.icon ?? '' })
     editing.value = false
     clearEditQuery()
 }
 
-// 编辑器图片上传钩子：走 /file/upload，回填 /uploads 静态路径。
-async function onUploadImg(files: File[], callback: (urls: string[]) => void): Promise<void> {
-    const urls: string[] = []
-    for (const f of files) {
-        const res = await uploadImg(f)
-        if (res.code === ErrCode.Success && res.data) urls.push(res.data.url)
-        else message.error(`图片 ${f.name} 上传失败`)
-    }
-    callback(urls)
-}
+const onUploadImg = useMdUpload()
 
 async function like(): Promise<void> {
     const res = await likeDoc(docId.value)
-    if (res.code !== ErrCode.Success) message.error(res.msg || '点赞失败')
+    if (res.code !== ErrCode.Success) message.error(res.msg || t('docDetail.likeFailed'))
     await load()
 }
 
@@ -126,27 +164,31 @@ async function toggleTop(): Promise<void> {
         id: docId.value,
         title: doc.value.title,
         content: doc.value.content,
+        icon: doc.value.icon ?? '',
         group_id: doc.value.group_id,
         is_top: next,
+        // 置顶同样是整体覆盖：带上载入时间，避免用旧内容覆盖他人修改。
+        expected_update_time: doc.value.update_time,
     })
     if (res.code !== ErrCode.Success) {
-        message.error(res.msg || '操作失败')
+        message.error(res.msg || t('common.opFailed'))
+        if ((res.msg || '').includes('已被他人修改')) await load()
         return
     }
-    message.success(next === 1 ? '已置顶' : '已取消置顶')
+    message.success(next === 1 ? t('docDetail.topped') : t('docDetail.untopped'))
     emit('changed')
     await load()
 }
 
 function remove(): void {
     dialog.warning({
-        title: '删除文档',
-        content: `确认删除文档「${doc.value?.title ?? ''}」？删除后可在回收站恢复。`,
-        positiveText: '删除',
-        negativeText: '取消',
+        title: t('doc.deleteTitle'),
+        content: t('doc.deleteConfirm', { title: doc.value?.title ?? '' }),
+        positiveText: t('common.delete'),
+        negativeText: t('common.cancel'),
         onPositiveClick: async () => {
             const res = await deleteDoc(docId.value)
-            if (res.code !== ErrCode.Success) message.error(res.msg || '删除失败')
+            if (res.code !== ErrCode.Success) message.error(res.msg || t('common.deleteFailed'))
             emit('changed')
             back()
         },
@@ -165,20 +207,20 @@ onMounted(() => {
             <div class="toolbar">
                 <n-button size="small" @click="back">
                     <template #icon><n-icon :component="ArrowBackOutline" /></template>
-                    {{ embedded ? '关闭' : '文档列表' }}
+                    {{ embedded ? t('common.close') : t('doc.listTitle') }}
                 </n-button>
                 <div class="toolbar-end">
                     <template v-if="editing">
-                        <n-button size="small" @click="cancel">取消</n-button>
-                        <n-button size="small" type="primary" :loading="saving" @click="save">保存</n-button>
+                        <n-button size="small" @click="cancel">{{ t('common.cancel') }}</n-button>
+                        <n-button size="small" type="primary" :loading="saving" @click="save">{{ t('common.save') }}</n-button>
                     </template>
                     <template v-else>
                         <n-button size="small" tertiary @click="like">👍 {{ doc?.like_count ?? 0 }}</n-button>
                         <n-button v-if="canUpdate" size="small" tertiary @click="toggleTop">
-                            {{ doc?.is_top === 1 ? '取消置顶' : '置顶' }}
+                            {{ doc?.is_top === 1 ? t('docDetail.untop') : t('docDetail.top') }}
                         </n-button>
-                        <n-button v-if="canUpdate" size="small" type="primary" @click="editing = true">修改文档</n-button>
-                        <n-button v-if="canDelete" size="small" tertiary type="error" @click="remove">删除</n-button>
+                        <n-button v-if="canUpdate" size="small" type="primary" @click="editing = true">{{ t('docDetail.edit') }}</n-button>
+                        <n-button v-if="canDelete" size="small" tertiary type="error" @click="remove">{{ t('common.delete') }}</n-button>
                     </template>
                 </div>
             </div>
@@ -186,19 +228,34 @@ onMounted(() => {
             <n-card :bordered="true" class="doc-card">
                 <template v-if="editing">
                     <n-form label-placement="left" label-width="56">
-                        <n-form-item label="标题"><n-input v-model:value="form.title" /></n-form-item>
+                        <n-form-item :label="t('doc.titleField')"><n-input v-model:value="form.title" /></n-form-item>
+                        <n-form-item :label="t('docDetail.icon')">
+                            <div class="icon-row">
+                                <img v-if="isImageIcon(form.icon)" class="icon-preview-img" :src="form.icon" alt="" />
+                                <span v-else class="icon-preview">{{ form.icon || DEFAULT_DOC_ICON }}</span>
+                                <n-input v-model:value="form.icon" :placeholder="t('docDetail.iconPlaceholder')" class="icon-input" />
+                                <n-upload :max="1" :default-upload="false" accept="image/*" :show-file-list="false"
+                                    @update:file-list="onIconFile">
+                                    <n-button size="small" :loading="iconUploading">{{ t('docDetail.uploadImage') }}</n-button>
+                                </n-upload>
+                                <n-button v-if="form.icon" size="small" text type="error" @click="form.icon = ''">{{ t('docDetail.clearIcon') }}</n-button>
+                            </div>
+                        </n-form-item>
                     </n-form>
                     <md-editor v-model="form.content" preview-theme="default" style="height: 65vh"
                         @on-upload-img="onUploadImg" />
                 </template>
 
                 <template v-else>
-                    <h1 class="doc-title">{{ doc?.title || '—' }}</h1>
+                    <h1 class="doc-title">
+                        <img v-if="isImageIcon(doc?.icon)" class="doc-icon-img" :src="doc?.icon ?? ''" alt="" />
+                        <span v-else class="doc-icon">{{ doc?.icon || DEFAULT_DOC_ICON }}</span>{{ doc?.title || '—' }}
+                    </h1>
                     <p class="doc-meta">
-                        作者:{{ doc ? nameOf(doc.user_id) : '—' }}
+                        {{ t('docDetail.author') }}:{{ doc ? nameOf(doc.user_id) : '—' }}
                         <span class="sep">·</span>{{ fmtTime(doc?.update_time) }}
-                        <span class="sep">·</span>阅读次数 {{ doc?.view_count ?? 0 }}
-                        <span class="sep">·</span>点赞次数 {{ doc?.like_count ?? 0 }}
+                        <span class="sep">·</span>{{ t('docDetail.views', { n: doc?.view_count ?? 0 }) }}
+                        <span class="sep">·</span>{{ t('docDetail.likes', { n: doc?.like_count ?? 0 }) }}
                     </p>
                     <md-preview id="doc-preview" v-model:model-value="form.content" theme="light"
                         preview-theme="default" />
@@ -211,6 +268,48 @@ onMounted(() => {
 <style scoped>
 .doc-card {
     max-width: 1080px;
+}
+
+/* 图标编辑行：预览 + 输入 + 上传 */
+.icon-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.icon-preview {
+    flex: 0 0 auto;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.icon-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* 文档标题前的图标（emoji 或图片） */
+.doc-icon {
+    margin-right: 8px;
+    font-size: 22px;
+    vertical-align: -2px;
+}
+
+.doc-icon-img {
+    width: 22px;
+    height: 22px;
+    margin-right: 8px;
+    border-radius: 4px;
+    object-fit: cover;
+    vertical-align: -4px;
+}
+
+.icon-preview-img {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    object-fit: cover;
 }
 
 .doc-title {

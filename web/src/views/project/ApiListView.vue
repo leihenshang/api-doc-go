@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// 接口工作台：左侧树（分组 + 接口叶子 + 树上搜索），右侧仅承载
-// 接口详情（?api=<id>，可 ?edit=1 编辑）、新建（?new=1）、回收站（?trash=1）；
-// 无选中时显示占位提示创建。导入/导出仍在面包屑栏右侧。
-import { createApi, deleteApi, exportOpenApi, importOpenApi, listApis, restoreApi } from '@/api/content'
+// 接口工作台：左侧树（目录 + 接口叶子 + 树上搜索，新建/删除都在树上），右侧仅承载
+// 接口详情（?api=<id>，可 ?edit=1 编辑）、新建（?new=1，树上入口）、回收站（?trash=1）。
+// 导入 / 导出在「项目概况」页。
+import { createApi, listApis, purgeApisBatch, restoreApisBatch } from '@/api/content'
 import ApiDetailView from '@/views/project/ApiDetailView.vue'
 import ApiFieldsEditor from '@/components/ApiFieldsEditor.vue'
 import EmptyHint from '@/components/EmptyHint.vue'
@@ -10,22 +10,23 @@ import MethodTag from '@/components/MethodTag.vue'
 import SectionTree from '@/components/SectionTree.vue'
 import TablePager from '@/components/TablePager.vue'
 import { useNumParam } from '@/composables/params'
+import { useI18n } from 'vue-i18n'
 import { useProjectStore } from '@/stores/project'
 import { ErrCode } from '@/types/api'
-import type { ApiDoc, ApiHeader, ApiParam } from '@/types/entities'
+import type { ApiDoc, ApiParam } from '@/types/entities'
+import { paramsToHeaders } from '@/utils/api-params'
 import { fmtTime } from '@/utils/format'
-import { SearchOutline, SendOutline } from '@vicons/ionicons5'
+import { ChevronForwardOutline, SearchOutline, SendOutline } from '@vicons/ionicons5'
 import {
-    NButton, NCard, NEmpty, NForm, NFormItem, NIcon, NInput, NModal, NSelect, NSpin, NTable, NUpload, useDialog, useMessage,
+    NButton, NCard, NCheckbox, NEmpty, NForm, NFormItem, NIcon, NInput, NSelect, NSpin, NTable, useDialog, useMessage,
 } from 'naive-ui'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { parse as parseYaml } from 'yaml'
-import type { UploadFileInfo } from 'naive-ui'
 
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
+const { t } = useI18n()
 const dialog = useDialog()
 const project = useProjectStore()
 
@@ -36,6 +37,8 @@ const creating = computed(() => route.query.new === '1')
 const apiId = computed(() => Number(route.query.api) || 0)
 
 const treeRef = ref<InstanceType<typeof SectionTree> | null>(null)
+/** 接口集合左栏是否收起（收起后仅留窄条展开入口）。 */
+const treeCollapsed = ref(false)
 
 // ---- 回收站列表（?trash=1） ----
 const rows = ref<ApiDoc[]>([])
@@ -45,30 +48,35 @@ const pageSize = ref(20)
 const loading = ref(false)
 const keyword = ref('')
 
-// ---- 新建接口 ----
-const showImport = ref(false)
-const importFile = ref<File | null>(null)
+// ---- 新建接口（入口在左侧树的目录「＋」菜单） ----
 const saving = ref(false)
 const form = reactive({
   api_name: '', http_method_type: 'GET', url: '', protocol_type: 'HTTP',
   http_return_type: 'JSON', develop_language: '', description: '', group_id: 0,
 })
-const headers = ref<ApiHeader[]>([])
+/** 请求头以参数行形态录入（表格改的就是这份数组），提交时转回 ApiHeader[]。 */
+const headerRows = ref<ApiParam[]>([])
 const reqParams = ref<ApiParam[]>([])
 const resParams = ref<ApiParam[]>([])
 const sample = ref('')
 
 const methodOptions = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map((m) => ({ label: m, value: m }))
 const groupOptions = computed(() => [
-  { label: '全部接口', value: 0 },
+  { label: t('tree.ungrouped'), value: 0 },
   ...project.apiGroups.map((g) => ({ label: g.title, value: g.id })),
 ])
 
-const canCreate = () => project.can(2)
 const canDelete = () => project.can(8)
+
+/** 进入新建态时按 ?group 预选所属目录（树上「新建接口」会带上该参数）。 */
+watch(creating, (v) => {
+  if (v) form.group_id = Number(route.query.group) || 0
+})
 
 async function loadTrash(): Promise<void> {
   loading.value = true
+  // 翻页/搜索后原勾选已不在当前页，直接清空避免误操作。
+  selected.value = []
   try {
     const res = await listApis({
       project_id: projectId.value,
@@ -81,11 +89,20 @@ async function loadTrash(): Promise<void> {
       rows.value = res.data.items
       total.value = res.data.total
     } else {
-      message.error(res.msg || '加载失败')
+      message.error(res.msg || t('common.loadFailed'))
     }
   } finally {
     loading.value = false
   }
+}
+
+/** 回收站可选每页条数（后端上限 200）：大批量还原时一页勾选更省事。 */
+const PAGE_SIZES = [10, 20, 40, 80, 100, 200]
+
+/** 改每页条数后回到第 1 页重查（loadTrash 会清空勾选）。 */
+function onPageSize(size: number): void {
+  pageSize.value = size
+  reload(1)
 }
 
 function reload(num = 1): void {
@@ -97,29 +114,14 @@ watch(trash, (v) => {
   if (v) reload(1)
 })
 
-function openCreate(): void {
-  Object.assign(form, {
-    api_name: '', http_method_type: 'GET', url: '', protocol_type: 'HTTP',
-    http_return_type: 'JSON', develop_language: '', description: '', group_id: 0,
-  })
-  headers.value = []
-  reqParams.value = []
-  resParams.value = []
-  sample.value = ''
-  void router.push({ name: 'projectApis', params: { projectId: projectId.value }, query: { new: '1' } })
-}
-
 function cancelCreate(): void {
   void router.replace({ name: 'projectApis', params: { projectId: projectId.value } })
 }
 
-function closeDetail(): void {
-  void router.replace({ name: 'projectApis', params: { projectId: projectId.value } })
-}
 
 async function submit(): Promise<void> {
   if (!form.api_name.trim()) {
-    message.warning('请输入接口名称')
+    message.warning(t('api.nameRequired'))
     return
   }
   let sampleVal: unknown = ''
@@ -127,7 +129,7 @@ async function submit(): Promise<void> {
     try {
       sampleVal = JSON.parse(sample.value)
     } catch {
-      message.error('响应样例需为合法 JSON')
+      message.error(t('api.sampleInvalid'))
       return
     }
   }
@@ -136,16 +138,16 @@ async function submit(): Promise<void> {
     const res = await createApi({
       ...form,
       project_id: projectId.value,
-      http_request_header: headers.value,
+      http_request_header: paramsToHeaders(headerRows.value),
       http_request_params: reqParams.value,
       http_return_params: resParams.value,
       http_return_sample: sampleVal,
     })
     if (res.code !== ErrCode.Success || !res.data) {
-      message.error(res.msg || '创建失败')
+      message.error(res.msg || t('common.createFailed'))
       return
     }
-    message.success('已创建')
+    message.success(t('api.created'))
     void treeRef.value?.reload()
     void router.push({ name: 'projectApis', params: { projectId: projectId.value }, query: { api: String(res.data.id) } })
   } finally {
@@ -153,88 +155,73 @@ async function submit(): Promise<void> {
   }
 }
 
-// ---- 导入 / 导出 ----
-function onImportFiles(list: UploadFileInfo[]): void {
-  importFile.value = list[0]?.file ?? null
+// ---- 导入 / 导出：已移至「项目概况」页 ----
+
+// ---- 回收站批量操作：勾选还原 / 彻底删除（操作列冻结，方便横向滚动时点击）----
+/** 已勾选的接口 id（仅当前页）。 */
+const selected = ref<number[]>([])
+const acting = ref(false)
+const allChecked = computed(() => rows.value.length > 0 && selected.value.length === rows.value.length)
+const someChecked = computed(() => selected.value.length > 0 && !allChecked.value)
+
+function toggleAll(checked: boolean): void {
+  selected.value = checked ? rows.value.map((a) => a.id) : []
 }
 
-/** 文本解析为 OpenAPI 对象：先按 JSON，再按 YAML（含 Bruno 反引号容错）。 */
-function parseOpenApi(text: string): unknown {
+function toggleOne(id: number, checked: boolean): void {
+  selected.value = checked ? [...selected.value, id] : selected.value.filter((x) => x !== id)
+}
+
+/** 批量还原：服务端会把「已删除的所属分组（含祖先链）」一并恢复，避免还原后落到未分组。 */
+async function restoreSelected(): Promise<void> {
+  if (!selected.value.length) return
+  acting.value = true
   try {
-    return JSON.parse(text)
-  } catch {
-    return parseYamlLoose(text)
+    const res = await restoreApisBatch([...selected.value])
+    if (res.code !== ErrCode.Success || !res.data) {
+      message.error(res.msg || t('api.restoreFailed'))
+      return
+    }
+    const extra = res.data.groups > 0 ? t('api.restoreExtra', { n: res.data.groups }) : ''
+    message.success(t('api.restored', { n: res.data.restored }) + extra)
+    selected.value = []
+    await loadTrash()
+    void treeRef.value?.reload()
+  } finally {
+    acting.value = false
   }
 }
 
-function repairBacktickScalars(text: string): string {
-  return text.replace(/^(\s*(?:- )?[\w-]+:\s*)`([^`\n]*)`(\s*)$/gm, "$1'$2'$3")
-}
-
-function parseYamlLoose(text: string): unknown {
-  try {
-    return parseYaml(text)
-  } catch {
-    return parseYaml(repairBacktickScalars(text))
-  }
-}
-
-async function doImport(): Promise<void> {
-  if (!importFile.value) {
-    message.warning('请先选择 OpenAPI 文件')
-    return
-  }
-  let doc: unknown
-  try {
-    doc = parseOpenApi(await importFile.value.text())
-  } catch {
-    message.error('OpenAPI 文件解析失败（JSON / YAML 均无法识别）')
-    return
-  }
-  const res = await importOpenApi(projectId.value, doc, 0)
-  if (res.code !== ErrCode.Success) {
-    message.error(res.msg || '导入失败')
-    return
-  }
-  message.success(`已导入 ${res.data?.imported ?? 0} 个接口`)
-  showImport.value = false
-  importFile.value = null
-  void treeRef.value?.reload()
-}
-
-async function doExport(): Promise<void> {
-  const res = await exportOpenApi(projectId.value, 0)
-  if (res.code !== ErrCode.Success || !res.data) {
-    message.error(res.msg || '导出失败')
-    return
-  }
-  const url = URL.createObjectURL(new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `openapi-project-${projectId.value}.json`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-async function restore(a: ApiDoc): Promise<void> {
-  const res = await restoreApi(a.id)
-  if (res.code !== ErrCode.Success) message.error(res.msg || '恢复失败')
-  void treeRef.value?.reload()
-  await loadTrash()
-}
-
-function remove(a: ApiDoc): void {
+/** 批量彻底删除（不可撤销）。 */
+function purgeSelected(): void {
+  if (!selected.value.length) return
+  const count = selected.value.length
   dialog.warning({
-    title: '彻底删除',
-    content: `确认删除回收站中的「${a.api_name}」？`,
-    positiveText: '删除',
-    negativeText: '取消',
+    title: t('common.purge'),
+    content: t('api.purgeConfirm', { n: count }),
+    positiveText: t('common.purge'),
+    negativeText: t('common.cancel'),
     onPositiveClick: async () => {
-      const res = await deleteApi(a.id)
-      if (res.code !== ErrCode.Success) message.error(res.msg || '删除失败')
+      const res = await purgeApisBatch([...selected.value])
+      if (res.code !== ErrCode.Success) {
+        message.error(res.msg || t('common.deleteFailed'))
+        return false
+      }
+      message.success(t('api.purged', { n: count }))
+      selected.value = []
       await loadTrash()
     },
   })
+}
+
+async function restoreOne(a: ApiDoc): Promise<void> {
+  selected.value = [a.id]
+  await restoreSelected()
+}
+
+function purgeOne(a: ApiDoc): void {
+  selected.value = [a.id]
+  purgeSelected()
 }
 
 onMounted(() => {
@@ -245,91 +232,111 @@ onMounted(() => {
 <template>
   <div class="split">
     <!-- 新建/回收站态覆盖整个内容区：隐藏左侧树 -->
-    <aside v-if="!creating && !trash" class="split-tree">
-      <section-tree ref="treeRef" :project-id="projectId" :type="1" section="apis" />
+    <aside v-if="!creating && !trash" class="split-tree" :class="{ 'split-tree--collapsed': treeCollapsed }">
+      <button v-if="treeCollapsed" class="tree-rail" :title="t('api.expandTree')" @click="treeCollapsed = false">
+        <n-icon :component="ChevronForwardOutline" />
+      </button>
+      <section-tree
+        v-show="!treeCollapsed"
+        ref="treeRef"
+        :project-id="projectId"
+        :type="1"
+        section="apis"
+        collapsible
+        @collapse="treeCollapsed = true"
+      />
     </aside>
-    <!-- 导入/导出/回收站搜索：经 Teleport 注入到面包屑行右侧 -->
-    <teleport to="#crumb-actions" defer>
-      <template v-if="!creating">
-        <n-button @click="showImport = true">导入 OpenAPI</n-button>
-        <n-button @click="doExport">导出 OpenAPI</n-button>
-        <template v-if="trash">
-          <n-input
-            v-model:value="keyword"
-            placeholder="搜索回收站接口"
-            clearable
-            class="search"
-            @keyup.enter="reload(1)"
-            @clear="reload(1)"
-          >
-            <template #suffix><n-icon :component="SearchOutline" /></template>
-          </n-input>
-          <n-button @click="reload(1)">搜索</n-button>
-        </template>
-      </template>
+    <!-- 回收站搜索：经 Teleport 注入到面包屑行右侧 -->
+    <teleport v-if="trash" to="#crumb-actions" defer>
+      <n-input
+        v-model:value="keyword"
+        :placeholder="t('api.searchTrashPlaceholder')"
+        clearable
+        class="search"
+        @keyup.enter="reload(1)"
+        @clear="reload(1)"
+      >
+        <template #suffix><n-icon :component="SearchOutline" /></template>
+      </n-input>
+      <n-button @click="reload(1)">{{ t('common.search') }}</n-button>
     </teleport>
 
     <div class="split-main">
       <!-- 新建接口：覆盖整个内容区 -->
       <n-card v-if="creating" :bordered="true" class="pane-card">
         <template #header>
-          <h2 class="section-title">新建接口</h2>
+          <h2 class="section-title">{{ t('api.createTitle') }}</h2>
         </template>
         <template #header-extra>
           <div class="row-actions">
-            <n-button size="small" @click="cancelCreate">取消</n-button>
-            <n-button size="small" type="primary" :loading="saving" @click="submit">保存</n-button>
+            <n-button size="small" @click="cancelCreate">{{ t('common.cancel') }}</n-button>
+            <n-button size="small" type="primary" :loading="saving" @click="submit">{{ t('common.save') }}</n-button>
           </div>
         </template>
         <n-form label-placement="left" label-width="72" class="form-grid">
-          <n-form-item label="名称"><n-input v-model:value="form.api_name" placeholder="接口名称" /></n-form-item>
-          <n-form-item label="所属分组">
+          <n-form-item :label="t('api.name')"><n-input v-model:value="form.api_name" :placeholder="t('api.namePlaceholder')" /></n-form-item>
+          <n-form-item :label="t('api.group')">
             <n-select v-model:value="form.group_id" :options="groupOptions" />
           </n-form-item>
-          <n-form-item label="请求方法">
+          <n-form-item :label="t('api.method')">
             <n-select v-model:value="form.http_method_type" :options="methodOptions" />
           </n-form-item>
           <n-form-item label="URL"><n-input v-model:value="form.url" placeholder="/api/xxx" /></n-form-item>
-          <n-form-item label="请求协议"><n-input v-model:value="form.protocol_type" placeholder="HTTP" /></n-form-item>
-          <n-form-item label="返回类型"><n-input v-model:value="form.http_return_type" placeholder="JSON" /></n-form-item>
-          <n-form-item label="开发语言"><n-input v-model:value="form.develop_language" placeholder="如 go / php" /></n-form-item>
-          <n-form-item label="说明" class="span-2">
-            <n-input v-model:value="form.description" type="textarea" :rows="2" placeholder="可选" />
-          </n-form-item>
+          <n-form-item :label="t('api.protocol')"><n-input v-model:value="form.protocol_type" placeholder="HTTP" /></n-form-item>
+          <n-form-item :label="t('api.returnType')"><n-input v-model:value="form.http_return_type" placeholder="JSON" /></n-form-item>
+          <n-form-item :label="t('api.devLang')"><n-input v-model:value="form.develop_language" :placeholder="t('api.devLangPlaceholder')" /></n-form-item>
         </n-form>
         <api-fields-editor
-          v-model:headers="headers"
+          v-model:header-rows="headerRows"
           v-model:req-params="reqParams"
           v-model:res-params="resParams"
           v-model:sample="sample"
+          v-model:description="form.description"
         />
       </n-card>
 
       <!-- 回收站 -->
       <n-card v-else-if="trash" :bordered="true" class="pane-card table-card" content-style="padding: 0">
+        <!-- 批量操作条：勾选后一键还原（服务端会一并恢复所属分组） -->
+        <div class="trash-bar">
+          <n-checkbox :checked="allChecked" :indeterminate="someChecked" @update:checked="toggleAll">{{ t('common.selectAllPage') }}</n-checkbox>
+          <span class="meta">{{ t('common.selected', { n: selected.length, total: rows.length }) }}</span>
+          <div class="row-actions">
+            <n-button size="small" type="primary" :disabled="!selected.length" :loading="acting" @click="restoreSelected">
+              {{ t('common.batchRestore') }}
+            </n-button>
+            <n-button v-if="canDelete()" size="small" type="error" :disabled="!selected.length" @click="purgeSelected">
+              {{ t('common.purge') }}
+            </n-button>
+          </div>
+        </div>
         <n-spin :show="loading">
-          <n-empty v-if="!rows.length && !loading" class="empty-block" description="回收站为空" />
-          <div v-else class="table-scroll">
+          <n-empty v-if="!rows.length && !loading" class="empty-block" :description="t('common.trashEmpty')" />
+          <div v-else class="table-scroll trash-table">
             <n-table :single-line="false" size="medium" class="wide">
               <thead>
                 <tr>
-                  <th style="width: 24%">名称</th>
-                  <th style="width: 96px">请求方法</th>
+                  <th class="col-check" />
+                  <th style="width: 24%">{{ t('api.name') }}</th>
+                  <th style="width: 96px">{{ t('api.method') }}</th>
                   <th style="width: 30%">URL</th>
-                  <th style="width: 168px">创建时间</th>
-                  <th style="width: 120px">操作</th>
+                  <th style="width: 168px">{{ t('api.createdAt') }}</th>
+                  <th class="col-ops" style="width: 120px">{{ t('api.actions') }}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="a in rows" :key="a.id">
-                  <td>{{ a.api_name || '未命名接口' }}</td>
+                  <td class="col-check">
+                    <n-checkbox :checked="selected.includes(a.id)" @update:checked="(v: boolean) => toggleOne(a.id, v)" />
+                  </td>
+                  <td>{{ a.api_name || t('tree.unnamedApi') }}</td>
                   <td><method-tag :method="a.http_method_type" /></td>
                   <td class="row-mono ellipsis" :title="a.url">{{ a.url || '—' }}</td>
                   <td class="muted nowrap">{{ fmtTime(a.create_time) }}</td>
-                  <td>
+                  <td class="col-ops">
                     <div class="row-actions">
-                      <n-button text type="primary" size="small" @click="restore(a)">恢复</n-button>
-                      <n-button v-if="canDelete()" text type="error" size="small" @click="remove(a)">删除</n-button>
+                      <n-button text type="primary" size="small" @click="restoreOne(a)">{{ t('api.restore') }}</n-button>
+                      <n-button v-if="canDelete()" text type="error" size="small" @click="purgeOne(a)">{{ t('common.delete') }}</n-button>
                     </div>
                   </td>
                 </tr>
@@ -337,7 +344,14 @@ onMounted(() => {
             </n-table>
           </div>
         </n-spin>
-        <table-pager :total="total" :page-num="pageNum" :page-size="pageSize" @update:page-num="reload" />
+        <table-pager
+          :total="total"
+          :page-num="pageNum"
+          :page-size="pageSize"
+          :page-sizes="PAGE_SIZES"
+          @update:page-num="reload"
+          @update:page-size="onPageSize"
+        />
       </n-card>
 
       <!-- 接口详情（查看/编辑） -->
@@ -345,8 +359,6 @@ onMounted(() => {
         v-else-if="apiId"
         :key="apiId"
         :api-id="apiId"
-        embedded
-        @close="closeDetail"
         @changed="treeRef?.reload()"
       />
 
@@ -354,33 +366,15 @@ onMounted(() => {
       <empty-hint
         v-else
         :icon="SendOutline"
-        title="从左侧接口集合中选择一个接口查看详情"
+        :title="t('api.emptyHint')"
         :tips="[
-          { label: '查看详情', value: '点击接口集合中的接口' },
-          { label: '新建接口', value: '点击右上角「创建接口」' },
-          { label: '批量导入', value: '「导入 OpenAPI」支持 JSON / YAML' },
+          { label: t('api.hintDetail'), value: t('api.hintDetailV') },
+          { label: t('api.hintCreate'), value: t('api.hintCreateV') },
+          { label: t('api.hintNewDir'), value: t('api.hintNewDirV') },
+          { label: t('api.hintImport'), value: t('api.hintImportV') },
         ]"
-      >
-        <n-button v-if="canCreate()" type="primary" @click="openCreate">创建接口</n-button>
-      </empty-hint>
+      />
     </div>
-
-    <n-modal v-model:show="showImport" preset="card" title="导入 OpenAPI（选择 JSON / YAML 文件）" style="width: 520px">
-      <n-upload
-        :max="1"
-        :default-upload="false"
-        accept=".json,.yaml,.yml"
-        @update:file-list="onImportFiles"
-      >
-        <n-button>选择文件</n-button>
-      </n-upload>
-      <template #footer>
-        <div class="foot">
-          <n-button size="small" @click="showImport = false">取消</n-button>
-          <n-button type="primary" size="small" @click="doImport">导入</n-button>
-        </div>
-      </template>
-    </n-modal>
   </div>
 </template>
 
@@ -401,11 +395,5 @@ onMounted(() => {
 
 .span-2 {
   grid-column: span 2;
-}
-
-.foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 </style>

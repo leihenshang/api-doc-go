@@ -1,11 +1,9 @@
 <script setup lang="ts">
-// HTTP 方法标签：Postman 配色。默认渲染为浅底胶囊（列表/详情用），plain 为纯文字（树用）。
+// HTTP 方法标签：Postman 配色 + 描边徽标（浅底深字保证可读性，描边/底色取方法主色）。
 import { computed } from 'vue'
 
-const props = withDefaults(defineProps<{ method: string; plain?: boolean }>(), { plain: false })
-
-/** 方法主色：GET 绿 / POST 橙 / PUT 蓝 / PATCH 紫 / DELETE 红。 */
-const COLORS: Record<string, string> = {
+/** 方法主色：GET 绿 / POST 橙 / PUT 蓝 / PATCH 紫 / DELETE 红，用于底色与描边。 */
+const ACCENT: Record<string, string> = {
   GET: '#0cbb52',
   POST: '#ffb400',
   PUT: '#097bed',
@@ -15,14 +13,26 @@ const COLORS: Record<string, string> = {
   OPTIONS: '#7d8590',
 }
 
+/** 文字色：同色相压深，避免亮色前景在浅底上对比度不足。 */
+const INK: Record<string, string> = {
+  GET: '#0a7c39',
+  POST: '#9a6200',
+  PUT: '#0a5fbe',
+  PATCH: '#71319a',
+  DELETE: '#c41c10',
+  HEAD: '#00756f',
+  OPTIONS: '#565e66',
+}
+
+const props = defineProps<{ method: string }>()
+
 const label = computed(() => (props.method || '').toUpperCase() || '—')
-const color = computed(() => COLORS[label.value] ?? COLORS.OPTIONS)
-/** 8 位十六进制末尾即 alpha，用主色 12% 作底。 */
-const background = computed(() => (props.plain ? 'transparent' : `${color.value}1f`))
+const accent = computed(() => ACCENT[label.value] ?? ACCENT.OPTIONS)
+const ink = computed(() => INK[label.value] ?? INK.OPTIONS)
 </script>
 
 <template>
-  <span class="mt" :class="{ 'mt--plain': plain }" :style="{ color, background }">{{ label }}</span>
+  <span class="mt" :style="{ color: ink, background: `${accent}1f`, borderColor: `${accent}80` }">{{ label }}</span>
 </template>
 
 <style scoped>
@@ -31,21 +41,14 @@ const background = computed(() => (props.plain ? 'transparent' : `${color.value}
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  min-width: 54px;
-  padding: 1px 6px;
+  min-width: 52px;
+  padding: 0 6px;
+  border: 1px solid;
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.4px;
-  line-height: 18px;
-}
-
-.mt--plain {
-  min-width: 38px;
-  padding: 0;
-  justify-content: flex-start;
-  font-size: 10px;
-  line-height: 1;
+  letter-spacing: 0.5px;
+  line-height: 17px;
 }
 </style>

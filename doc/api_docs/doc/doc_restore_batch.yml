@@ -1,0 +1,44 @@
+info:
+  name: 文档_回收站批量还原
+  type: http
+  seq: 87
+
+http:
+  method: POST
+  url: "{{host}}/api/doc/restore-batch"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 文档_回收站批量还原
+
+  ## 请求 URI
+  - `/api/doc/restore-batch`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`；权限按条目所属项目校验
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |ids|是|uint[]|条目 id 数组（当前页勾选结果；空数组报 22）|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期 / 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 与接口批量还原同规则：按项目校验 **update** 权限 + 一并恢复已删除的所属文档分组（含祖先链）。
+  - 返回 `{ restored, groups }`。

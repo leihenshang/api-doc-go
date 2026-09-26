@@ -32,7 +32,7 @@ docs: |-
   ## 请求参数
   |参数名|必选|类型|说明|
   |:--|:--|:--|:--|
-|title|是|string|项目标题（唯一）|
+|title|是|string|项目标题（仅在未删除项目中唯一；删除后的项目名可复用）|
 |description|否|string|描述|
 |version|否|string|版本|
 |type|否|string|类型|
@@ -40,6 +40,8 @@ docs: |-
   ## 统一响应
   - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
   - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+  - 14 失败：`项目名称「xxx」已存在，请更换名称`（同名未删除项目已存在时返回）
 
   ## 备注
   - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 名称唯一由局部唯一索引 `uk_project_title`（`WHERE is_deleted = 0`）兜底，软删除行不占用名称。

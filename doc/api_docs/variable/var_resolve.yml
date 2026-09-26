@@ -1,0 +1,46 @@
+info:
+  name: 变量_解析表
+  type: http
+  seq: 74
+
+http:
+  method: GET
+  url: "{{host}}/api/variable/resolve?project_id=&api_id=&env_id="
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 变量_解析表
+
+  ## 请求 URI
+  - `/api/variable/resolve?project_id=&api_id=&env_id=`
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |project_id|是|uint|项目 ID|
+  |api_id|是|uint|接口 ID（取其请求变量）|
+  |env_id|否|uint|当前环境（0 = 未选环境，仅通用与全局参与）|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 返回 `data: [{ ...变量字段..., source: request|project|global }]`：**同名只返回最高优先级的一条**。
+    - 停用（enabled=0）与绑定其它环境的项目变量不参与；未命中即「未定义」（前端黄色告警）。
+    - 敏感值返回掩码；`has_value=false` 表示「已定义但值为空」（前端中性提示，替换为空串）。

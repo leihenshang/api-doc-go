@@ -19,15 +19,25 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 
 	h := handler.New(cfg, service.New(repository.New(db, cfg), cfg))
 
-	// 公共接口（无需登录）。
+	// 健康检查注册在限流之前：探活/监控不消耗配额。
 	engine.GET("/api/health", h.Health)
-	engine.POST("/api/user/login", h.Login)
-	engine.POST("/api/user/register", h.Register)
+
+	// 全局限流（每 IP 每分钟，0 = 关闭）：防止误用与暴力刷接口。
+	engine.Use(middleware.RateLimit(cfg.Security.RateLimitPerMin))
+
+	// 公共接口（无需登录）；登录/注册额外套一层更严格的限流（防爆破）。
+	authLimit := middleware.RateLimit(cfg.Security.AuthRateLimitPerMin)
+	engine.POST("/api/user/login", authLimit, h.Login)
+	engine.POST("/api/user/register", authLimit, h.Register)
 	// 查重供注册页未登录时调用。
 	engine.GET("/api/user/check-repeat", h.CheckRepeat)
 
-	// 静态资源（上传目录）。
-	engine.Static("/uploads", cfg.Upload.Dir)
+	// 上传目录静态服务：白名单扩展名 + 固定 Content-Type + nosniff（替代 engine.Static）。
+	engine.GET("/uploads/*path", h.ServeUpload)
+
+	// 免登录：只读分享数据（令牌校验 + 有效期）与 Mock 服务（前端联调用）。
+	engine.GET("/api/share/:token", h.SharePayload)
+	engine.Any("/mock/:project_id/*path", h.Mock)
 
 	// 受保护接口。
 	auth := engine.Group("/api", middleware.Auth(cfg.JWT.Secret))
@@ -67,6 +77,10 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		gr.PUT("", h.UpdateGroup)
 		gr.DELETE("", h.DeleteGroup)
 	}
+	// 拖拽排序（分组 / 接口 / 文档通用）
+	{
+		g.POST("/sort", h.SortNodes)
+	}
 	// 接口文档
 	{
 		a := g.Group("/api")
@@ -76,9 +90,16 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		a.PUT("", h.UpdateApi)
 		a.DELETE("", h.DeleteApi)
 		a.POST("/restore", h.RestoreApi)
+		// 回收站批量操作：恢复（顺带恢复已删除的所属分组）/ 彻底删除
+		a.POST("/restore-batch", h.RestoreApiBatch)
+		a.POST("/purge-batch", h.PurgeApiBatch)
 		a.POST("/import", h.ImportOpenAPI)
+		a.POST("/import-bruno", h.ImportBruno)
 		a.GET("/export", h.ExportOpenAPI)
 		a.GET("/curl", h.ExportCurl)
+		a.GET("/code", h.CodeSnippet)
+		a.GET("/export-postman", h.ExportPostman)
+		a.POST("/import-postman", h.ImportPostman)
 	}
 	// 项目文档
 	{
@@ -89,6 +110,8 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		d.PUT("", h.UpdateDoc)
 		d.DELETE("", h.DeleteDoc)
 		d.POST("/restore", h.RestoreDoc)
+		d.POST("/restore-batch", h.RestoreDocBatch)
+		d.POST("/purge-batch", h.PurgeDocBatch)
 		d.POST("/like", h.LikeDoc)
 	}
 	// 字段映射
@@ -98,6 +121,26 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		f.GET("", h.ListFieldMappings)
 		f.PUT("", h.UpdateFieldMapping)
 		f.DELETE("", h.DeleteFieldMapping)
+	}
+	// 环境（项目级多环境：项目变量的取值维度）
+	{
+		e := g.Group("/variable-env")
+		e.POST("", h.CreateVariableEnv)
+		e.GET("", h.ListVariableEnvs)
+		e.PUT("", h.UpdateVariableEnv)
+		e.PUT("/default", h.SetDefaultVariableEnv)
+		e.GET("/references", h.VariableEnvRefs)
+		e.DELETE("", h.DeleteVariableEnv)
+	}
+	// 变量（请求级 / 项目级 / 全局）+ 解析表 + 列表徽标批量统计
+	{
+		v := g.Group("/variable")
+		v.POST("", h.CreateVariable)
+		v.GET("", h.ListVariables)
+		v.PUT("", h.UpdateVariable)
+		v.DELETE("", h.DeleteVariable)
+		v.GET("/resolve", h.ResolveVariables)
+		v.GET("/summary", h.SummarizeVariables)
 	}
 	// Bug
 	{
@@ -109,6 +152,15 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		b.DELETE("", h.DeleteBug)
 		b.POST("/assign", h.AssignBug)
 		b.GET("/assign", h.ListBugAssign)
+	}
+	// 全局搜索（跨项目：接口 / 文档 / 项目）
+	g.GET("/search", h.Search)
+	// 分享链接（创建/列表/失效；免登录读取见下方公共路由）
+	{
+		s := g.Group("/share")
+		s.POST("", h.CreateShareLink)
+		s.GET("", h.ListShareLinks)
+		s.DELETE("", h.DeleteShareLink)
 	}
 	// 公共属性
 	{
@@ -124,15 +176,6 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 	// 操作日志
 	g.GET("/operation-log", h.ListLogs)
 	// 外部数据库连接
-	{
-		d := g.Group("/database")
-		d.POST("", h.CreateConn)
-		d.GET("", h.ListConns)
-		d.PUT("", h.UpdateConn)
-		d.DELETE("", h.DeleteConn)
-		d.GET("/tables", h.ConnTables)
-		d.GET("/columns", h.ConnColumns)
-	}
 	// 文件上传
 	g.POST("/file/upload", h.UploadImg)
 }

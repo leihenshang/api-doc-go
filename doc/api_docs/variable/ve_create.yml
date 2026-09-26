@@ -1,0 +1,47 @@
+info:
+  name: 环境_创建
+  type: http
+  seq: 64
+
+http:
+  method: POST
+  url: "{{host}}/api/variable-env"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 环境_创建
+
+  ## 请求 URI
+  - `/api/variable-env`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |project_id|是|uint|项目 ID|
+  |name|是|string|环境名（项目内唯一，如 dev / test / prod）|
+  |description|否|string|说明|
+  |color|否|string|颜色标记（#RRGGBB，空则前端给默认色）|
+  |priority|否|int|排序|
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
+  - 项目首个环境自动成为**默认环境**（is_default=1）。
+    - 同名环境返回 14：`环境「xxx」已存在`。

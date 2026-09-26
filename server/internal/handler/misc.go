@@ -2,12 +2,16 @@ package handler
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
-	"time"
+	"strings"
 
 	"apidoc/internal/dto"
 	"apidoc/internal/pkg/errcode"
+	"apidoc/internal/pkg/fileutil"
 	"apidoc/internal/pkg/page"
 	"apidoc/internal/pkg/response"
 
@@ -203,91 +207,43 @@ func (h *Handler) ListLogs(c *gin.Context) {
 	response.OK(c, res)
 }
 
-// ---- 外部数据库连接 ----
-
-// CreateConn 处理 POST /api/database。
-func (h *Handler) CreateConn(c *gin.Context) {
-	var req dto.DatabaseReq
-	if !bindJSON(c, &req) {
-		return
-	}
-	p := principal(c)
-	res, err := h.svc.CreateConn(c.Request.Context(), p.UserID, p.Type, req)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, res)
-}
-
-// ListConns 处理 GET /api/database?project_id=。
-func (h *Handler) ListConns(c *gin.Context) {
-	res, err := h.svc.ListConns(c.Request.Context(), idQuery(c, "project_id"))
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, res)
-}
-
-// UpdateConn 处理 PUT /api/database。
-func (h *Handler) UpdateConn(c *gin.Context) {
-	var req dto.DatabaseReq
-	if !bindJSON(c, &req) {
-		return
-	}
-	p := principal(c)
-	res, err := h.svc.UpdateConn(c.Request.Context(), p.UserID, p.Type, req)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, res)
-}
-
-// DeleteConn 处理 DELETE /api/database/:id。
-func (h *Handler) DeleteConn(c *gin.Context) {
-	p := principal(c)
-	if err := h.svc.DeleteConn(c.Request.Context(), p.UserID, p.Type, idParam(c)); err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, nil)
-}
-
-// ConnTables 处理 GET /api/database/tables?conn_id=，读取外部库表清单。
-func (h *Handler) ConnTables(c *gin.Context) {
-	p := principal(c)
-	res, err := h.svc.ConnTables(c.Request.Context(), p.UserID, p.Type, idQuery(c, "conn_id"))
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, res)
-}
-
-// ConnColumns 处理 GET /api/database/columns?conn_id=&table=，读取表列结构。
-func (h *Handler) ConnColumns(c *gin.Context) {
-	p := principal(c)
-	res, err := h.svc.ConnColumns(c.Request.Context(), p.UserID, p.Type, idQuery(c, "conn_id"), c.Query("table"))
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, res)
-}
-
 // ---- 文件上传 ----
 
 // UploadImg 处理 POST /api/file/upload（multipart 字段 file）。
+// 加固：大小上限 → 扩展名白名单 → 文件头嗅探（防改名绕过）→ 随机文件名（防枚举）。
 func (h *Handler) UploadImg(c *gin.Context) {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		response.Fail(c, errcode.CodeParamError, "缺少文件")
 		return
 	}
-	ext := filepath.Ext(fileHeader.Filename)
-	name := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	if maxBytes := h.cfg.Upload.MaxMB * 1024 * 1024; maxBytes > 0 && fileHeader.Size > maxBytes {
+		response.Fail(c, errcode.CodeParamError, fmt.Sprintf("文件过大，单文件上限 %d MB", h.cfg.Upload.MaxMB))
+		return
+	}
+	ext := fileutil.NormalizeExt(fileHeader.Filename)
+	if !fileutil.Allowed(ext, h.cfg.Upload.AllowExt) {
+		response.Fail(c, errcode.CodeParamError, "不支持的文件类型，允许："+strings.Join(h.cfg.Upload.AllowExt, " "))
+		return
+	}
+	// 嗅探文件头：内容类型必须与扩展名同族，防止把 HTML/脚本改名为图片上传。
+	src, err := fileHeader.Open()
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(src, head)
+	_ = src.Close()
+	if !fileutil.SniffAllowed(head[:n], ext) {
+		response.Fail(c, errcode.CodeParamError, "文件内容与扩展名不符，已拒绝上传")
+		return
+	}
+	name, err := fileutil.RandomName(ext)
+	if err != nil {
+		fail(c, err)
+		return
+	}
 	dst := filepath.Join(h.cfg.Upload.Dir, name)
 	if err := c.SaveUploadedFile(fileHeader, dst); err != nil {
 		fail(c, err)
@@ -299,4 +255,35 @@ func (h *Handler) UploadImg(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{"id": f.ID, "url": "/uploads/" + name})
+}
+
+// ServeUpload 处理 GET /uploads/*path：代替 engine.Static 的安全静态服务。
+// 只服务白名单扩展名 → 按扩展名固定 Content-Type（绝不 text/html）→ nosniff + inline；
+// 配置了 UPLOAD_SIGN_KEY 时校验 `?s=` 签名（默认关闭，保证分享页/文档内嵌图片可用）。
+func (h *Handler) ServeUpload(c *gin.Context) {
+	name := filepath.Base(strings.TrimPrefix(c.Param("path"), "/"))
+	if name == "" || name == "." || name == ".." || name == "/" {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	ext := fileutil.NormalizeExt(name)
+	if !fileutil.Allowed(ext, h.cfg.Upload.AllowExt) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if h.cfg.Upload.SignKey != "" && c.Query("s") != fileutil.Sign(name, h.cfg.Upload.SignKey) {
+		c.Status(http.StatusForbidden)
+		return
+	}
+	path := filepath.Join(h.cfg.Upload.Dir, name)
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Type", fileutil.ContentTypeOf(ext))
+	c.Header("Content-Disposition", "inline")
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.File(path)
 }
