@@ -11,20 +11,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zqstudio/api-doc-go-share/varx"
+
 	"apidoc/internal/dto"
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
 	"apidoc/internal/repository"
 )
 
-// 变量名规则：字母或下划线开头，仅含字母/数字/下划线，最长 64 位。
+// 变量名规则（写入校验）：字母或下划线开头，仅含字母/数字/下划线，最长 64 位。
+// 渲染侧的占位符语法与优先级由共享包 varx 统一，不在本层复制一份规则。
 var varNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
-// 变量占位符 {{name}}（允许花括号内两侧空白）。
-var varPlaceholderPattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_]{0,63})\s*\}\}`)
-
-// varMaskedValue 敏感值对外掩码。
-const varMaskedValue = "••••••"
+// varMaskedValue 敏感值对外掩码（取值与共享规则同源）。
+const varMaskedValue = varx.MaskedValue
 
 // 变量解析来源标记（与前端展示一致）。
 const (
@@ -535,25 +535,31 @@ func (s *Service) canRevealValues(ctx context.Context, userID uint64, typ int8, 
 }
 
 // varRank 返回变量在当前环境下的解析优先级（越小越优先）；ok=false 表示不参与解析。
+// 优先级表在共享包 varx，本层只负责 model → varx.Var 的映射。
 func varRank(v model.Variable, envID uint64) (int, bool) {
-	if v.Enabled != model.VarEnabled {
-		return 0, false
-	}
+	return varx.Rank(toShareVar(v), envID)
+}
+
+// toShareVar 把实体映射为共享层变量：项目变量按是否绑定环境区分「当前环境」与「通用」。
+func toShareVar(v model.Variable) varx.Var {
+	scope := varx.ScopeGlobal
 	switch v.Scope {
 	case model.VarScopeRequest:
-		return 1, true
+		scope = varx.ScopeRequest
 	case model.VarScopeProject:
-		if envID > 0 && v.EnvID == envID {
-			return 2, true
-		}
+		scope = varx.ScopeProjectEnv
 		if v.EnvID == 0 {
-			return 3, true
+			scope = varx.ScopeProjectCommon
 		}
-		return 0, false
-	case model.VarScopeGlobal:
-		return 4, true
 	}
-	return 0, false
+	return varx.Var{
+		Name:    v.Name,
+		Value:   v.Value,
+		Scope:   scope,
+		EnvID:   v.EnvID,
+		Enabled: v.Enabled == model.VarEnabled,
+		Secret:  v.IsSecret == model.VarSecret,
+	}
 }
 
 // varSourceOf 返回变量来源标记。
@@ -585,13 +591,8 @@ func scopeLabel(v *model.Variable) string {
 func maskVariable(v model.Variable) VarView {
 	view := plainVariable(v)
 	view.HasValue = v.Value != ""
-	if v.IsSecret == model.VarSecret {
-		if v.Value == "" {
-			view.Value = ""
-		} else {
-			view.Value = varMaskedValue
-		}
-	}
+	// 掩码规则（敏感且有值才掩码）与共享包一致，避免两端各写一套判断。
+	view.Value = varx.MaskedValueOf(toShareVar(v))
 	return view
 }
 
@@ -634,22 +635,9 @@ func joinNames(items []model.Variable, limit int) string {
 	return strings.Join(names[:limit], "、") + " 等 " + itoa(len(names)) + " 个"
 }
 
-// collectVarNames 提取文本中引用的变量名（去重保序）。
+// collectVarNames 提取文本中引用的变量名（去重保序，不含内置变量）。
 func collectVarNames(text string) []string {
-	if text == "" {
-		return nil
-	}
-	var out []string
-	seen := map[string]struct{}{}
-	for _, m := range varPlaceholderPattern.FindAllStringSubmatch(text, -1) {
-		name := m[1]
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	return out
+	return varx.Names(text)
 }
 
 // apiVarNames 汇总接口在 URL / 请求头 value / 请求参数示例中引用的变量名。
@@ -704,22 +692,21 @@ func (s *Service) resolveTable(ctx context.Context, projectID, apiID, envID uint
 }
 
 // renderVars 把文本中的 {{name}} 替换为变量值：未定义保留占位符原文，空值替换为空串。
-// table 为空时原样返回（resolve=false 的"保留占位符"模式）。
+// table 为空时原样返回（resolve=false 的"保留占位符"模式，连内置变量也不渲染）。
+// 表中保留敏感值原文：渲染结果只在服务端使用（cURL/代码片段），单条变量明文不对外回传。
 func renderVars(text string, table map[string]model.Variable) string {
 	if text == "" || len(table) == 0 {
 		return text
 	}
-	return varPlaceholderPattern.ReplaceAllStringFunc(text, func(m string) string {
-		sub := varPlaceholderPattern.FindStringSubmatch(m)
-		if len(sub) < 2 {
-			return m
-		}
-		hit, ok := table[sub[1]]
-		if !ok {
-			return m
-		}
-		return hit.Value
-	})
+	vars := make([]varx.Var, 0, len(table))
+	for _, v := range table {
+		// 表内已按优先级去重，统一按请求级参与即可保持唯一胜出者。
+		sv := toShareVar(v)
+		sv.Scope = varx.ScopeRequest
+		vars = append(vars, sv)
+	}
+	out, _ := varx.Build(vars, 0).Resolve(text)
+	return out
 }
 
 // referencedSecretVars 返回文本引用中命中敏感变量的变量名（去重保序），供导出审计。

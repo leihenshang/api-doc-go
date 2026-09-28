@@ -12,43 +12,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zqstudio/api-doc-go-share/collection"
+
 	"apidoc/internal/dto"
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
-
-	"gopkg.in/yaml.v3"
 )
-
-type brunoInfo struct {
-	Name string `yaml:"name"`
-	Type string `yaml:"type"`
-}
-
-type brunoKV struct {
-	Name  string `yaml:"name"`
-	Value string `yaml:"value"`
-}
-
-type brunoHTTP struct {
-	Method  string    `yaml:"method"`
-	URL     string    `yaml:"url"`
-	Params  []brunoKV `yaml:"params"`
-	Headers []brunoKV `yaml:"headers"`
-	Body    struct {
-		Type string `yaml:"type"`
-		Data string `yaml:"data"`
-	} `yaml:"body"`
-}
-
-type brunoRequest struct {
-	Info brunoInfo `yaml:"info"`
-	HTTP brunoHTTP `yaml:"http"`
-	Docs string    `yaml:"docs"`
-}
-
-type brunoFolder struct {
-	Info brunoInfo `yaml:"info"`
-}
 
 // apiHeaderRow / apiParamRow 与前端 ApiHeader / ApiParam 的 JSON 契约对齐。
 type apiHeaderRow struct {
@@ -91,8 +60,8 @@ func (s *Service) ImportBruno(ctx context.Context, userID uint64, typ int8, proj
 
 	var res ImportResult
 	for _, f := range reqs {
-		var req brunoRequest
-		if err := yaml.Unmarshal([]byte(f.Content), &req); err != nil {
+		req, err := collection.DecodeRequest([]byte(f.Content))
+		if err != nil {
 			res.addFailure(f.Path + "：YAML 解析失败")
 			continue
 		}
@@ -162,8 +131,7 @@ func (s *Service) brunoGroupEnsurer(ctx context.Context, projectID uint64, group
 		}
 		name := path.Base(dir)
 		if raw, ok := folderYAML[dir]; ok {
-			var fd brunoFolder
-			if yaml.Unmarshal([]byte(raw), &fd) == nil && strings.TrimSpace(fd.Info.Name) != "" {
+			if fd, ferr := collection.DecodeFolder([]byte(raw)); ferr == nil && strings.TrimSpace(fd.Info.Name) != "" {
 				name = strings.TrimSpace(fd.Info.Name)
 			}
 		}
@@ -184,8 +152,8 @@ func (s *Service) brunoGroupEnsurer(ctx context.Context, projectID uint64, group
 	return ensure
 }
 
-// buildBrunoApi 把 Bruno 请求文件转为接口记录：方法/路径/说明 + 请求头 + 查询参数与 JSON 请求体展平。
-func (s *Service) buildBrunoApi(projectID, groupID uint64, req brunoRequest) (*model.Api, error) {
+// buildBrunoApi 把请求文件转为接口记录：方法/路径/说明 + 请求头 + 查询参数与 JSON 请求体展平。
+func (s *Service) buildBrunoApi(projectID, groupID uint64, req *collection.RequestFile) (*model.Api, error) {
 	a := &model.Api{
 		ProjectID:      projectID,
 		GroupID:        groupID,
@@ -204,9 +172,9 @@ func (s *Service) buildBrunoApi(projectID, groupID uint64, req brunoRequest) (*m
 	for _, p := range req.HTTP.Params {
 		params = append(params, apiParamRow{FieldName: p.Name, Type: "string", Example: p.Value})
 	}
-	if strings.EqualFold(req.HTTP.Body.Type, "json") && strings.TrimSpace(req.HTTP.Body.Data) != "" {
+	if raw := strings.TrimSpace(bodyContent(req.HTTP.Body)); strings.EqualFold(req.HTTP.Body.Type, "json") && raw != "" {
 		var v any
-		if err := json.Unmarshal([]byte(req.HTTP.Body.Data), &v); err != nil {
+		if err := json.Unmarshal([]byte(raw), &v); err != nil {
 			return nil, newBiz(errcode.CodeParamError, "请求体 JSON 解析失败（%s）：%v", a.ApiName, err)
 		}
 		params = append(params, flattenJSON("", v, nil)...)
@@ -226,6 +194,14 @@ func (s *Service) buildBrunoApi(projectID, groupID uint64, req brunoRequest) (*m
 		}
 	}
 	return a, nil
+}
+
+// bodyContent 取请求体原文：Bruno 写在 data，客户端写的集合写在 raw。
+func bodyContent(b collection.Body) string {
+	if strings.TrimSpace(b.Data) != "" {
+		return b.Data
+	}
+	return b.Raw
 }
 
 // flattenJSON 把 JSON 值展平为 a.b[] 形式的参数行（对象逐层展开，数组按首元素推断结构）。

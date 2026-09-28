@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	shopenapi "github.com/zqstudio/api-doc-go-share/openapi"
+
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/page"
 )
@@ -33,43 +35,34 @@ func (s *Service) OpenAPIExport(ctx context.Context, projectID, groupID uint64) 
 		}
 	}
 
-	paths := map[string]any{}
+	doc := &shopenapi.Document{Title: docTitle, Version: docVersion}
 	for i := range apis {
-		a := &apis[i]
-		method := strings.ToLower(strings.TrimSpace(a.HttpMethodType))
-		if method == "" {
-			method = "get"
-		}
-		op := map[string]any{
-			"summary":   a.ApiName,
-			"responses": exportResponses(a),
-		}
-		if t := titles[a.GroupID]; t != "" {
-			op["tags"] = []string{t}
-		}
-		if a.Description != "" {
-			op["description"] = a.Description
-		}
-		if params := exportParameters(a.HttpRequestParams); params != nil {
-			op["parameters"] = params
-		}
-		pathItem, ok := paths[a.URL].(map[string]any)
-		if !ok {
-			pathItem = map[string]any{}
-			paths[a.URL] = pathItem
-		}
-		pathItem[method] = op
+		doc.Ops = append(doc.Ops, openAPIOperation(&apis[i], titles[apis[i].GroupID]))
 	}
-
-	return map[string]any{
-		"openapi": "3.0.0",
-		"info":    map[string]any{"title": docTitle, "version": docVersion},
-		"paths":   paths,
-	}, nil
+	return doc.Encode(), nil
 }
 
-// exportParameters 将存储的 JSON 参数数组转为 OpenAPI parameters；解析失败返回 nil。
-func exportParameters(raw string) any {
+// openAPIOperation 接口记录 → 中立操作（分组名进 tags；方法空则按 GET 导出）。
+func openAPIOperation(a *model.Api, groupTitle string) shopenapi.Operation {
+	op := shopenapi.Operation{
+		Path:        a.URL,
+		Method:      strings.TrimSpace(a.HttpMethodType),
+		Summary:     a.ApiName,
+		Description: a.Description,
+		Params:      openAPIParams(a.HttpRequestParams),
+		Responses:   openAPIResponses(a),
+	}
+	if op.Method == "" {
+		op.Method = "get"
+	}
+	if groupTitle != "" {
+		op.Tags = []string{groupTitle}
+	}
+	return op
+}
+
+// openAPIParams 存储的 JSON 参数数组 → OpenAPI parameters；解析失败返回 nil。
+func openAPIParams(raw string) []shopenapi.Param {
 	if raw == "" {
 		return nil
 	}
@@ -77,15 +70,15 @@ func exportParameters(raw string) any {
 	if err := json.Unmarshal([]byte(raw), &items); err != nil || len(items) == 0 {
 		return nil
 	}
-	out := make([]map[string]any, 0, len(items))
+	out := make([]shopenapi.Param, 0, len(items))
 	for _, it := range items {
 		name, _ := it["fieldName"].(string)
 		if name == "" {
 			continue
 		}
-		p := map[string]any{"name": name, "in": "query", "required": it["required"] == true}
-		if d, ok := it["description"].(string); ok && d != "" {
-			p["description"] = d
+		p := shopenapi.Param{Name: name, In: "query", Required: it["required"] == true}
+		if d, ok := it["description"].(string); ok {
+			p.Description = d
 		}
 		out = append(out, p)
 	}
@@ -95,22 +88,13 @@ func exportParameters(raw string) any {
 	return out
 }
 
-// exportResponses 构造 responses.200；样例列可解析为 JSON 时嵌入 content.example。
-func exportResponses(a *model.Api) map[string]any {
-	desc := a.HttpReturnType
-	if desc == "" {
-		desc = "成功"
-	}
-	resp := map[string]any{"description": desc}
-	if a.HttpReturnSample != "" {
-		var sample any
-		if err := json.Unmarshal([]byte(a.HttpReturnSample), &sample); err == nil {
-			resp["content"] = map[string]any{
-				"application/json": map[string]any{"example": sample},
-			}
-		}
-	}
-	return map[string]any{"200": resp}
+// openAPIResponses 响应样例 → 中立响应（样例原文交给内核判断能否作为 JSON 示例）。
+func openAPIResponses(a *model.Api) []shopenapi.Response {
+	return []shopenapi.Response{{
+		Code:        "200",
+		Description: a.HttpReturnType,
+		ExampleJSON: a.HttpReturnSample,
+	}}
 }
 
 // ExportCurl 依据接口记录生成可执行的 cURL 命令。

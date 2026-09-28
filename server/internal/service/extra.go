@@ -2,8 +2,9 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
+
+	shopenapi "github.com/zqstudio/api-doc-go-share/openapi"
 
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
@@ -86,18 +87,6 @@ func (s *Service) prepareImport(ctx context.Context, projectID uint64, strategy 
 	return keys, nil
 }
 
-// openAPI 是标准 OpenAPI 3.x 文档的最小解析模型（JSON 形式）。
-type openAPI struct {
-	Info struct {
-		Title string `json:"title"`
-	} `json:"info"`
-	Paths map[string]map[string]struct {
-		Summary     string   `json:"summary"`
-		OperationID string   `json:"operationId"`
-		Tags        []string `json:"tags"`
-	} `json:"paths"`
-}
-
 // ImportOpenAPI 解析标准 OpenAPI(JSON) 并转为接口记录落库到指定项目+分组。
 // 每个 (path, method) 生成一条接口记录；tag 映射为二级分组；写入来源 openapi-import。
 func (s *Service) ImportOpenAPI(ctx context.Context, userID uint64, typ int8, projectID, groupID uint64, strategy string, body []byte) (ImportResult, error) {
@@ -108,8 +97,8 @@ func (s *Service) ImportOpenAPI(ctx context.Context, userID uint64, typ int8, pr
 	if err != nil {
 		return ImportResult{}, err
 	}
-	var doc openAPI
-	if err := json.Unmarshal(body, &doc); err != nil {
+	doc, err := shopenapi.Decode(body)
+	if err != nil {
 		return ImportResult{}, newBiz(errcode.CodeParamError, "OpenAPI 解析失败：%v", err)
 	}
 	groups, err := s.repo.ListGroups(ctx, projectID, model.GroupTypeAPI)
@@ -117,25 +106,24 @@ func (s *Service) ImportOpenAPI(ctx context.Context, userID uint64, typ int8, pr
 		return ImportResult{}, err
 	}
 	var res ImportResult
-	for path, ops := range doc.Paths {
-		for method, op := range ops {
-			if _, dup := keys[apiUniqueKey(method, path)]; dup {
-				res.Skipped++
-				continue
-			}
-			target := s.resolveGroup(ctx, projectID, groupID, op.Tags, groups)
-			a := &model.Api{
-				ProjectID: projectID, GroupID: target,
-				ApiName:        firstNonEmpty(op.Summary, op.OperationID, method+" "+path),
-				HttpMethodType: upperMethod(method), URL: path, ProtocolType: "http",
-				Source: SourceOpenAPI,
-			}
-			if err := s.repo.CreateApi(ctx, a); err != nil {
-				return res, err
-			}
-			keys[apiUniqueKey(method, path)] = struct{}{}
-			res.Imported++
+	for _, op := range doc.Ops {
+		method := upperMethod(op.Method)
+		if _, dup := keys[apiUniqueKey(method, op.Path)]; dup {
+			res.Skipped++
+			continue
 		}
+		target := s.resolveGroup(ctx, projectID, groupID, op.Tags, groups)
+		a := &model.Api{
+			ProjectID: projectID, GroupID: target,
+			ApiName:        firstNonEmpty(op.Summary, op.OperationID, method+" "+op.Path),
+			HttpMethodType: method, URL: op.Path, ProtocolType: "http",
+			Source: SourceOpenAPI,
+		}
+		if err := s.repo.CreateApi(ctx, a); err != nil {
+			return res, err
+		}
+		keys[apiUniqueKey(method, op.Path)] = struct{}{}
+		res.Imported++
 	}
 	s.recordOp(ctx, projectID, userID, projectID, model.LogObjectAPI, "import",
 		"导入 OpenAPI 接口 "+itoa(res.Imported)+" 条（跳过 "+itoa(res.Skipped)+"）")

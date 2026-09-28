@@ -8,12 +8,11 @@ import (
 	"encoding/json"
 	"strings"
 
+	shpostman "github.com/zqstudio/api-doc-go-share/postman"
+
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
 )
-
-// postmanSchema Postman Collection v2.1 的 schema 标识。
-const postmanSchema = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 
 // ---- 导出 ----
 
@@ -54,80 +53,51 @@ func (s *Service) ExportPostman(ctx context.Context, projectID, groupID uint64) 
 	for _, g := range groups {
 		known[g.ID] = struct{}{}
 	}
-	items := make([]map[string]any, 0, len(groups)+len(apis))
-	ungrouped := make([]map[string]any, 0)
+	col := &shpostman.Collection{Name: p.Title, Description: p.Description}
+	ungrouped := make([]shpostman.Item, 0)
 	for _, a := range apis {
 		if _, ok := known[a.GroupID]; !ok {
-			ungrouped = append(ungrouped, postmanRequestItem(a))
+			ungrouped = append(ungrouped, shpostman.Item{Name: a.ApiName, Req: postmanRequestOf(a)})
 		}
 	}
 	for _, g := range groups {
-		children := make([]map[string]any, 0)
+		folder := shpostman.Item{Name: g.Title, Folder: true}
 		for _, a := range apis {
 			if a.GroupID == g.ID {
-				children = append(children, postmanRequestItem(a))
+				folder.Items = append(folder.Items, shpostman.Item{Name: a.ApiName, Req: postmanRequestOf(a)})
 			}
 		}
-		if len(children) == 0 {
-			continue
+		if len(folder.Items) == 0 {
+			continue // 空分组不导出，避免文档里出现空文件夹
 		}
-		items = append(items, map[string]any{"name": g.Title, "item": children})
+		col.Items = append(col.Items, folder)
 	}
-	items = append(items, ungrouped...)
-	if items == nil {
-		items = []map[string]any{}
-	}
-	return map[string]any{
-		"info": map[string]any{
-			"name":        p.Title,
-			"description": p.Description,
-			"schema":      postmanSchema,
-		},
-		"item": items,
-	}, nil
+	col.Items = append(col.Items, ungrouped...)
+	return col.Encode(), nil
 }
 
-// postmanRequestItem 单个接口 → Postman item。
-func postmanRequestItem(a model.Api) map[string]any {
-	headers := make([]map[string]any, 0)
+// postmanRequestOf 接口记录 → 中立请求（方法大写、空则 GET）。
+func postmanRequestOf(a model.Api) *shpostman.Request {
+	method := strings.ToUpper(strings.TrimSpace(a.HttpMethodType))
+	if method == "" {
+		method = "GET"
+	}
+	r := &shpostman.Request{
+		Method:         method,
+		URL:            a.URL,
+		BodyRaw:        paramsBody(a.HttpRequestParams),
+		Description:    strings.TrimSpace(a.Description),
+		ResponseSample: strings.TrimSpace(a.HttpReturnSample),
+	}
 	for _, h := range parseRows(a.HttpRequestHeader) {
 		name, _ := h["name"].(string)
 		value, _ := h["value"].(string)
 		if name == "" {
 			continue
 		}
-		headers = append(headers, map[string]any{"key": name, "value": value, "type": "text"})
+		r.Headers = append(r.Headers, shpostman.Header{Name: name, Value: value})
 	}
-	method := strings.ToUpper(strings.TrimSpace(a.HttpMethodType))
-	if method == "" {
-		method = "GET"
-	}
-	req := map[string]any{
-		"method": method,
-		"header": headers,
-		"url":    a.URL,
-	}
-	if body := paramsBody(a.HttpRequestParams); body != "" {
-		req["body"] = map[string]any{
-			"mode":    "raw",
-			"raw":     body,
-			"options": map[string]any{"raw": map[string]any{"language": "json"}},
-		}
-	}
-	if desc := strings.TrimSpace(a.Description); desc != "" {
-		req["description"] = desc
-	}
-	item := map[string]any{"name": a.ApiName, "request": req}
-	if sample := strings.TrimSpace(a.HttpReturnSample); sample != "" {
-		item["response"] = []map[string]any{{
-			"name":                     "成功响应",
-			"status":                   "OK",
-			"code":                     200,
-			"_postman_previewlanguage": "json",
-			"body":                     sample,
-		}}
-	}
-	return item
+	return r
 }
 
 // descendantGroupIDs 返回分组及其全部后代 id（含自身）。
@@ -150,49 +120,16 @@ func descendantGroupIDs(groups []model.Group, root uint64) map[uint64]struct{} {
 
 // ---- 导入 ----
 
-// Postman Collection v2.x 结构（只取需要的字段）。
-type postmanCollection struct {
-	Info struct {
-		Name string `json:"name"`
-	} `json:"info"`
-	Item []postmanItem `json:"item"`
-}
-
-type postmanItem struct {
-	Name    string        `json:"name"`
-	Item    []postmanItem `json:"item"`
-	Request *postmanReq   `json:"request"`
-}
-
-type postmanReq struct {
-	Method      string          `json:"method"`
-	URL         json.RawMessage `json:"url"`
-	Header      []postmanKV     `json:"header"`
-	Body        *postmanBody    `json:"body"`
-	Description json.RawMessage `json:"description"`
-}
-
-type postmanKV struct {
-	Key      string `json:"key"`
-	Value    string `json:"value"`
-	Disabled bool   `json:"disabled"`
-}
-
-type postmanBody struct {
-	Mode string `json:"mode"`
-	Raw  string `json:"raw"`
-}
-
 // ImportPostman 导入 Postman 集合（JSON 文本）。
 func (s *Service) ImportPostman(ctx context.Context, userID uint64, typ int8, projectID uint64, strategy string, body []byte) (ImportResult, error) {
 	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermCreate); err != nil {
 		return ImportResult{}, err
 	}
-	var col postmanCollection
-	if err := json.Unmarshal(body, &col); err != nil {
+	col, err := shpostman.Decode(body)
+	if err != nil {
 		return ImportResult{}, newBiz(errcode.CodeParamError, "Postman 集合解析失败：%v", err)
 	}
-	if len(col.Item) == 0 {
+	if len(col.Items) == 0 {
 		return ImportResult{}, newBiz(errcode.CodeParamError, "集合里没有请求（item 为空），请确认导出的是 Collection v2.x")
 	}
 	keys, err := s.prepareImport(ctx, projectID, strategy)
@@ -207,10 +144,10 @@ func (s *Service) ImportPostman(ctx context.Context, userID uint64, typ int8, pr
 
 	var res ImportResult
 	var walkErr error
-	var walk func(items []postmanItem, parent uint64) error
-	walk = func(items []postmanItem, parent uint64) error {
+	var walk func(items []shpostman.Item, parent uint64) error
+	walk = func(items []shpostman.Item, parent uint64) error {
 		for _, it := range items {
-			if len(it.Item) > 0 {
+			if it.Folder {
 				name := strings.TrimSpace(it.Name)
 				if name == "" {
 					name = "未命名目录"
@@ -219,12 +156,12 @@ func (s *Service) ImportPostman(ctx context.Context, userID uint64, typ int8, pr
 				if err != nil {
 					return err
 				}
-				if err := walk(it.Item, gid); err != nil {
+				if err := walk(it.Items, gid); err != nil {
 					return err
 				}
 				continue
 			}
-			if it.Request == nil {
+			if it.Req == nil {
 				continue
 			}
 			a, err := buildPostmanApi(projectID, parent, it)
@@ -249,7 +186,7 @@ func (s *Service) ImportPostman(ctx context.Context, userID uint64, typ int8, pr
 		}
 		return nil
 	}
-	if err := walk(col.Item, 0); err != nil {
+	if err := walk(col.Items, 0); err != nil {
 		walkErr = err
 	}
 	if walkErr != nil {
@@ -277,11 +214,11 @@ func (s *Service) postmanGroupEnsurer(ctx context.Context, projectID uint64, gro
 	}
 }
 
-// buildPostmanApi 把 Postman 请求转成接口记录；method/url 缺失时返回 (nil, nil)。
-func buildPostmanApi(projectID, groupID uint64, item postmanItem) (*model.Api, error) {
-	req := item.Request
+// buildPostmanApi 把中立请求转成接口记录；method/url 缺失时返回 (nil, nil)。
+func buildPostmanApi(projectID, groupID uint64, item shpostman.Item) (*model.Api, error) {
+	req := item.Req
 	method := strings.ToUpper(strings.TrimSpace(req.Method))
-	raw := postmanURL(req.URL)
+	raw := req.URL
 	if method == "" || raw == "" {
 		return nil, nil
 	}
@@ -298,12 +235,12 @@ func buildPostmanApi(projectID, groupID uint64, item postmanItem) (*model.Api, e
 		a.ApiName = method + " " + raw
 	}
 	params := make([]apiParamRow, 0)
-	for _, kv := range queryPairs(raw) {
+	for _, kv := range shpostman.QueryPairs(raw) {
 		params = append(params, apiParamRow{FieldName: kv[0], Type: "string", Example: kv[1]})
 	}
-	if req.Body != nil && strings.EqualFold(strings.TrimSpace(req.Body.Mode), "raw") && strings.TrimSpace(req.Body.Raw) != "" {
+	if strings.TrimSpace(req.BodyRaw) != "" {
 		var v any
-		if err := json.Unmarshal([]byte(req.Body.Raw), &v); err != nil {
+		if err := json.Unmarshal([]byte(req.BodyRaw), &v); err != nil {
 			return nil, newBiz(errcode.CodeParamError, "请求体 JSON 解析失败：%v", err)
 		}
 		params = append(params, flattenJSON("", v, nil)...)
@@ -314,11 +251,8 @@ func buildPostmanApi(projectID, groupID uint64, item postmanItem) (*model.Api, e
 		}
 	}
 	headers := make([]apiHeaderRow, 0)
-	for _, h := range req.Header {
-		if h.Disabled || strings.TrimSpace(h.Key) == "" {
-			continue
-		}
-		headers = append(headers, apiHeaderRow{Name: h.Key, Value: h.Value})
+	for _, h := range req.Headers {
+		headers = append(headers, apiHeaderRow{Name: h.Name, Value: h.Value})
 	}
 	if len(headers) > 0 {
 		if b, err := json.Marshal(headers); err == nil {
@@ -326,49 +260,4 @@ func buildPostmanApi(projectID, groupID uint64, item postmanItem) (*model.Api, e
 		}
 	}
 	return a, nil
-}
-
-// postmanURL 取请求 URL 文本，兼容字符串与 `{ raw }` 两种写法。
-func postmanURL(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return strings.TrimSpace(s)
-	}
-	var obj struct {
-		Raw string `json:"raw"`
-	}
-	if err := json.Unmarshal(raw, &obj); err == nil {
-		return strings.TrimSpace(obj.Raw)
-	}
-	return ""
-}
-
-// queryPairs 从 URL 查询串提取键值对（按出现顺序，值做百分号解码前的原样保留）。
-func queryPairs(raw string) [][2]string {
-	i := strings.Index(raw, "?")
-	if i < 0 {
-		return nil
-	}
-	query := raw[i+1:]
-	if j := strings.IndexAny(query, "#"); j >= 0 {
-		query = query[:j]
-	}
-	out := make([][2]string, 0, 4)
-	for _, pair := range strings.Split(query, "&") {
-		if pair == "" {
-			continue
-		}
-		key, value := pair, ""
-		if k := strings.Index(pair, "="); k >= 0 {
-			key, value = pair[:k], pair[k+1:]
-		}
-		if key == "" {
-			continue
-		}
-		out = append(out, [2]string{key, value})
-	}
-	return out
 }

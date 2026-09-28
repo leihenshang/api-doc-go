@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	shmock "github.com/zqstudio/api-doc-go-share/mock"
+
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
 )
@@ -30,23 +32,16 @@ func (s *Service) MockResponse(ctx context.Context, projectID uint64, method, re
 	if err != nil {
 		return nil, err
 	}
-	want := normalizeMockPath(reqPath)
-	var fallback *model.Api
+	candidates := make([]shmock.Api, len(apis))
 	for i := range apis {
-		if normalizeMockPath(apiURLPath(apis[i].URL)) != want {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(apis[i].HttpMethodType), strings.TrimSpace(method)) {
-			return s.mockBody(ctx, &apis[i])
-		}
-		if fallback == nil {
-			fallback = &apis[i]
-		}
+		candidates[i] = shmock.Api{ID: apis[i].ID, Method: apis[i].HttpMethodType, URL: apis[i].URL}
 	}
-	if fallback != nil {
-		return s.mockBody(ctx, fallback)
+	// 匹配规则（路径归一 + 方法优先 + 同路径兜底）在共享包，两端一致。
+	if idx := shmock.Match(method, reqPath, candidates); idx >= 0 {
+		return s.mockBody(ctx, &apis[idx])
 	}
-	body := `{"code":404,"msg":"未匹配到接口，请在文档中确认请求方法与路径","path":"` + want + `"}`
+	body := `{"code":404,"msg":"未匹配到接口，请在文档中确认请求方法与路径","path":"` +
+		shmock.NormalizeURL(reqPath) + `"}`
 	return &MockResult{Status: 404, ContentType: "application/json; charset=utf-8", Body: body}, nil
 }
 
@@ -67,36 +62,4 @@ func (s *Service) mockBody(ctx context.Context, a *model.Api) (*MockResult, erro
 		return &MockResult{Status: 200, ContentType: "application/json; charset=utf-8", Body: sample}, nil
 	}
 	return &MockResult{Status: 200, ContentType: "text/plain; charset=utf-8", Body: sample}, nil
-}
-
-// apiURLPath 取接口 URL 的路径部分（去掉 scheme / host / query / fragment）。
-func apiURLPath(raw string) string {
-	u := strings.TrimSpace(raw)
-	if i := strings.Index(u, "://"); i >= 0 {
-		u = u[i+3:]
-		if j := strings.Index(u, "/"); j >= 0 {
-			u = u[j:]
-		} else {
-			u = "/"
-		}
-	}
-	if i := strings.IndexAny(u, "?#"); i >= 0 {
-		u = u[:i]
-	}
-	return u
-}
-
-// normalizeMockPath 归一化路径：剔除空段，统一为以 "/" 开头且无尾斜杠。
-func normalizeMockPath(p string) string {
-	p = strings.TrimSpace(p)
-	if i := strings.IndexAny(p, "?#"); i >= 0 {
-		p = p[:i]
-	}
-	parts := make([]string, 0, 8)
-	for _, part := range strings.Split(p, "/") {
-		if part != "" {
-			parts = append(parts, part)
-		}
-	}
-	return "/" + strings.Join(parts, "/")
 }
