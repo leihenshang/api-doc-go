@@ -1,0 +1,48 @@
+info:
+  name: 同步_能力协商
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "{{host}}/api/meta"
+  headers:
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 能力协商：客户端连接时校验协议兼容性（S9）
+
+  ## 请求 URI
+  - `/api/meta`
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 免登录
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |无|—|—|—|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": { "server_version", "api_version", "sync_proto", "features", "min_client_version" } }`
+
+  ## 响应字段
+  |字段名|类型|说明|
+  |:--|:--|:--|
+  |server_version|string|服务端版本|
+  |api_version|string|API 版本|
+  |sync_proto|int|同步协议版本（当前 1）|
+  |features|string[]|支持的能力列表|
+  |min_client_version|string|最低客户端版本|
+
+  ## 备注
+  - `sync_proto` 不兼容时客户端应提示升级。

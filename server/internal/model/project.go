@@ -9,6 +9,8 @@ type Project struct {
 	Description string `gorm:"column:description;size:500" json:"description"`
 	Version     string `gorm:"column:version;size:100" json:"version"`
 	Type        string `gorm:"column:type;size:100" json:"type"`
+	// ClientWriteEnabled 关闭后 /api/sync/push 一律 rejected.readonly（S14）。
+	ClientWriteEnabled *bool `gorm:"column:client_write_enabled;not null;default:true" json:"client_write_enabled"`
 }
 
 // TableName 指定表名。

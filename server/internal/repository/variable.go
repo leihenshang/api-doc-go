@@ -18,7 +18,7 @@ func (r *Repository) UpdateVariableEnv(ctx context.Context, v *model.VariableEnv
 	return gmSave(ctx, r.db, v)
 }
 func (r *Repository) DeleteVariableEnv(ctx context.Context, id uint64) error {
-	return gmSoftDelete[model.VariableEnv](ctx, r.db, id)
+	return gmHardDelete[model.VariableEnv](ctx, r.db, id)
 }
 
 // ListVariableEnvs 返回项目下的环境，默认环境优先，其次按 priority/id。
@@ -66,7 +66,7 @@ func (r *Repository) UpdateVariable(ctx context.Context, v *model.Variable) erro
 	return gmSave(ctx, r.db, v)
 }
 func (r *Repository) DeleteVariable(ctx context.Context, id uint64) error {
-	return gmSoftDelete[model.Variable](ctx, r.db, id)
+	return gmHardDelete[model.Variable](ctx, r.db, id)
 }
 
 // VariableFilter 变量列表筛选（零值表示不筛选；EnvID 为指针以便区分「不限」与「通用(0)」）。

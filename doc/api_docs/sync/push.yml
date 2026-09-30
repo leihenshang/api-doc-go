@@ -1,0 +1,71 @@
+info:
+  name: 同步_批量推送
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: "{{host}}/api/sync/push"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 批量提交本地变更（S4）；`op_id` 幂等，逐条返回结果
+
+  ## 请求 URI
+  - `/api/sync/push`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <PAT 或 JWT>`
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |project_id|是|int|项目 ID|
+  |device_id|是|string|设备标识|
+  |device_name|string|string|设备名（可选，冲突副本命名用）|
+  |ops|是|array|变更操作列表|
+
+  ### ops 元素
+  |字段名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |op_id|是|string|幂等键（UUID）|
+  |op|是|string|upsert / delete|
+  |type|是|string|group / api / doc|
+  |uid|是|string|条目 ext_uid|
+  |base_rev|int|int|基线条目版本（0 = 新建）|
+  |payload|object|条目全量载荷|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": { "results", "cursor" } }`
+
+  ## 响应字段
+  |字段名|类型|说明|
+  |:--|:--|:--|
+  |results|数组|逐条结果|
+  |results[].op_id|string|对应请求的 op_id|
+  |results[].status|string|ok / conflict / rejected|
+  |results[].item_rev|int|成功后的条目版本|
+  |results[].reason|string|rejected 原因：readonly / forbidden / parent_missing / invalid|
+  |results[].server|object|conflict 时的服务端版本（payload）|
+  |cursor|int|推送后项目游标|
+
+  ## 冲突策略（v1：LWW + 副本）
+  - `base_rev != 服务端 last_change_id` ⇒ `status=conflict` + 返回服务端版本
+  - 客户端把服务端版本落回原文件，本地版本存 `.conflicts/`
+
+  ## 备注
+  - **拓扑序**：ops 按"父先子后"（先 group 后其下 api）
+  - **幂等**：重复 `op_id` 直接返回上次结果
+  - `client_write_enabled=false` 时一律 `rejected.readonly`

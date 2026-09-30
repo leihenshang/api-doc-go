@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -249,12 +251,44 @@ func (h *Handler) UploadImg(c *gin.Context) {
 		fail(c, err)
 		return
 	}
-	f, err := h.svc.SaveFile(c.Request.Context(), fileHeader.Filename, "/uploads/"+name)
+	// S13 内容寻址：算 sha256 落库
+	data, _ := os.ReadFile(dst)
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
+	f, err := h.svc.SaveFileWithHash(c.Request.Context(), fileHeader.Filename, "/uploads/"+name, hash, fileHeader.Header.Get("Content-Type"), fileHeader.Size)
 	if err != nil {
 		fail(c, err)
 		return
 	}
-	response.OK(c, gin.H{"id": f.ID, "url": "/uploads/" + name})
+	response.OK(c, gin.H{"id": f.ID, "url": "/uploads/" + name, "hash": hash})
+}
+
+// GetFileByHash 处理 GET /api/file/:hash — 内容寻址取文件（S13 / R9）。
+func (h *Handler) GetFileByHash(c *gin.Context) {
+	hash := c.Param("hash")
+	if hash == "" {
+		response.Fail(c, errcode.CodeParamError, "hash 必填")
+		return
+	}
+	f, err := h.svc.GetFileByHash(c.Request.Context(), hash)
+	if err != nil {
+		response.Fail(c, errcode.CodeFailed, "文件不存在")
+		return
+	}
+	// 返回文件内容（离线映射用）
+	local := strings.TrimPrefix(f.Path, "/uploads/")
+	full := filepath.Join(h.cfg.Upload.Dir, local)
+	if _, err := os.Stat(full); err != nil {
+		response.Fail(c, errcode.CodeFailed, "文件丢失")
+		return
+	}
+	ct := f.Mime
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	c.Header("Content-Type", ct)
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.File(full)
 }
 
 // ServeUpload 处理 GET /uploads/*path：代替 engine.Static 的安全静态服务。

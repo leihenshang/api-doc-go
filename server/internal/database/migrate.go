@@ -36,6 +36,10 @@ func Migrate(db *gorm.DB) error {
 		&model.Notification{},
 		&model.FileRecord{},
 		&model.OperationLog{},
+		// 同步地基（S1/S3/S4/S7）
+		&model.ChangeLog{},
+		&model.SyncOp{},
+		&model.UserToken{},
 	}
 	if err := db.AutoMigrate(entities...); err != nil {
 		return fmt.Errorf("database: automigrate: %w", err)

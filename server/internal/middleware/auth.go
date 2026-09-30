@@ -24,6 +24,12 @@ type Principal struct {
 // Auth 校验 JWT（优先 Authorization: Bearer，兼容 query/body 的 token 参数）。
 // 校验失败写回 code=34 并中断。secret 为空将拒绝所有请求（应尽早暴露配置问题）。
 func Auth(secret string) gin.HandlerFunc {
+	return AuthOrPAT(secret, nil)
+}
+
+// AuthOrPAT 先试 JWT，失败再试 PAT（`pat_` 前缀，S7）。
+// verifyPAT 为 nil 时与 Auth 等价。
+func AuthOrPAT(secret string, verifyPAT func(raw string) (uint64, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tok := bearer(c.GetHeader("Authorization"))
 		if tok == "" {
@@ -32,14 +38,21 @@ func Auth(secret string) gin.HandlerFunc {
 				tok = c.PostForm("token")
 			}
 		}
-		claims, err := jwt.Parse(tok, secret)
-		if err != nil {
-			response.Fail(c, errcode.CodeUnauthorized, "")
-			c.Abort()
+		if claims, err := jwt.Parse(tok, secret); err == nil {
+			c.Set(CtxPrincipal, Principal{UserID: claims.UserID, Type: claims.Type})
+			c.Next()
 			return
 		}
-		c.Set(CtxPrincipal, Principal{UserID: claims.UserID, Type: claims.Type})
-		c.Next()
+		// PAT：客户端长期在线令牌
+		if verifyPAT != nil && strings.HasPrefix(tok, "pat_") {
+			if uid, err := verifyPAT(tok); err == nil {
+				c.Set(CtxPrincipal, Principal{UserID: uid, Type: 1})
+				c.Next()
+				return
+			}
+		}
+		response.Fail(c, errcode.CodeUnauthorized, "")
+		c.Abort()
 	}
 }
 

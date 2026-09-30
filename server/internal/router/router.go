@@ -38,9 +38,11 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	// 免登录：只读分享数据（令牌校验 + 有效期）与 Mock 服务（前端联调用）。
 	engine.GET("/api/share/:token", h.SharePayload)
 	engine.Any("/mock/:project_id/*path", h.Mock)
+	// 能力协商（客户端连接时校验协议兼容性）。
+	engine.GET("/api/meta", h.Meta)
 
-	// 受保护接口。
-	auth := engine.Group("/api", middleware.Auth(cfg.JWT.Secret))
+	// 受保护接口（JWT 或 PAT）。
+	auth := engine.Group("/api", middleware.AuthOrPAT(cfg.JWT.Secret, h.VerifyPAT))
 	registerRoutes(auth, h)
 	return engine
 }
@@ -54,6 +56,17 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		u.GET("/list", h.ListUsers)
 		u.PUT("/profile", h.Update)
 		u.PUT("/password", h.UpdatePwd)
+		// PAT（S7）
+		u.POST("/token", h.CreateToken)
+		u.GET("/token", h.ListTokens)
+		u.DELETE("/token", h.RevokeToken)
+	}
+	// 同步（S4）
+	{
+		g.GET("/sync/state", h.SyncState)
+		g.GET("/sync/changes", h.SyncChanges)
+		g.GET("/sync/snapshot", h.SyncSnapshot)
+		g.POST("/sync/push", h.SyncPush)
 	}
 	// 项目与成员
 	{
@@ -89,10 +102,6 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		a.GET("/detail", h.GetApi)
 		a.PUT("", h.UpdateApi)
 		a.DELETE("", h.DeleteApi)
-		a.POST("/restore", h.RestoreApi)
-		// 回收站批量操作：恢复（顺带恢复已删除的所属分组）/ 彻底删除
-		a.POST("/restore-batch", h.RestoreApiBatch)
-		a.POST("/purge-batch", h.PurgeApiBatch)
 		a.POST("/import", h.ImportOpenAPI)
 		a.POST("/import-bruno", h.ImportBruno)
 		a.GET("/export", h.ExportOpenAPI)
@@ -109,9 +118,6 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		d.GET("/detail", h.GetDoc)
 		d.PUT("", h.UpdateDoc)
 		d.DELETE("", h.DeleteDoc)
-		d.POST("/restore", h.RestoreDoc)
-		d.POST("/restore-batch", h.RestoreDocBatch)
-		d.POST("/purge-batch", h.PurgeDocBatch)
 		d.POST("/like", h.LikeDoc)
 	}
 	// 字段映射
@@ -178,4 +184,6 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 	// 外部数据库连接
 	// 文件上传
 	g.POST("/file/upload", h.UploadImg)
+	// S13 内容寻址：按 sha256 取文件（文档图片离线映射 R9）
+	g.GET("/file/:hash", h.GetFileByHash)
 }

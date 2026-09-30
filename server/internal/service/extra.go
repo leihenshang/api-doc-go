@@ -19,6 +19,20 @@ func (s *Service) SaveFile(ctx context.Context, title, path string) (*model.File
 	return f, nil
 }
 
+// SaveFileWithHash 内容寻址保存（S13）：hash 为 sha256 hex。
+func (s *Service) SaveFileWithHash(ctx context.Context, title, path, hash, mime string, size int64) (*model.FileRecord, error) {
+	f := &model.FileRecord{Title: title, Path: path, Hash: hash, Mime: mime, Size: size}
+	if err := s.repo.CreateFile(ctx, f); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// GetFileByHash 按内容 hash 取文件记录（离线文档图片映射，R9）。
+func (s *Service) GetFileByHash(ctx context.Context, hash string) (*model.FileRecord, error) {
+	return s.repo.GetFileByHash(ctx, hash)
+}
+
 // ---- 接口导入（OpenAPI / Bruno） ----
 
 // 导入来源标记，写入 api.source；空表示手工创建。

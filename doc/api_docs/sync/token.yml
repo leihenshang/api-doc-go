@@ -1,0 +1,48 @@
+info:
+  name: 用户_访问令牌
+  type: http
+  seq: 6
+
+http:
+  method: POST
+  url: "{{host}}/api/user/token"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 创建 PAT（个人访问令牌，S7）；明文只返回一次
+
+  ## 请求 URI
+  - `POST /api/user/token` 创建
+  - `GET /api/user/token` 列表
+  - `DELETE /api/user/token?id={id}` 吊销
+
+  ## 请求方式
+  - POST / GET / DELETE
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`
+
+  ## 请求参数（POST）
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |name|是|string|令牌名称|
+  |scopes|string|string|作用域（预留）|
+  |days|int|int|有效天数（0 = 不过期）|
+
+  ## 统一响应
+  - POST：`{ "code": 200, "data": { "token": "pat_...", "info": { ... } } }`
+  - GET：`{ "code": 200, "data": [ { "id", "name", "expire_at", "revoked", ... } ] }`
+  - DELETE：`{ "code": 200, "data": null }`
+
+  ## 备注
+  - 落库只存 sha256(token)，明文仅创建时返回一次。
+  - 客户端用 `Authorization: Bearer <PAT>` 调用 `/api/sync/*`。

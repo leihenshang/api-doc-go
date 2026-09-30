@@ -15,7 +15,7 @@ func (r *Repository) ShareLinkByID(ctx context.Context, id uint64) (*model.Share
 	return gmGet[model.ShareLink](ctx, r.db, id)
 }
 func (r *Repository) DeleteShareLink(ctx context.Context, id uint64) error {
-	return gmSoftDelete[model.ShareLink](ctx, r.db, id)
+	return gmHardDelete[model.ShareLink](ctx, r.db, id)
 }
 
 // ListShareLinks 项目下的分享链接（新建在前）。

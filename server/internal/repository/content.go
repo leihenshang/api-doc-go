@@ -22,7 +22,7 @@ func (r *Repository) UpdateGroup(ctx context.Context, v *model.Group) error {
 	return gmSave(ctx, r.db, v)
 }
 func (r *Repository) DeleteGroup(ctx context.Context, id uint64) error {
-	return gmSoftDelete[model.Group](ctx, r.db, id)
+	return gmHardDelete[model.Group](ctx, r.db, id)
 }
 
 // UpdateGroupSort 更新分组的父级与同级顺序。
@@ -51,38 +51,10 @@ func (r *Repository) GetApi(ctx context.Context, id uint64) (*model.Api, error) 
 }
 func (r *Repository) UpdateApi(ctx context.Context, v *model.Api) error { return gmSave(ctx, r.db, v) }
 func (r *Repository) DeleteApi(ctx context.Context, id uint64) error {
-	return gmSoftDelete[model.Api](ctx, r.db, id)
-}
-func (r *Repository) RestoreApi(ctx context.Context, id uint64) error {
-	return gmRestore[model.Api](ctx, r.db, id)
+	return gmHardDelete[model.Api](ctx, r.db, id)
 }
 
-// RestoreApis 批量恢复接口。
-func (r *Repository) RestoreApis(ctx context.Context, ids []uint64) (int64, error) {
-	return gmRestoreMany[model.Api](ctx, r.db, ids)
-}
-
-// PurgeApis 批量彻底删除接口（回收站清理）。
-func (r *Repository) PurgeApis(ctx context.Context, ids []uint64) (int64, error) {
-	return gmPurgeMany[model.Api](ctx, r.db, ids)
-}
-
-// RestoreDocs 批量恢复文档。
-func (r *Repository) RestoreDocs(ctx context.Context, ids []uint64) (int64, error) {
-	return gmRestoreMany[model.Doc](ctx, r.db, ids)
-}
-
-// PurgeDocs 批量彻底删除文档（回收站清理）。
-func (r *Repository) PurgeDocs(ctx context.Context, ids []uint64) (int64, error) {
-	return gmPurgeMany[model.Doc](ctx, r.db, ids)
-}
-
-// RestoreGroups 批量恢复分组。
-func (r *Repository) RestoreGroups(ctx context.Context, ids []uint64) (int64, error) {
-	return gmRestoreMany[model.Group](ctx, r.db, ids)
-}
-
-// ApisByIDsAny 取指定 id 的接口（**含已软删除**，供回收站批量恢复用）。
+// ApisByIDsAny 取指定 id 的接口（**含已删除**，供批量操作用）。
 func (r *Repository) ApisByIDsAny(ctx context.Context, ids []uint64) ([]model.Api, error) {
 	var items []model.Api
 	if len(ids) == 0 {
@@ -92,7 +64,7 @@ func (r *Repository) ApisByIDsAny(ctx context.Context, ids []uint64) ([]model.Ap
 	return items, err
 }
 
-// DocsByIDsAny 取指定 id 的文档（**含已软删除**）。
+// DocsByIDsAny 取指定 id 的文档（**含已删除**）。
 func (r *Repository) DocsByIDsAny(ctx context.Context, ids []uint64) ([]model.Doc, error) {
 	var items []model.Doc
 	if len(ids) == 0 {
@@ -176,10 +148,7 @@ func (r *Repository) GetDoc(ctx context.Context, id uint64) (*model.Doc, error) 
 }
 func (r *Repository) UpdateDoc(ctx context.Context, v *model.Doc) error { return gmSave(ctx, r.db, v) }
 func (r *Repository) DeleteDoc(ctx context.Context, id uint64) error {
-	return gmSoftDelete[model.Doc](ctx, r.db, id)
-}
-func (r *Repository) RestoreDoc(ctx context.Context, id uint64) error {
-	return gmRestore[model.Doc](ctx, r.db, id)
+	return gmHardDelete[model.Doc](ctx, r.db, id)
 }
 
 // UpdateDocSort 更新文档的所属分组与同级顺序。
@@ -225,7 +194,7 @@ func (r *Repository) GetBug(ctx context.Context, id uint64) (*model.Bug, error) 
 }
 func (r *Repository) UpdateBug(ctx context.Context, v *model.Bug) error { return gmSave(ctx, r.db, v) }
 func (r *Repository) DeleteBug(ctx context.Context, id uint64) error {
-	return gmSoftDelete[model.Bug](ctx, r.db, id)
+	return gmHardDelete[model.Bug](ctx, r.db, id)
 }
 
 // ListBugs 分页查询 Bug。
@@ -266,7 +235,7 @@ func (r *Repository) UpdateFieldMapping(ctx context.Context, v *model.FieldMappi
 	return gmSave(ctx, r.db, v)
 }
 func (r *Repository) DeleteFieldMapping(ctx context.Context, id uint64) error {
-	return gmSoftDelete[model.FieldMapping](ctx, r.db, id)
+	return gmHardDelete[model.FieldMapping](ctx, r.db, id)
 }
 func (r *Repository) ListFieldMappings(ctx context.Context, projectID uint64) ([]model.FieldMapping, error) {
 	var items []model.FieldMapping
@@ -337,6 +306,16 @@ func (r *Repository) MarkNotificationRead(ctx context.Context, id uint64) error 
 
 func (r *Repository) CreateFile(ctx context.Context, v *model.FileRecord) error {
 	return gmCreate(ctx, r.db, v)
+}
+
+// GetFileByHash 按内容 hash 取文件记录（S13 内容寻址）。
+func (r *Repository) GetFileByHash(ctx context.Context, hash string) (*model.FileRecord, error) {
+	var f model.FileRecord
+	err := r.db.WithContext(ctx).Where("hash = ?", hash).First(&f).Error
+	if err != nil {
+		return nil, wrapNotFound(err)
+	}
+	return &f, nil
 }
 
 // ================= 操作日志 =================

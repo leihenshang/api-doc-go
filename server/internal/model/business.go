@@ -15,6 +15,8 @@ type Doc struct {
 	UserID    uint64 `gorm:"column:user_id;not null;index" json:"user_id"`
 	ProjectID uint64 `gorm:"column:project_id;not null;index" json:"project_id"`
 	GroupID   uint64 `gorm:"column:group_id;not null;default:0;index" json:"group_id"`
+	ExtUID    string `gorm:"column:ext_uid;size:64;uniqueIndex:uk_doc_ext_uid,where:is_deleted = 0 AND ext_uid != ''" json:"ext_uid"`
+	LastChangeID int64 `gorm:"column:last_change_id;not null;default:0" json:"last_change_id"`
 	Title     string `gorm:"column:title;size:100;not null" json:"title"`
 	Content   string `gorm:"column:content;type:text;not null" json:"content"`
 	// Icon 文档图标：上传图片的 URL 或单个 emoji（空则前端用默认文档图标）。
@@ -123,6 +125,10 @@ type FileRecord struct {
 	BaseModel
 	Title string `gorm:"column:title;size:200;not null" json:"title"`
 	Path  string `gorm:"column:path;size:500" json:"path"`
+	// Hash 内容寻址（sha256 hex，S13）：离线文档图片映射用。
+	Hash string `gorm:"column:hash;size:64;index" json:"hash"`
+	Size int64  `gorm:"column:size;not null;default:0" json:"size"`
+	Mime string `gorm:"column:mime;size:100;not null;default:''" json:"mime"`
 }
 
 // TableName 指定表名。

@@ -5,6 +5,8 @@ package model
 type Api struct {
 	BaseModel
 	ProjectID       uint64 `gorm:"column:project_id;not null;index" json:"project_id"`
+	ExtUID          string `gorm:"column:ext_uid;size:64;uniqueIndex:uk_api_ext_uid,where:is_deleted = 0 AND ext_uid != ''" json:"ext_uid"`
+	LastChangeID    int64  `gorm:"column:last_change_id;not null;default:0" json:"last_change_id"`
 	GroupID         uint64 `gorm:"column:group_id;not null;default:0;index" json:"group_id"`
 	GroupIDSecond   uint64 `gorm:"column:group_id_second;not null;default:0" json:"group_id_second"`
 	Priority        int    `gorm:"column:priority;not null;default:0" json:"priority"`

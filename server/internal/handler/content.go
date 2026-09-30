@@ -134,21 +134,6 @@ func (h *Handler) DeleteApi(c *gin.Context) {
 	response.OK(c, nil)
 }
 
-// RestoreApi 处理 POST /api/api/restore。
-func (h *Handler) RestoreApi(c *gin.Context) {
-	var req dto.IDReq
-	if !bindJSON(c, &req) {
-		return
-	}
-	p := principal(c)
-	res, err := h.svc.RestoreApi(c.Request.Context(), p.UserID, p.Type, req.ID)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, res)
-}
-
 // ImportOpenAPI 处理 POST /api/api/import，body 为标准 OpenAPI(JSON)。
 func (h *Handler) ImportOpenAPI(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
@@ -299,83 +284,6 @@ func (h *Handler) DeleteDoc(c *gin.Context) {
 		return
 	}
 	response.OK(c, nil)
-}
-
-// RestoreDoc 处理 POST /api/doc/restore。
-func (h *Handler) RestoreDoc(c *gin.Context) {
-	var req dto.IDReq
-	if !bindJSON(c, &req) {
-		return
-	}
-	p := principal(c)
-	res, err := h.svc.RestoreDoc(c.Request.Context(), p.UserID, p.Type, req.ID)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, res)
-}
-
-// ---- 回收站批量操作（T20）：批量恢复 / 批量彻底删除 ----
-
-// RestoreApiBatch 处理 POST /api/api/restore-batch，批量恢复接口（顺带恢复已删除的所属分组）。
-func (h *Handler) RestoreApiBatch(c *gin.Context) {
-	var req dto.IDsReq
-	if !bindJSON(c, &req) {
-		return
-	}
-	p := principal(c)
-	res, err := h.svc.RestoreApis(c.Request.Context(), p.UserID, p.Type, req.IDs)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, res)
-}
-
-// PurgeApiBatch 处理 POST /api/api/purge-batch，批量彻底删除接口。
-func (h *Handler) PurgeApiBatch(c *gin.Context) {
-	var req dto.IDsReq
-	if !bindJSON(c, &req) {
-		return
-	}
-	p := principal(c)
-	n, err := h.svc.PurgeApis(c.Request.Context(), p.UserID, p.Type, req.IDs)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, gin.H{"purged": n})
-}
-
-// RestoreDocBatch 处理 POST /api/doc/restore-batch，批量恢复文档。
-func (h *Handler) RestoreDocBatch(c *gin.Context) {
-	var req dto.IDsReq
-	if !bindJSON(c, &req) {
-		return
-	}
-	p := principal(c)
-	res, err := h.svc.RestoreDocs(c.Request.Context(), p.UserID, p.Type, req.IDs)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, res)
-}
-
-// PurgeDocBatch 处理 POST /api/doc/purge-batch，批量彻底删除文档。
-func (h *Handler) PurgeDocBatch(c *gin.Context) {
-	var req dto.IDsReq
-	if !bindJSON(c, &req) {
-		return
-	}
-	p := principal(c)
-	n, err := h.svc.PurgeDocs(c.Request.Context(), p.UserID, p.Type, req.IDs)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	response.OK(c, gin.H{"purged": n})
 }
 
 // LikeDoc 处理 POST /api/doc/:id/like。

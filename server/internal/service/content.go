@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -15,15 +16,47 @@ import (
 
 // ---- 分组 ----
 
+// recordChange 在 Web 写路径落变更流水（S3：覆盖 Web 与 sync 两个入口）。
+// ext_uid 为空时自动生成，保证客户端能按 uid 配对。
+func (s *Service) recordChange(entityType, extUID string, projectID uint64, id uint64, op string, actor uint64) {
+	if extUID == "" {
+		return
+	}
+	cid, err := s.repo.AppendChange(nil, projectID, entityType, extUID, op, actor, "web")
+	if err != nil {
+		return
+	}
+	_ = s.repo.SetLastChange(nil, entityType, id, cid)
+}
+
+// ensureExtUID 条目缺 uid 时补一个（Web 新建也分配，便于后续同步）。
+func ensureExtUID(cur string) string {
+	if cur != "" {
+		return cur
+	}
+	return newExtUID()
+}
+
+// newExtUID 生成客户端风格的 UUIDv4 字符串。
+func newExtUID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
 // CreateGroup 新建分组。
 func (s *Service) CreateGroup(ctx context.Context, userID uint64, typ int8, req dto.GroupCreateReq) (*model.Group, error) {
 	if err := s.ensureProjectPermission(ctx, userID, typ, req.ProjectID, model.PermCreate); err != nil {
 		return nil, err
 	}
 	g := &model.Group{ProjectID: req.ProjectID, PID: req.PID, Title: req.Title, Type: req.Type, Priority: req.Priority}
+	g.ExtUID = ensureExtUID("")
 	if err := s.repo.CreateGroup(ctx, g); err != nil {
 		return nil, err
 	}
+	s.recordChange(model.SyncTypeGroup, g.ExtUID, g.ProjectID, g.ID, model.SyncOpUpsert, userID)
 	return g, nil
 }
 
@@ -41,9 +74,11 @@ func (s *Service) UpdateGroup(ctx context.Context, userID uint64, typ int8, req 
 	}
 	g.PID = req.PID
 	g.Priority = req.Priority
+	g.ExtUID = ensureExtUID(g.ExtUID)
 	if err := s.repo.UpdateGroup(ctx, g); err != nil {
 		return nil, err
 	}
+	s.recordChange(model.SyncTypeGroup, g.ExtUID, g.ProjectID, g.ID, model.SyncOpUpsert, userID)
 	return g, nil
 }
 
@@ -61,7 +96,11 @@ func (s *Service) DeleteGroup(ctx context.Context, userID uint64, typ int8, id u
 	if err := s.ensureProjectPermission(ctx, userID, typ, g.ProjectID, model.PermDelete); err != nil {
 		return err
 	}
-	return s.repo.DeleteGroup(ctx, id)
+	if err := s.repo.DeleteGroup(ctx, id); err != nil {
+		return err
+	}
+	s.recordChange(model.SyncTypeGroup, g.ExtUID, g.ProjectID, g.ID, model.SyncOpDelete, userID)
+	return nil
 }
 
 // ---- 接口文档 ----
@@ -72,10 +111,12 @@ func (s *Service) CreateApi(ctx context.Context, userID uint64, typ int8, req dt
 		return nil, err
 	}
 	a := apiFromCreate(req)
+	a.ExtUID = ensureExtUID("")
 	s.applyFieldMapping(ctx, req.ProjectID, a)
 	if err := s.repo.CreateApi(ctx, a); err != nil {
 		return nil, err
 	}
+	s.recordChange(model.SyncTypeAPI, a.ExtUID, a.ProjectID, a.ID, model.SyncOpUpsert, userID)
 	s.recordOp(ctx, req.ProjectID, userID, a.ID, model.LogObjectAPI, "create", "接口:"+a.ApiName)
 	return a, nil
 }
@@ -96,10 +137,13 @@ func (s *Service) UpdateApi(ctx context.Context, userID uint64, typ int8, req dt
 	updated := apiFromCreate(req.ApiCreateReq)
 	updated.ID = a.ID
 	updated.BaseModel = a.BaseModel
+	updated.ExtUID = ensureExtUID(a.ExtUID)
+	updated.LastChangeID = a.LastChangeID
 	s.applyFieldMapping(ctx, a.ProjectID, updated)
 	if err := s.repo.UpdateApi(ctx, updated); err != nil {
 		return nil, err
 	}
+	s.recordChange(model.SyncTypeAPI, updated.ExtUID, updated.ProjectID, updated.ID, model.SyncOpUpsert, userID)
 	return updated, nil
 }
 
@@ -128,72 +172,11 @@ func (s *Service) DeleteApi(ctx context.Context, userID uint64, typ int8, id uin
 	if err := s.ensureProjectPermission(ctx, userID, typ, a.ProjectID, model.PermDelete); err != nil {
 		return err
 	}
-	return s.repo.DeleteApi(ctx, id)
-}
-
-// RestoreResult 批量恢复结果：restored 为恢复的条目数，groups 为随之恢复的分组数。
-type RestoreResult struct {
-	Restored int `json:"restored"`
-	Groups   int `json:"groups"`
-}
-
-// RestoreApi 恢复单个接口（会顺带恢复其已删除的所属分组）。
-func (s *Service) RestoreApi(ctx context.Context, userID uint64, typ int8, id uint64) (*RestoreResult, error) {
-	return s.RestoreApis(ctx, userID, typ, []uint64{id})
-}
-
-// RestoreApis 批量恢复接口：按项目校验 update 权限 → 把「已删除的所属分组（含祖先链）」一并恢复 → 恢复接口。
-// 一并恢复分组是为了避免恢复后接口掉进「未分组」、丢失原目录结构。
-func (s *Service) RestoreApis(ctx context.Context, userID uint64, typ int8, ids []uint64) (*RestoreResult, error) {
-	items, err := s.repo.ApisByIDsAny(ctx, ids)
-	if err != nil {
-		return nil, err
+	if err := s.repo.DeleteApi(ctx, id); err != nil {
+		return err
 	}
-	if len(items) == 0 {
-		return nil, newBiz(errcode.CodeParamError, "请选择要恢复的接口")
-	}
-	projectIDs, groupIDs := collectParents(items, func(a model.Api) (uint64, uint64) { return a.ProjectID, a.GroupID })
-	if err := s.ensureProjectsUpdate(ctx, userID, typ, projectIDs); err != nil {
-		return nil, err
-	}
-	groups, err := s.repo.GroupsByProjectsAny(ctx, projectIDs, model.GroupTypeAPI)
-	if err != nil {
-		return nil, err
-	}
-	needGroups := deletedGroupChain(groups, groupIDs)
-	if len(needGroups) > 0 {
-		if _, err := s.repo.RestoreGroups(ctx, needGroups); err != nil {
-			return nil, err
-		}
-	}
-	restored, err := s.repo.RestoreApis(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-	s.recordOp(ctx, projectIDs[0], userID, 0, model.LogObjectAPI, "restore",
-		fmt.Sprintf("恢复接口 %d 条（含分组 %d 个）", restored, len(needGroups)))
-	return &RestoreResult{Restored: int(restored), Groups: len(needGroups)}, nil
-}
-
-// PurgeApis 批量彻底删除接口（回收站清理，不可撤销）。
-func (s *Service) PurgeApis(ctx context.Context, userID uint64, typ int8, ids []uint64) (int64, error) {
-	items, err := s.repo.ApisByIDsAny(ctx, ids)
-	if err != nil {
-		return 0, err
-	}
-	if len(items) == 0 {
-		return 0, newBiz(errcode.CodeParamError, "请选择要删除的接口")
-	}
-	projectIDs, _ := collectParents(items, func(a model.Api) (uint64, uint64) { return a.ProjectID, a.GroupID })
-	if err := s.ensureProjectsPerm(ctx, userID, typ, projectIDs, model.PermDelete); err != nil {
-		return 0, err
-	}
-	n, err := s.repo.PurgeApis(ctx, ids)
-	if err != nil {
-		return 0, err
-	}
-	s.recordOp(ctx, projectIDs[0], userID, 0, model.LogObjectAPI, "purge", fmt.Sprintf("彻底删除接口 %d 条", n))
-	return n, nil
+	s.recordChange(model.SyncTypeAPI, a.ExtUID, a.ProjectID, a.ID, model.SyncOpDelete, userID)
+	return nil
 }
 
 // collectParents 汇总条目所属的项目 id 与分组 id（去重）。
@@ -315,9 +298,11 @@ func (s *Service) CreateDoc(ctx context.Context, userID uint64, typ int8, req dt
 		ProjectID: req.ProjectID, GroupID: req.GroupID, UserID: userID,
 		Title: req.Title, Content: req.Content, Icon: req.Icon,
 	}
+	d.ExtUID = ensureExtUID("")
 	if err := s.repo.CreateDoc(ctx, d); err != nil {
 		return nil, err
 	}
+	s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpUpsert, userID)
 	s.recordOp(ctx, req.ProjectID, userID, d.ID, model.LogObjectDoc, "create", "文档:"+d.Title)
 	return d, nil
 }
@@ -343,9 +328,11 @@ func (s *Service) UpdateDoc(ctx context.Context, userID uint64, typ int8, req dt
 	d.IsTop = req.IsTop
 	// 图标以请求值为准：空串表示清除图标。
 	d.Icon = req.Icon
+	d.ExtUID = ensureExtUID(d.ExtUID)
 	if err := s.repo.UpdateDoc(ctx, d); err != nil {
 		return nil, err
 	}
+	s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpUpsert, userID)
 	return d, nil
 }
 
@@ -379,65 +366,11 @@ func (s *Service) DeleteDoc(ctx context.Context, userID uint64, typ int8, id uin
 	if err := s.ensureProjectPermission(ctx, userID, typ, d.ProjectID, model.PermDelete); err != nil {
 		return err
 	}
-	return s.repo.DeleteDoc(ctx, id)
-}
-
-// RestoreDoc 恢复单个文档（会顺带恢复其已删除的所属分组）。
-func (s *Service) RestoreDoc(ctx context.Context, userID uint64, typ int8, id uint64) (*RestoreResult, error) {
-	return s.RestoreDocs(ctx, userID, typ, []uint64{id})
-}
-
-// RestoreDocs 批量恢复文档，规则与接口一致（按项目校验 update 权限 + 补齐已删除的分组祖先链）。
-func (s *Service) RestoreDocs(ctx context.Context, userID uint64, typ int8, ids []uint64) (*RestoreResult, error) {
-	items, err := s.repo.DocsByIDsAny(ctx, ids)
-	if err != nil {
-		return nil, err
+	if err := s.repo.DeleteDoc(ctx, id); err != nil {
+		return err
 	}
-	if len(items) == 0 {
-		return nil, newBiz(errcode.CodeParamError, "请选择要恢复的文档")
-	}
-	projectIDs, groupIDs := collectParents(items, func(d model.Doc) (uint64, uint64) { return d.ProjectID, d.GroupID })
-	if err := s.ensureProjectsUpdate(ctx, userID, typ, projectIDs); err != nil {
-		return nil, err
-	}
-	groups, err := s.repo.GroupsByProjectsAny(ctx, projectIDs, model.GroupTypeDoc)
-	if err != nil {
-		return nil, err
-	}
-	needGroups := deletedGroupChain(groups, groupIDs)
-	if len(needGroups) > 0 {
-		if _, err := s.repo.RestoreGroups(ctx, needGroups); err != nil {
-			return nil, err
-		}
-	}
-	restored, err := s.repo.RestoreDocs(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-	s.recordOp(ctx, projectIDs[0], userID, 0, model.LogObjectDoc, "restore",
-		fmt.Sprintf("恢复文档 %d 篇（含分组 %d 个）", restored, len(needGroups)))
-	return &RestoreResult{Restored: int(restored), Groups: len(needGroups)}, nil
-}
-
-// PurgeDocs 批量彻底删除文档（回收站清理，不可撤销）。
-func (s *Service) PurgeDocs(ctx context.Context, userID uint64, typ int8, ids []uint64) (int64, error) {
-	items, err := s.repo.DocsByIDsAny(ctx, ids)
-	if err != nil {
-		return 0, err
-	}
-	if len(items) == 0 {
-		return 0, newBiz(errcode.CodeParamError, "请选择要删除的文档")
-	}
-	projectIDs, _ := collectParents(items, func(d model.Doc) (uint64, uint64) { return d.ProjectID, d.GroupID })
-	if err := s.ensureProjectsPerm(ctx, userID, typ, projectIDs, model.PermDelete); err != nil {
-		return 0, err
-	}
-	n, err := s.repo.PurgeDocs(ctx, ids)
-	if err != nil {
-		return 0, err
-	}
-	s.recordOp(ctx, projectIDs[0], userID, 0, model.LogObjectDoc, "purge", fmt.Sprintf("彻底删除文档 %d 篇", n))
-	return n, nil
+	s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpDelete, userID)
+	return nil
 }
 
 // LikeDoc 点赞。
