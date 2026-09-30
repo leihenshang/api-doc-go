@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	shmock "github.com/zqstudio/api-doc-go-share/mock"
+	shmock "github.com/leihenshang/api-doc-go-share/mock"
 
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"

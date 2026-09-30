@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zqstudio/api-doc-go-share/collection"
+	"github.com/leihenshang/api-doc-go-share/collection"
 
 	"apidoc/internal/dto"
 	"apidoc/internal/model"

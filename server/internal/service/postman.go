@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	shpostman "github.com/zqstudio/api-doc-go-share/postman"
+	shpostman "github.com/leihenshang/api-doc-go-share/postman"
 
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"

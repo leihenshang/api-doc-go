@@ -7,7 +7,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/zqstudio/api-doc-go-share/codegen"
+	"github.com/leihenshang/api-doc-go-share/codegen"
 
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"

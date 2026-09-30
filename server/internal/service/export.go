@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	shopenapi "github.com/zqstudio/api-doc-go-share/openapi"
+	shopenapi "github.com/leihenshang/api-doc-go-share/openapi"
 
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/page"

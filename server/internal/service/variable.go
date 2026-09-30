@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zqstudio/api-doc-go-share/varx"
+	"github.com/leihenshang/api-doc-go-share/varx"
 
 	"apidoc/internal/dto"
 	"apidoc/internal/model"
