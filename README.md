@@ -1,43 +1,81 @@
-# API-DOC
+# API-DOC（服务端）
 
-## 概览
-api-doc 是一个轻量化的api接口文档工具。支持markdown编写文档,能够方便前后端对于接口文档和项目文档的查看。后端采用PHP编写，前端使用VUE编写。
+轻量化接口文档协作工具，支持 Markdown 编写、按项目 / 分组管理接口与文档。本仓库为 **Go + Vue3** 重构版；旧的 PHP（`backend/`）、Vue2（`front/`）仅作历史参考，已不再维护，勿在其上开发。
 
-## 鸣谢
+## 功能特性
 
- <img src="jetbrains.png" width = "200" height = "218.6" alt="图片名称" align=center />
+- 接口 / 文档的 Markdown 编辑与实时预览
+- 按项目、分组组织接口与文档，支持回收站（批量还原 / 彻底删除）
+- 环境变量（含敏感值掩码）与请求级变量替换
+- 导入 / 导出：OpenAPI 3.0、Postman、Bruno、Markdown、自包含 HTML
+- 代码生成（curl / fetch / axios / go / python）、内置 Mock、双向同步（PAT 鉴权 + 内容寻址）
+- 中英双语界面
 
-- 感谢 `JetBrains` 提供的IDE支持！
-- 相关: [JetBrains网站](https://www.jetbrains.com/?from=apiDoc)
+## 技术栈
 
-### 技术栈
-该项目为前后端分离项目, php7.2(Yii2框架) 提供后端接口 ,vue2.0 作为前端开发框架 ,mysql5.7 作为数据库。
-  
-### 目录说明
-- front 前端文件夹
-- backend 后端文件夹
+- 后端：Go 1.26 + gin + gorm + glebarez/sqlite（纯 Go）/ gorm.io/driver/postgres
+- 前端：Vue 3 + TypeScript + Vite + Pinia + Vue Router 4 + Naive UI + axios
+- 统一响应：`{ code, msg, data }`，HTTP 恒 200
 
-### 使用方法
-#### 前端
-1. 进入front（前端)文件夹,首先执行yarn install安装依赖,接着执行yarn serve
-#### 后端
-2. 进入backend文件夹,执行composer install安装依赖,接着执行php yii serve --port=1000
-3. 初始化超级管理员
-   - 在backend目录下执行  php yii init/user
-   - 超级管理员忘记密码 php yii init/user true
+## 目录结构
 
+```
+server/    Go 后端（cmd/server 入口；internal/{config,database,model,dto,repository,service,handler,router,middleware,pkg}）
+web/       Vue3 前端（src/{api,router,stores,views,components,types,utils}）
+doc/       设计与规范文档（项目开发规范.md 为权威约定）
+scripts/   check.sh 工程门禁（gofmt/build/vet/test/vue-tsc/eslint/vite build）
+```
 
-### 数据库初始化
-- 在mysql中执行 database/mysql.sql 的SQL脚本即可。
+## 快速开始
 
-## 仓库地址
-- `github:`https://github.com/leihenshang/apiDoc
-- `gitee:`https://gitee.com/leihenshang/apiDoc
+### 后端
 
-## 项目概览
-![登录](https://images.gitee.com/uploads/images/2020/0531/222925_7c0239aa_1719135.png "start.png")
-![api概述](https://images.gitee.com/uploads/images/2020/0531/222953_cf831496_1719135.png "detail.png")
-![api详情](https://images.gitee.com/uploads/images/2020/0531/223008_68e4cfa8_1719135.png "api-detail.png")
-![项目文档](https://images.gitee.com/uploads/images/2020/0531/223021_69ae4f2e_1719135.png "doc.png")
-![api列表](https://images.gitee.com/uploads/images/2020/0531/223047_4d5916ce_1719135.png "api-list.png")
+```bash
+cd server
+# 默认加载 bin/env.test：端口 2027、SQLite（data/apidoc.db）
+./bin/run.sh start        # 启动；stop / restart / status / build 同理
+# 或直接运行源码
+go run ./cmd/server
+```
 
+默认超级管理员：`admin / admin123`（首次启动自动 seed；可用 `ADMIN_NAME` / `ADMIN_PASSWORD` 覆盖；强制重置 `go run ./cmd/seed`）。
+
+### 前端
+
+```bash
+cd web
+npm install
+npm run dev               # http://localhost:5173，代理 /api -> 后端
+npm run build             # vue-tsc 类型检查 + 构建
+```
+
+## 环境变量（后端，节选）
+
+| 变量 | 说明 | 默认 |
+|---|---|---|
+| `PORT` | 监听端口 | 8080 |
+| `GIN_MODE` | debug / release | debug |
+| `DB_DRIVER` | `sqlite` / `postgres` | sqlite |
+| `DB_DSN` | sqlite 文件路径或 postgres 连接串 | data/apidoc.db |
+| `JWT_SECRET` / `JWT_EXPIRE_HOURS` | 鉴权 | 24 |
+| `UPLOAD_DIR` | 上传目录 | - |
+| `ADMIN_NAME` / `ADMIN_PASSWORD` | seed 超管 | admin / admin123 |
+
+完整变量见 `server/internal/config`。
+
+## 校验
+
+```bash
+cd server && go build ./... && go vet ./... && go test ./...
+cd web    && npm run check          # type-check + lint + build
+```
+
+根目录 `scripts/check.sh` 跑全套门禁（与 CI 同源）。
+
+## 共享模块
+
+变量解析、集合格式、代码生成等两端共用的规则集中在 [api-doc-go-share](https://github.com/leihenshang/api-doc-go-share)，本仓库 `require v0.3.0`。
+
+## 许可证
+
+MIT（见 [LICENSE](./LICENSE)）。
