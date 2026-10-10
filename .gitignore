@@ -25,3 +25,5 @@ dist/
 go.work
 go.work.sum
 .doc
+
+server/config/config.yaml

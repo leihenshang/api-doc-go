@@ -1,0 +1,51 @@
+# API-DOC 后端配置示例。
+# 使用方法：复制本文件为 config.yaml 后按需修改；本地私有覆盖可写入 config.local.yaml（已 gitignore）。
+# 配置来源优先级（低 → 高）：内置默认值 < YAML 配置文件 < 环境变量。
+# 每项均标注对应的环境变量名（internal/config/config.go 中定义，二者等价、环境变量优先）。
+
+# HTTP 监听端口（环境变量 PORT，默认 2027）
+port: 2027
+
+# gin 运行模式：debug / release / test（GIN_MODE）
+run_mode: debug
+
+# 数据库（DB_DRIVER / DB_DSN）
+db:
+  # sqlite（默认）| postgres
+  driver: sqlite
+  # sqlite 为文件路径；postgres 为连接串
+  dsn: data/apidoc.db
+
+# JWT 签名令牌（JWT_SECRET / JWT_EXPIRE_HOURS）——生产必须更换 secret
+jwt:
+  secret: change-me-in-prod-apidoc-jwt-secret
+  expire_hours: 24
+
+# 文件上传（UPLOAD_DIR / UPLOAD_MAX_MB / UPLOAD_ALLOW_EXT / UPLOAD_SIGN_KEY）
+upload:
+  dir: data/uploads
+  max_mb: 5
+  # 扩展名白名单（小写、可带点）；留空 = 默认白名单（png/jpg/jpeg/gif/webp/bmp/ico/pdf，不含 svg）
+  allow_ext: [.jpg, .jpeg, .png, .gif, .webp, .bmp, .ico, .pdf]
+  # /uploads 访问签名密钥；留空 = 公开可读（默认，便于分享页内嵌图片）
+  sign_key: ""
+
+# 限流（RATE_LIMIT_PER_MIN / AUTH_RATE_LIMIT_PER_MIN，0 = 关闭）
+security:
+  rate_limit_per_min: 300
+  auth_rate_limit_per_min: 10
+
+# 操作日志保留天数，超期硬删除（LOG_RETENTION_DAYS，默认 70）
+log:
+  retention_days: 70
+
+# 定时备份（BACKUP_ENABLED / BACKUP_INTERVAL_MIN / BACKUP_DIR）
+backup:
+  enabled: false
+  interval_minutes: 1440
+  dir: data/backups
+
+# 初始超级管理员（ADMIN_NAME / ADMIN_PASSWORD）——生产必须修改密码
+admin:
+  name: admin
+  password: admin123

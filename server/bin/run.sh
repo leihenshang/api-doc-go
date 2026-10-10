@@ -16,7 +16,7 @@ load_env() {
     # shellcheck disable=SC1090
     . "./$ENV_FILE"
     set +a
-    echo "[env] loaded $ENV_FILE (PORT=${PORT:-8080}, DB_DRIVER=${DB_DRIVER:-sqlite})"
+    echo "[env] loaded $ENV_FILE (PORT=${PORT:-2027}, DB_DRIVER=${DB_DRIVER:-sqlite})"
   else
     echo "[env] $ENV_FILE not found, using defaults"
   fi
@@ -42,7 +42,7 @@ start() {
   echo $! > "$PIDFILE"
   sleep 1
   if is_running; then
-    echo "started: pid=$(cat "$PIDFILE") port=${PORT:-8080} log=$LOGFILE"
+    echo "started: pid=$(cat "$PIDFILE") port=${PORT:-2027} log=$LOGFILE"
   else
     echo "failed to start, last log lines:"
     tail -n 10 "$LOGFILE"
@@ -67,7 +67,7 @@ stop() {
 status() {
   if is_running; then
     echo "running: pid=$(cat "$PIDFILE")"
-    curl -s "http://127.0.0.1:${PORT:-8080}/api/health" 2>/dev/null || true
+    curl -s "http://127.0.0.1:${PORT:-2027}/api/health" 2>/dev/null || true
     echo
   else
     echo "not running"
