@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"apidoc/internal/model"
+	"apidoc/internal/pkg/crypto"
 )
 
 // TokenResp PAT 列表项（不含明文）。
@@ -31,8 +32,8 @@ type CreateTokenReq struct {
 
 // CreateTokenResp 创建结果（明文只此一次）。
 type CreateTokenResp struct {
-	Token string     `json:"token"`
-	Info  TokenResp  `json:"info"`
+	Token string    `json:"token"`
+	Info  TokenResp `json:"info"`
 }
 
 func hashToken(raw string) string {
@@ -40,7 +41,7 @@ func hashToken(raw string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// CreateToken 生成 PAT（明文只返回一次，落库只存 hash）。
+// CreateToken 生成 PAT：明文返回一次 + 加密存储（S15），落库另存 hash 供鉴权。
 func (s *Service) CreateToken(ctx context.Context, userID uint64, req *CreateTokenReq) (*CreateTokenResp, error) {
 	if req == nil || req.Name == "" {
 		return nil, errors.New("名称必填")
@@ -50,11 +51,16 @@ func (s *Service) CreateToken(ctx context.Context, userID uint64, req *CreateTok
 		return nil, err
 	}
 	raw := "pat_" + hex.EncodeToString(buf)
+	cipher, err := crypto.Encrypt(s.cfg.JWT.Secret, raw)
+	if err != nil {
+		return nil, err
+	}
 	e := &model.UserToken{
-		UserID:    userID,
-		Name:      req.Name,
-		TokenHash: hashToken(raw),
-		Scopes:    req.Scopes,
+		UserID:      userID,
+		Name:        req.Name,
+		TokenHash:   hashToken(raw),
+		TokenCipher: cipher,
+		Scopes:      req.Scopes,
 	}
 	if req.Days > 0 {
 		e.ExpireAt = time.Now().AddDate(0, 0, req.Days)
@@ -81,9 +87,29 @@ func (s *Service) ListTokens(ctx context.Context, userID uint64) ([]TokenResp, e
 	return out, nil
 }
 
-// RevokeToken 吊销。
-func (s *Service) RevokeToken(ctx context.Context, userID, id uint64) error {
-	return s.repo.RevokeUserToken(ctx, userID, id)
+// DeleteToken 删除（硬删，不可恢复）：行删除后客户端同步即被拒。
+func (s *Service) DeleteToken(ctx context.Context, userID, id uint64) error {
+	return s.repo.DeleteUserToken(ctx, userID, id)
+}
+
+// RevealToken 查看本人 PAT 明文（服务端解密，S15）：换浏览器/清缓存仍可查看。
+// 旧令牌密文为空或已删除时返回错误。
+func (s *Service) RevealToken(ctx context.Context, userID, id uint64) (string, error) {
+	e, err := s.repo.GetUserTokenByID(ctx, userID, id)
+	if err != nil || e == nil {
+		return "", errors.New("令牌不存在")
+	}
+	if e.Revoked == 1 {
+		return "", errors.New("令牌已删除")
+	}
+	if e.TokenCipher == "" {
+		return "", errors.New("该令牌未保存明文（旧令牌），请删除后重新创建")
+	}
+	raw, err := crypto.Decrypt(s.cfg.JWT.Secret, e.TokenCipher)
+	if err != nil {
+		return "", err
+	}
+	return raw, nil
 }
 
 // VerifyToken 校验 PAT 明文，返回 userID。

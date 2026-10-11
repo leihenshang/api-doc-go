@@ -24,6 +24,7 @@ func Migrate(db *gorm.DB) error {
 		&model.UserProject{},
 		&model.Group{},
 		&model.Api{},
+		&model.ApiReturnSample{},
 		&model.Doc{},
 		&model.Bug{},
 		&model.BugAssign{},

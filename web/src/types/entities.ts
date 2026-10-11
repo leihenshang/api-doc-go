@@ -28,6 +28,8 @@ export interface Project extends BaseEntity {
   description: string
   version: string
   type: string
+  /** 是否允许桌面客户端写入（S14）；false = 客户端只能拉取、推送被拒。 */
+  client_write_enabled?: boolean | null
 }
 
 export interface MemberView {
@@ -204,6 +206,23 @@ export interface ApiHeader {
   name: string
   value: string
   description?: string
+}
+
+/** 个人访问令牌（PAT，S7）：服务端只存 hash，明文仅创建时返回一次。 */
+export interface UserToken {
+  id: number
+  name: string
+  scopes: string
+  expire_at: string
+  last_used: string
+  revoked: number
+  create_time: string
+}
+
+/** 创建 PAT 的返回：token 为明文（仅此一次可见）。 */
+export interface CreateTokenResp {
+  token: string
+  info: UserToken
 }
 
 /** 列表分页结果（与后端 page.Result 对齐）。 */

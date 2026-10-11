@@ -1,0 +1,42 @@
+info:
+  name: 接口_响应示例列表
+  type: http
+  seq: 42
+
+http:
+  method: GET
+  url: "{{host}}/api/api/samples"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 接口_响应示例列表（某接口全部示例，按 seq 升序）
+
+  ## 请求 URI
+  - `/api/api/samples`
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |api_id|是|uint|接口 ID|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": [示例对象] }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 示例对象：`{id, api_id, name, sample_text, status, content_type, seq}`。

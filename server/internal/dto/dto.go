@@ -60,6 +60,8 @@ type ProjectUpdateReq struct {
 	Description string `json:"description"`
 	Version     string `json:"version"`
 	Type        string `json:"type"`
+	// ClientWriteEnabled 是否允许桌面客户端写入（S14）；不传 = 不变。
+	ClientWriteEnabled *bool `json:"client_write_enabled"`
 }
 
 // MemberAddReq 添加成员。
@@ -150,6 +152,29 @@ type ApiListQuery struct {
 	Keyword   string `form:"keyword"`
 	PageNum   int    `form:"page_num"`
 	PageSize  int    `form:"page_size"`
+}
+
+// ---- 接口响应示例（多示例） ----
+
+// ApiSampleSaveReq 保存一条响应示例（新增或更新，按 id 区分）。
+type ApiSampleSaveReq struct {
+	ID          uint64 `json:"id"`
+	ApiID       uint64 `json:"api_id" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	SampleText  string `json:"sample_text"`
+	Status      int    `json:"status"`
+	ContentType string `json:"content_type"`
+	Seq         int    `json:"seq"`
+}
+
+// ApiSampleListQuery 列出某接口的全部响应示例。
+type ApiSampleListQuery struct {
+	ApiID uint64 `form:"api_id" binding:"required"`
+}
+
+// ApiSampleDeleteReq 删除一条响应示例。
+type ApiSampleDeleteReq struct {
+	ID uint64 `json:"id" binding:"required"`
 }
 
 // ---- 拖拽排序 ----

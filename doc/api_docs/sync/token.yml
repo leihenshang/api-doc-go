@@ -18,12 +18,13 @@ settings:
 
 docs: |-
   ## 简要描述
-  - 创建 PAT（个人访问令牌，S7）；明文只返回一次
+  - 创建 / 列表 / 查看明文 / 删除 PAT（个人访问令牌，S7/S15）；明文仅创建时返回一次，此后由后端解密回显
 
   ## 请求 URI
   - `POST /api/user/token` 创建
   - `GET /api/user/token` 列表
-  - `DELETE /api/user/token?id={id}` 吊销
+  - `GET /api/user/token/reveal?id={id}` 查看本人令牌明文（服务端解密）
+  - `DELETE /api/user/token?id={id}` 删除（物理删除，不可恢复）
 
   ## 请求方式
   - POST / GET / DELETE
@@ -41,8 +42,10 @@ docs: |-
   ## 统一响应
   - POST：`{ "code": 200, "data": { "token": "pat_...", "info": { ... } } }`
   - GET：`{ "code": 200, "data": [ { "id", "name", "expire_at", "revoked", ... } ] }`
+  - GET reveal：`{ "code": 200, "data": { "token": "pat_..." } }`
   - DELETE：`{ "code": 200, "data": null }`
 
   ## 备注
-  - 落库只存 sha256(token)，明文仅创建时返回一次。
+  - 落库存 sha256(token) 供鉴权 + AES-256-GCM 密文（token_cipher，密钥派生自 JWT_SECRET）供回显；明文不落明文。
+  - 旧令牌 token_cipher 为空：reveal 返回 `该令牌未保存明文（旧令牌），请删除后重新创建`。
   - 客户端用 `Authorization: Bearer <PAT>` 调用 `/api/sync/*`。

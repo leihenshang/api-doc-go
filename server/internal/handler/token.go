@@ -36,7 +36,7 @@ func (h *Handler) ListTokens(c *gin.Context) {
 	response.OK(c, out)
 }
 
-// RevokeToken DELETE /api/user/token?id=
+// RevokeToken DELETE /api/user/token?id=（删除，不可恢复）
 func (h *Handler) RevokeToken(c *gin.Context) {
 	id := idParam(c)
 	if id == 0 {
@@ -44,11 +44,27 @@ func (h *Handler) RevokeToken(c *gin.Context) {
 		return
 	}
 	p := principal(c)
-	if err := h.svc.RevokeToken(c.Request.Context(), p.UserID, id); err != nil {
+	if err := h.svc.DeleteToken(c.Request.Context(), p.UserID, id); err != nil {
 		fail(c, err)
 		return
 	}
 	response.OK(c, nil)
+}
+
+// RevealToken GET /api/user/token/reveal?id=（查看本人 PAT 明文，服务端解密）
+func (h *Handler) RevealToken(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		response.Fail(c, errcode.CodeParamError, "id 必填")
+		return
+	}
+	p := principal(c)
+	raw, err := h.svc.RevealToken(c.Request.Context(), p.UserID, id)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"token": raw})
 }
 
 // VerifyPAT 供鉴权中间件回调（S7）。

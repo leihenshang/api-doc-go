@@ -61,18 +61,18 @@ type SyncOpIn struct {
 
 // SyncPushReq POST /api/sync/push
 type SyncPushReq struct {
-	ProjectID uint64     `json:"project_id"`
-	DeviceID  string     `json:"device_id"`
-	DeviceName string    `json:"device_name"`
-	Ops       []SyncOpIn `json:"ops"`
+	ProjectID  uint64     `json:"project_id"`
+	DeviceID   string     `json:"device_id"`
+	DeviceName string     `json:"device_name"`
+	Ops        []SyncOpIn `json:"ops"`
 }
 
 // SyncOpOut 逐条结果。
 type SyncOpOut struct {
-	OpID    string `json:"op_id"`
-	Status  string `json:"status"` // ok | conflict | rejected
-	ItemRev int64  `json:"item_rev,omitempty"`
-	Reason  string `json:"reason,omitempty"`
+	OpID    string          `json:"op_id"`
+	Status  string          `json:"status"` // ok | conflict | rejected
+	ItemRev int64           `json:"item_rev,omitempty"`
+	Reason  string          `json:"reason,omitempty"`
 	Server  json.RawMessage `json:"server,omitempty"` // conflict 时的服务端版本
 }
 
@@ -84,11 +84,11 @@ type SyncPushResp struct {
 
 // MetaResp GET /api/meta 能力协商。
 type MetaResp struct {
-	ServerVersion     string   `json:"server_version"`
-	APIVersion        string   `json:"api_version"`
-	SyncProto         int      `json:"sync_proto"`
-	Features          []string `json:"features"`
-	MinClientVersion  string   `json:"min_client_version"`
+	ServerVersion    string   `json:"server_version"`
+	APIVersion       string   `json:"api_version"`
+	SyncProto        int      `json:"sync_proto"`
+	Features         []string `json:"features"`
+	MinClientVersion string   `json:"min_client_version"`
 }
 
 // SyncPayload 条目序列化载荷（客户端按 type 解析）。
@@ -106,6 +106,12 @@ type SyncPayload struct {
 	// doc
 	Content string `json:"content,omitempty"`
 	Icon    string `json:"icon,omitempty"`
+	// example（响应示例）：Name 复用为示例名
+	ApiUID      string `json:"api_uid,omitempty"`
+	Sample      string `json:"sample,omitempty"`
+	Status      int    `json:"status,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+	Seq         int    `json:"seq,omitempty"`
 	// 通用
 	Deleted bool `json:"deleted,omitempty"`
 }
@@ -226,17 +232,9 @@ func (s *Service) SyncSnapshot(ctx context.Context, projectID uint64, offset, li
 		if a.ExtUID == "" {
 			continue
 		}
-		p := SyncPayload{
-			Name: a.ApiName, Method: a.HttpMethodType, URL: a.URL,
-			Extra: a.HttpRequestHeader, // 临时：完整 extra 聚合见 loadPayload
-			Deleted: a.IsDeleted == model.IsDeletedYes,
-		}
-		if a.GroupID > 0 {
-			var g model.Group
-			if err := s.repo.DB().WithContext(ctx).Where("id = ?", a.GroupID).First(&g).Error; err == nil {
-				p.GroupUID = g.ExtUID
-			}
-		}
+		// 与增量路径（loadPayload）同口径；快照含软删行，需要补 Deleted 标记。
+		p := s.apiSyncPayload(ctx, &a)
+		p.Deleted = a.IsDeleted == model.IsDeletedYes
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeAPI, a.ExtUID, p.Deleted, a.LastChangeID, b})
 	}
@@ -257,6 +255,19 @@ func (s *Service) SyncSnapshot(ctx context.Context, projectID uint64, offset, li
 		}
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeDoc, d.ExtUID, p.Deleted, d.LastChangeID, b})
+	}
+	examples, err := s.repo.ListApiReturnSamplesAll(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, ex := range examples {
+		if ex.ExtUID == "" {
+			continue
+		}
+		p := s.exampleSyncPayload(ctx, &ex)
+		p.Deleted = ex.IsDeleted == model.IsDeletedYes
+		b, _ := json.Marshal(p)
+		rows = append(rows, row{model.SyncTypeExample, ex.ExtUID, p.Deleted, ex.LastChangeID, b})
 	}
 
 	if offset < 0 {
@@ -305,26 +316,7 @@ func (s *Service) loadPayload(ctx context.Context, projectID uint64, entityType,
 		if err != nil || a == nil {
 			return nil, errors.New("not found")
 		}
-		p := SyncPayload{Name: a.ApiName, Method: a.HttpMethodType, URL: a.URL}
-		if a.GroupID > 0 {
-			var g model.Group
-			if err := s.repo.DB().WithContext(ctx).Where("id = ?", a.GroupID).First(&g).Error; err == nil {
-				p.GroupUID = g.ExtUID
-			}
-		}
-		// Extra：把接口全量原文聚合（S11）
-		extra := map[string]any{
-			"headers":  a.HttpRequestHeader,
-			"params":   a.HttpRequestParams,
-			"retType":  a.HttpReturnType,
-			"retParams": a.HttpReturnParams,
-			"retSample": a.HttpReturnSample,
-			"desc":     a.Description,
-			"protocol": a.ProtocolType,
-		}
-		eb, _ := json.Marshal(extra)
-		p.Extra = string(eb)
-		return json.Marshal(p)
+		return json.Marshal(s.apiSyncPayload(ctx, a))
 	case model.SyncTypeDoc:
 		d, err := s.repo.FindDocByExtUID(ctx, projectID, extUID)
 		if err != nil || d == nil {
@@ -338,8 +330,55 @@ func (s *Service) loadPayload(ctx context.Context, projectID uint64, entityType,
 			}
 		}
 		return json.Marshal(p)
+	case model.SyncTypeExample:
+		ex, err := s.repo.FindApiReturnSampleByExtUID(ctx, projectID, extUID)
+		if err != nil || ex == nil {
+			return nil, errors.New("not found")
+		}
+		return json.Marshal(s.exampleSyncPayload(ctx, ex))
 	}
 	return nil, fmt.Errorf("unknown type %s", entityType)
+}
+
+// exampleSyncPayload 构造响应示例的同步载荷。
+func (s *Service) exampleSyncPayload(ctx context.Context, ex *model.ApiReturnSample) SyncPayload {
+	p := SyncPayload{
+		Name: ex.Name, Sample: ex.SampleText, Status: ex.Status,
+		ContentType: ex.ContentType, Seq: ex.Seq,
+	}
+	if ex.ApiID > 0 {
+		var a model.Api
+		if err := s.repo.DB().WithContext(ctx).Where("id = ?", ex.ApiID).First(&a).Error; err == nil {
+			p.ApiUID = a.ExtUID
+		}
+	}
+	return p
+}
+
+// apiSyncPayload 构造 api 条目的同步载荷：名称/方法/URL/分组 + extra 全量原文。
+// 增量（loadPayload）与全量快照（SyncSnapshot）必须同口径，避免两条拉取路径数据不一致。
+func (s *Service) apiSyncPayload(ctx context.Context, a *model.Api) SyncPayload {
+	p := SyncPayload{Name: a.ApiName, Method: a.HttpMethodType, URL: a.URL}
+	if a.GroupID > 0 {
+		var g model.Group
+		if err := s.repo.DB().WithContext(ctx).Where("id = ?", a.GroupID).First(&g).Error; err == nil {
+			p.GroupUID = g.ExtUID
+		}
+	}
+	// Extra：把接口全量原文聚合（S11）。值均为 DB 中的 JSON 文本列（空串=未设置），
+	// 客户端按 type 自行解析；新增键时 push 侧（applyUpsert）也要同步接收。
+	extra := map[string]any{
+		"headers":   a.HttpRequestHeader,
+		"params":    a.HttpRequestParams,
+		"retType":   a.HttpReturnType,
+		"retParams": a.HttpReturnParams,
+		"retSample": a.HttpReturnSample,
+		"desc":      a.Description,
+		"protocol":  a.ProtocolType,
+	}
+	eb, _ := json.Marshal(extra)
+	p.Extra = string(eb)
+	return p
 }
 
 // SyncPush 批量提交（幂等 + 拓扑序 + 冲突检测）。
@@ -380,7 +419,7 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "readonly"}
 	}
 	switch op.Type {
-	case model.SyncTypeGroup, model.SyncTypeAPI, model.SyncTypeDoc:
+	case model.SyncTypeGroup, model.SyncTypeAPI, model.SyncTypeDoc, model.SyncTypeExample:
 	default:
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 	}
@@ -404,6 +443,11 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 		}
 	case model.SyncTypeDoc:
 		e, _ := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		if e != nil {
+			exists, curRev = true, e.LastChangeID
+		}
+	case model.SyncTypeExample:
+		e, _ := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
 		if e != nil {
 			exists, curRev = true, e.LastChangeID
 		}
@@ -487,11 +531,18 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if p.Extra != "" {
 			var extra map[string]any
 			if json.Unmarshal([]byte(p.Extra), &extra) == nil {
+				// 键存在且为字符串才覆盖（空串=清空），与 loadPayload/apiSyncPayload 的键集对齐。
 				if v, ok := extra["headers"].(string); ok {
 					e.HttpRequestHeader = v
 				}
 				if v, ok := extra["params"].(string); ok {
 					e.HttpRequestParams = v
+				}
+				if v, ok := extra["retType"].(string); ok {
+					e.HttpReturnType = v
+				}
+				if v, ok := extra["retParams"].(string); ok {
+					e.HttpReturnParams = v
 				}
 				if v, ok := extra["retSample"].(string); ok {
 					e.HttpReturnSample = v
@@ -499,8 +550,9 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 				if v, ok := extra["desc"].(string); ok {
 					e.Description = v
 				}
-			} else {
-				e.HttpRequestHeader = p.Extra
+				if v, ok := extra["protocol"].(string); ok {
+					e.ProtocolType = v
+				}
 			}
 		}
 		var err error
@@ -554,6 +606,41 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 			e.LastChangeID = cid
 		}
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
+
+	case model.SyncTypeExample:
+		e, _ := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		if e == nil {
+			e = &model.ApiReturnSample{ProjectID: req.ProjectID}
+		}
+		e.ExtUID = op.UID
+		e.Name = p.Name
+		e.SampleText = p.Sample
+		e.Status = p.Status
+		e.ContentType = p.ContentType
+		e.Seq = p.Seq
+		if p.ApiUID != "" {
+			if a, _ := s.repo.FindApiByExtUID(ctx, req.ProjectID, p.ApiUID); a != nil {
+				e.ApiID = a.ID
+			} else {
+				return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "parent_missing"}
+			}
+		}
+		var err error
+		if e.ID == 0 {
+			err = s.repo.CreateApiReturnSample(ctx, e)
+		} else {
+			e.IsDeleted = model.IsDeletedNo
+			err = s.repo.UpdateApiReturnSample(ctx, e)
+		}
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
+		}
+		cid, err := s.repo.AppendChange(nil, req.ProjectID, model.SyncTypeExample, op.UID, model.SyncOpUpsert, userID, device)
+		if err == nil {
+			_ = s.repo.SetLastChange(nil, model.SyncTypeExample, e.ID, cid)
+			e.LastChangeID = cid
+		}
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
 	}
 	return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 }
@@ -590,6 +677,15 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 		}
 		id = e.ID
 		if err := s.repo.DeleteDoc(ctx, id); err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
+		}
+	case model.SyncTypeExample:
+		e, _ := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		if e == nil {
+			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
+		}
+		id = e.ID
+		if err := s.repo.DeleteApiReturnSample(ctx, id); err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	default:

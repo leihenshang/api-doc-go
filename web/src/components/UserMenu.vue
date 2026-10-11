@@ -1,12 +1,13 @@
 <script setup lang="ts">
-// 顶栏用户区：头像悬停出二级菜单（修改资料 / 修改密码 / 语言 / 退出登录），
-// 点选后由全局弹窗承接（改密与退出确认都居中弹层）。语言项为二级菜单，直接切换界面语言。
+// 顶栏用户区：头像悬停出二级菜单（个人中心 / 修改资料 / 修改密码 / 语言 / 退出登录），
+// 点选后由全局弹窗承接（个人中心/改密/改资料都居中弹层）。语言项为二级菜单，直接切换界面语言。
+import MyCenterModal from '@/components/MyCenterModal.vue'
 import PasswordModal from '@/components/PasswordModal.vue'
 import ProfileModal from '@/components/ProfileModal.vue'
 import { useLocaleSwitch } from '@/composables/locale'
 import { LOCALE_LABELS, LOCALES, currentLocale, isLocale, type Locale } from '@/i18n'
 import { useUserStore } from '@/stores/user'
-import { CheckmarkOutline, CreateOutline, KeyOutline, LanguageOutline, LogOutOutline } from '@vicons/ionicons5'
+import { CheckmarkOutline, CreateOutline, KeyOutline, LanguageOutline, LogOutOutline, PersonOutline } from '@vicons/ionicons5'
 import { NAvatar, NDropdown, NIcon, useDialog } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 import { computed, h, ref } from 'vue'
@@ -22,6 +23,7 @@ const initials = computed(() => user.nickName.slice(0, 1).toUpperCase() || 'U')
 
 const showProfile = ref(false)
 const showPwd = ref(false)
+const showCenter = ref(false)
 
 /** 语言二级菜单：当前语言带对勾。key 形如 `lang:en-US`。 */
 const langOptions = computed<DropdownOption[]>(() => {
@@ -34,6 +36,7 @@ const langOptions = computed<DropdownOption[]>(() => {
 })
 
 const options = computed<DropdownOption[]>(() => [
+  { label: t('user.center'), key: 'center', icon: () => h(NIcon, { component: PersonOutline }) },
   { label: t('user.profile'), key: 'profile', icon: () => h(NIcon, { component: CreateOutline }) },
   { label: t('user.password'), key: 'pwd', icon: () => h(NIcon, { component: KeyOutline }) },
   {
@@ -47,7 +50,8 @@ const options = computed<DropdownOption[]>(() => [
 
 function onSelect(key: string | number): void {
   const value = String(key)
-  if (value === 'profile') showProfile.value = true
+  if (value === 'center') showCenter.value = true
+  else if (value === 'profile') showProfile.value = true
   else if (value === 'pwd') showPwd.value = true
   else if (value.startsWith('lang:')) {
     const code = value.slice(5)
@@ -78,6 +82,7 @@ function confirmLogout(): void {
   </span>
   <profile-modal v-model:show="showProfile" />
   <password-modal v-model:show="showPwd" />
+  <my-center-modal v-model:show="showCenter" />
 </template>
 
 <style scoped>

@@ -1,0 +1,48 @@
+info:
+  name: 接口_保存响应示例
+  type: http
+  seq: 41
+
+http:
+  method: POST
+  url: "{{host}}/api/api/sample"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 接口_保存响应示例（新增或更新，按 id 区分；与客户端「保存的响应」互通并参与同步）
+
+  ## 请求 URI
+  - `/api/api/sample`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`（仅 login/register 免鉴权）
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |id|否|uint|更新时传；不传为新增|
+  |api_id|是|uint|所属接口|
+  |name|是|string|示例名称|
+  |sample_text|否|string|响应正文（JSON 文本）|
+  |status|否|int|HTTP 状态码，默认 200|
+  |content_type|否|string|响应 Content-Type|
+  |seq|否|int|同接口内排序号|
+
+  ## 统一响应
+  - `{ "code": 200, "msg": "success", "data": {示例对象} }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
+
+  ## 备注
+  - 需要项目 update 权限位；示例归属校验（示例不属于该接口时返回 14）。

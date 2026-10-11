@@ -37,6 +37,7 @@ docs: |-
 |description|否|string|描述|
 |version|否|string|版本|
 |type|否|string|类型|
+|client_write_enabled|否|bool|null|是否允许桌面客户端写入（S14）；不传 = 不变，传 null 同不传|
 
   ## 统一响应
   - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200
@@ -46,3 +47,4 @@ docs: |-
   ## 备注
   - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
   - `title` 为空表示不改名；名称唯一性校验排除自身与软删除项目。
+  - `client_write_enabled=false` 时桌面客户端 push 会被逐条拒绝（`rejected.readonly`），拉取不受影响。

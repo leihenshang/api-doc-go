@@ -21,14 +21,16 @@ import { EllipsisVerticalOutline } from '@vicons/ionicons5'
 import type { DropdownOption, UploadFileInfo } from 'naive-ui'
 import {
     NAvatar, NButton, NCard, NDropdown, NEmpty, NForm, NFormItem, NIcon, NInput, NModal, NRadio, NRadioGroup,
-    NSelect, NSpin, NTable, NUpload, useMessage,
+    NSelect, NSpin, NSwitch, NTable, NUpload, useMessage,
 } from 'naive-ui'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { parse as parseYaml } from 'yaml'
 
 const router = useRouter()
 const message = useMessage()
+const { t } = useI18n()
 const userStore = useUserStore()
 const project = useProjectStore()
 
@@ -57,7 +59,13 @@ const userOptions = computed(() =>
 )
 
 const showEdit = ref(false)
-const form = reactive({ title: '', description: '', version: '', type: '' })
+const form = reactive({ title: '', description: '', version: '', type: '', client_write_enabled: true })
+
+/** 复制项目 ID（供桌面客户端绑定使用）。 */
+async function copyProjectId(): Promise<void> {
+    await navigator.clipboard.writeText(String(projectId.value))
+    message.success(t('common.copied'))
+}
 
 const memberMenu = (m: MemberView): DropdownOption[] => [
     { label: '设为负责人', key: 'leader', disabled: m.is_leader === 1 },
@@ -338,6 +346,7 @@ function openEdit(): void {
         description: project.current?.description ?? '',
         version: project.current?.version ?? '',
         type: project.current?.type ?? '',
+        client_write_enabled: project.current?.client_write_enabled ?? true,
     })
     showEdit.value = true
 }
@@ -413,6 +422,13 @@ onMounted(() => {
                 </div>
 
                 <ul class="info">
+                    <li>
+                        <span class="k">{{ t('project.id') }}</span>
+                        <span class="v">
+                            {{ projectId }}<n-button text size="small" class="copy-btn" @click="copyProjectId">{{ t('common.copy') }}</n-button>
+                            <span class="hint">{{ t('project.idHint') }}</span>
+                        </span>
+                    </li>
                     <li>
                         <span class="k">项目类型</span>
                         <span class="v">{{ project.current?.type || '—' }}</span>
@@ -514,6 +530,10 @@ onMounted(() => {
                 <n-form-item label="类型"><n-input v-model:value="form.type" /></n-form-item>
                 <n-form-item label="描述">
                     <n-input v-model:value="form.description" type="textarea" :rows="3" />
+                </n-form-item>
+                <n-form-item :label="t('project.clientWrite')">
+                    <n-switch v-model:value="form.client_write_enabled" />
+                    <span class="form-hint">{{ t('project.clientWriteHint') }}</span>
                 </n-form-item>
             </n-form>
             <template #footer>
@@ -682,6 +702,17 @@ onMounted(() => {
 
 .v {
     font-size: 14px;
+}
+
+.copy-btn {
+    margin-left: 8px;
+}
+
+.v .hint,
+.form-hint {
+    font-size: 12px;
+    color: var(--app-muted);
+    margin-left: 8px;
 }
 
 .add-bar {

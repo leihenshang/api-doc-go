@@ -4,9 +4,10 @@ import "time"
 
 // 同步实体类型（change_log.entity_type / sync ops.type）。
 const (
-	SyncTypeGroup = "group"
-	SyncTypeAPI   = "api"
-	SyncTypeDoc   = "doc"
+	SyncTypeGroup   = "group"
+	SyncTypeAPI     = "api"
+	SyncTypeDoc     = "doc"
+	SyncTypeExample = "example" // 响应示例（api_return_sample）
 )
 
 // 同步操作。
@@ -51,16 +52,18 @@ type SyncOp struct {
 // TableName 指定表名。
 func (SyncOp) TableName() string { return "sync_op" }
 
-// UserToken PAT（个人访问令牌）：客户端长期在线用，可吊销。
+// UserToken PAT（个人访问令牌）：客户端长期在线用，可删除。
 type UserToken struct {
 	BaseModel
-	UserID    uint64    `gorm:"column:user_id;not null;index" json:"user_id"`
-	Name      string    `gorm:"column:name;size:100;not null" json:"name"`
-	TokenHash string    `gorm:"column:token_hash;size:128;not null;uniqueIndex:uk_token_hash" json:"-"`
-	Scopes    string    `gorm:"column:scopes;size:200;not null;default:''" json:"scopes"`
-	ExpireAt  time.Time `gorm:"column:expire_at" json:"expire_at"`
-	LastUsed  time.Time `gorm:"column:last_used" json:"last_used"`
-	Revoked   int8      `gorm:"column:revoked;not null;default:0" json:"revoked"`
+	UserID    uint64 `gorm:"column:user_id;not null;index" json:"user_id"`
+	Name      string `gorm:"column:name;size:100;not null" json:"name"`
+	TokenHash string `gorm:"column:token_hash;size:128;not null;uniqueIndex:uk_token_hash" json:"-"`
+	// TokenCipher PAT 明文经 AES-256-GCM 加密后的密文（S15）；为空表示旧令牌，无法回显明文。
+	TokenCipher string    `gorm:"column:token_cipher;size:512;not null;default:''" json:"-"`
+	Scopes      string    `gorm:"column:scopes;size:200;not null;default:''" json:"scopes"`
+	ExpireAt    time.Time `gorm:"column:expire_at" json:"expire_at"`
+	LastUsed    time.Time `gorm:"column:last_used" json:"last_used"`
+	Revoked     int8      `gorm:"column:revoked;not null;default:0" json:"revoked"`
 }
 
 // TableName 指定表名。

@@ -1,7 +1,7 @@
 // 用户/鉴权接口。
 import type { ApiResponse } from '@/types/api'
-import type { LoginResult, Page, User } from '@/types/entities'
-import { get, post, put } from './http'
+import type { CreateTokenResp, LoginResult, Page, User, UserToken } from '@/types/entities'
+import { del, get, post, put } from './http'
 
 export interface LoginPayload {
     name: string
@@ -42,4 +42,26 @@ export function updateProfile(id: number | undefined, payload: Record<string, un
 
 export function updatePwd(payload: { old_pwd: string; pwd: string; re_pwd: string }): Promise<ApiResponse<null>> {
     return put<null>('/user/password', payload)
+}
+
+// ---- 个人访问令牌（PAT，S7）：供桌面客户端同步鉴权；明文仅创建时返回一次。 ----
+
+/** 创建 PAT。days=0 表示不过期；scopes 目前仅存不校验（建议填 sync）。 */
+export function createToken(payload: { name: string; scopes?: string; days?: number }): Promise<ApiResponse<CreateTokenResp>> {
+    return post<CreateTokenResp>('/user/token', payload)
+}
+
+/** 我的 PAT 列表。 */
+export function listTokens(): Promise<ApiResponse<UserToken[]>> {
+    return get<UserToken[]>('/user/token')
+}
+
+/** 查看本人 PAT 明文（服务端解密；旧令牌密文为空会报错）。 */
+export function revealToken(id: number): Promise<ApiResponse<{ token: string }>> {
+    return get<{ token: string }>('/user/token/reveal', { id })
+}
+
+/** 删除指定 PAT（物理删除，不可恢复；客户端将无法再用它同步）。 */
+export function deleteToken(id: number): Promise<ApiResponse<null>> {
+    return del<null>('/user/token', { id })
 }

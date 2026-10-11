@@ -233,9 +233,22 @@ func (r *Repository) TouchUserToken(ctx context.Context, id uint64) error {
 		Update("last_used", time.Now()).Error
 }
 
-// RevokeUserToken 吊销。
-func (r *Repository) RevokeUserToken(ctx context.Context, userID, id uint64) error {
-	return r.db.WithContext(ctx).Model(&model.UserToken{}).
+// GetUserTokenByID 取本人某条令牌（含密文）。
+func (r *Repository) GetUserTokenByID(ctx context.Context, userID, id uint64) (*model.UserToken, error) {
+	var e model.UserToken
+	err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", id, userID).First(&e).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// DeleteUserToken 删除（物理删除，不可恢复）。
+func (r *Repository) DeleteUserToken(ctx context.Context, userID, id uint64) error {
+	return r.db.WithContext(ctx).Unscoped().
 		Where("id = ? AND user_id = ?", id, userID).
-		Update("revoked", 1).Error
+		Delete(&model.UserToken{}).Error
 }

@@ -2,7 +2,7 @@
 // 接口详情（Postman 请求编辑器样式）：名称栏 + URL 栏，下方按「请求头部 / 请求参数 / 返回参数 / 响应样例 / 基本信息(有值时) / 文档」垂直排列。
 // 右侧悬浮大纲（收起为小格子、悬停展开、点击跳段）与长页「返回顶部」；文档一节用 MdEditor/MdPreview 承载 Markdown。
 // 请求头直接以 ApiParam[] 承载编辑（与 ApiParamTable 同构），只在载入/保存时与 ApiHeader[] 互转，避免中间态丢输入。
-import { getApi, getCode, listGroups, updateApi } from '@/api/content'
+import { deleteApiSample, getApi, getCode, listApiSamples, listGroups, saveApiSample, updateApi, type ApiReturnSample } from '@/api/content'
 import ApiParamTable from '@/components/ApiParamTable.vue'
 import EnvPicker from '@/components/EnvPicker.vue'
 import JsonBlock from '@/components/JsonBlock.vue'
@@ -18,7 +18,7 @@ import { useVariableStore } from '@/stores/variable'
 import { ErrCode } from '@/types/api'
 import type { ApiHeader, ApiParam, Group } from '@/types/entities'
 import { headersToParams, paramsToHeaders } from '@/utils/api-params'
-import { ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline } from '@vicons/ionicons5'
+import { ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, RefreshOutline } from '@vicons/ionicons5'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
@@ -149,15 +149,16 @@ function goPlaceholder(): void {
   void router.replace({ name: 'projectApis', params: { projectId: projectId.value } })
 }
 
-async function load(): Promise<void> {
-  if (!apiId.value) return
+/** 载入详情。返回是否成功拿到数据（失败已提示并退回列表）。 */
+async function load(): Promise<boolean> {
+  if (!apiId.value) return false
   loading.value = true
   try {
     const res = await getApi(apiId.value)
     if (res.code !== ErrCode.Success || !res.data) {
       message.error(res.msg || t('detail.loadFailed'))
       goPlaceholder()
-      return
+      return false
     }
     const a = res.data
     // 并发编辑保护：保存时回传载入时间，服务端据此判断是否被他人改过。
@@ -177,9 +178,33 @@ async function load(): Promise<void> {
     reqParams.value = parseArray<ApiParam>(a.http_request_params)
     resParams.value = parseArray<ApiParam>(a.http_return_params)
     sample.value = pretty(a.http_return_sample)
+    void loadSamples()
+    return true
   } finally {
     loading.value = false
   }
+}
+
+/** 刷新当前接口：重新拉取详情与变量解析；编辑态先确认丢弃未保存改动。 */
+function refreshApi(): void {
+  const doRefresh = async (): Promise<void> => {
+    const ok = await load()
+    if (!ok) return
+    await loadVariables()
+    draft = null
+    message.success(t('detail.refreshed'))
+  }
+  if (editing.value) {
+    dialog.warning({
+      title: t('detail.refreshTitle'),
+      content: t('detail.refreshDiscard'),
+      positiveText: t('common.confirm'),
+      negativeText: t('common.cancel'),
+      onPositiveClick: doRefresh,
+    })
+    return
+  }
+  void doRefresh()
 }
 
 async function loadGroups(): Promise<void> {
@@ -307,6 +332,88 @@ async function save(): Promise<void> {
 function onSampleJson(text: string): void {
   if (!sample.value.trim()) sample.value = text.trim()
 }
+
+// ---- 响应示例（多示例，与客户端保存的响应示例互通） ----
+const samples = ref<ApiReturnSample[]>([])
+const sampleId = ref(0)
+const sampleText = ref('')
+const sampleSaving = ref(false)
+const showSampleModal = ref(false)
+const sampleName = ref('')
+
+const sampleOptions = computed(() => samples.value.map((s) => ({ label: `${s.name} (${s.status})`, value: s.id })))
+
+async function loadSamples(): Promise<void> {
+  if (!apiId.value) return
+  const res = await listApiSamples(apiId.value)
+  if (res.code !== ErrCode.Success || !res.data) return
+  samples.value = res.data
+  pickSample(samples.value[0]?.id ?? 0)
+}
+
+/** 切换选中的示例（编辑中的正文直接丢弃，选示例即所见即所得）。 */
+function pickSample(id: number): void {
+  sampleId.value = id
+  const cur = samples.value.find((x) => x.id === id)
+  sampleText.value = cur ? pretty(cur.sample_text) : ''
+}
+
+/** 新建示例：以主样例当前内容为初始正文。 */
+async function createSample(): Promise<void> {
+  const name = sampleName.value.trim()
+  if (!name) return
+  const res = await saveApiSample({ api_id: apiId.value, name, sample_text: sample.value, status: 200 })
+  if (res.code !== ErrCode.Success || !res.data) {
+    message.error(res.msg || t('common.saveFailed'))
+    return
+  }
+  showSampleModal.value = false
+  message.success(t('detail.sampleSaved'))
+  await loadSamples()
+  pickSample(res.data.id)
+}
+
+/** 保存正文修改到选中示例。 */
+async function persistSample(): Promise<void> {
+  const cur = samples.value.find((x) => x.id === sampleId.value)
+  if (!cur) return
+  sampleSaving.value = true
+  try {
+    const res = await saveApiSample({
+      id: cur.id, api_id: apiId.value, name: cur.name, sample_text: sampleText.value,
+      status: cur.status, content_type: cur.content_type, seq: cur.seq,
+    })
+    if (res.code !== ErrCode.Success || !res.data) {
+      message.error(res.msg || t('common.saveFailed'))
+      return
+    }
+    message.success(t('detail.sampleSaved'))
+    await loadSamples()
+  } finally {
+    sampleSaving.value = false
+  }
+}
+
+function removeSample(): void {
+  const cur = samples.value.find((x) => x.id === sampleId.value)
+  if (!cur) return
+  dialog.warning({
+    title: t('detail.sampleDelete'),
+    content: t('detail.sampleDeleteConfirm', { name: cur.name }),
+    positiveText: t('common.confirm'),
+    negativeText: t('common.cancel'),
+    onPositiveClick: async () => {
+      const res = await deleteApiSample(cur.id)
+      if (res.code !== ErrCode.Success) {
+        message.error(res.msg || t('common.deleteFailed'))
+        return
+      }
+      message.success(t('detail.sampleDeleted'))
+      await loadSamples()
+    },
+  })
+}
+
 
 async function copyText(text: string, label: string): Promise<void> {
   if (!text) return
@@ -460,6 +567,10 @@ function exportApi(key: string): void {
               {{ t('detail.exportBtn') }}
             </n-button>
           </n-dropdown>
+          <n-button size="small" quaternary :title="t('detail.refreshTitle')" :loading="loading" @click="refreshApi">
+            <template #icon><n-icon :component="RefreshOutline" /></template>
+            {{ t('detail.refreshBtn') }}
+          </n-button>
         </div>
       </header>
 
@@ -556,6 +667,47 @@ function exportApi(key: string): void {
           <p class="sec-sub meta">{{ t('detail.sampleFail') }}</p>
           <json-block :raw="failedSample" empty="" />
           <p class="meta">{{ t('detail.sampleNote') }}</p>
+
+          <!-- 多响应示例：与客户端「保存的响应」互通 -->
+          <div v-if="samples.length || canUpdate" class="samples-bar">
+            <span class="sec-sub meta">{{ t('detail.samplesTitle') }}</span>
+            <n-select
+              v-if="samples.length"
+              size="small"
+              class="samples-select"
+              :value="sampleId"
+              :options="sampleOptions"
+              :placeholder="t('detail.samplePick')"
+              @update:value="pickSample"
+            />
+            <template v-if="canUpdate">
+              <n-button size="small" @click="sampleName = ''; showSampleModal = true">{{ t('detail.sampleAdd') }}</n-button>
+              <n-button v-if="sampleId" size="small" :loading="sampleSaving" @click="persistSample">{{ t('common.save') }}</n-button>
+              <n-button v-if="sampleId" size="small" quaternary type="error" @click="removeSample">{{ t('detail.sampleDelete') }}</n-button>
+            </template>
+          </div>
+          <n-input
+            v-if="canUpdate && sampleId"
+            v-model:value="sampleText"
+            type="textarea"
+            class="samples-editor"
+            :autosize="{ minRows: 4, maxRows: 18 }"
+            placeholder=""
+          />
+          <json-block v-else-if="sampleId" :raw="sampleText" empty="" />
+          <n-modal
+            v-model:show="showSampleModal"
+            preset="dialog"
+            :title="t('detail.sampleAdd')"
+            :positive-text="t('common.confirm')"
+            :negative-text="t('common.cancel')"
+            :loading="sampleSaving"
+            style="width: 420px"
+            @positive-click="createSample"
+          >
+            <n-input v-model:value="sampleName" :placeholder="t('detail.sampleNamePh')" @keyup.enter="createSample" />
+            <p class="meta">{{ t('detail.sampleAddTip') }}</p>
+          </n-modal>
         </section>
 
         <section v-if="!editing && form.develop_language" class="req-sec" data-sec="info">
@@ -674,6 +826,25 @@ function exportApi(key: string): void {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* ---- 多响应示例 ---- */
+.samples-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.samples-bar .sec-sub {
+  margin: 0;
+}
+.samples-select {
+  width: 220px;
+}
+.samples-editor {
+  margin-top: 8px;
+  font-family: var(--font-mono, monospace);
 }
 
 /* ---- URL 栏（Postman 请求行） ---- */

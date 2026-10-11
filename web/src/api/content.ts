@@ -35,6 +35,28 @@ export function updateApi(
 export function deleteApi(id: number): Promise<ApiResponse<null>> {
   return del<null>('/api', { id })
 }
+
+// ---- 接口响应示例（多示例） ----
+export interface ApiReturnSample {
+  id: number
+  api_id: number
+  name: string
+  sample_text: string
+  status: number
+  content_type: string
+  seq: number
+}
+export function saveApiSample(payload: {
+  id?: number; api_id: number; name: string; sample_text?: string; status?: number; content_type?: string; seq?: number,
+}): Promise<ApiResponse<ApiReturnSample>> {
+  return post<ApiReturnSample>('/api/sample', payload)
+}
+export function listApiSamples(apiId: number): Promise<ApiResponse<ApiReturnSample[]>> {
+  return get<ApiReturnSample[]>('/api/samples', { api_id: apiId })
+}
+export function deleteApiSample(id: number): Promise<ApiResponse<null>> {
+  return del<null>('/api/sample', { id })
+}
 /** 导入结果：imported 成功条数、skipped 已存在跳过条数、failed 解析失败条数与明细。 */
 export interface ImportResult {
   imported: number

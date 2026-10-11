@@ -60,6 +60,7 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		u.POST("/token", h.CreateToken)
 		u.GET("/token", h.ListTokens)
 		u.DELETE("/token", h.RevokeToken)
+		u.GET("/token/reveal", h.RevealToken)
 	}
 	// 同步（S4）
 	{
@@ -109,6 +110,9 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		a.GET("/code", h.CodeSnippet)
 		a.GET("/export-postman", h.ExportPostman)
 		a.POST("/import-postman", h.ImportPostman)
+		a.POST("/sample", h.SaveApiSample)
+		a.GET("/samples", h.ListApiSamples)
+		a.DELETE("/sample", h.DeleteApiSample)
 	}
 	// 项目文档
 	{

@@ -7,7 +7,7 @@ import { ErrCode } from '@/types/api'
 import type { Project } from '@/types/entities'
 import { fmtTime } from '@/utils/format'
 import {
-    NButton, NEmpty, NForm, NFormItem, NInput, NModal, NSpin, useDialog, useMessage,
+    NButton, NEmpty, NForm, NFormItem, NInput, NModal, NSpin, NSwitch, useDialog, useMessage,
 } from 'naive-ui'
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -27,7 +27,13 @@ const loading = ref(false)
 
 const showEdit = ref(false)
 const editId = ref(0)
-const form = reactive({ title: '', description: '', version: '', type: '' })
+const form = reactive({ title: '', description: '', version: '', type: '', client_write_enabled: true })
+
+/** 复制项目 ID（供桌面客户端绑定使用）。 */
+async function copyId(id: number): Promise<void> {
+  await navigator.clipboard.writeText(String(id))
+  message.success(t('common.copied'))
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -51,13 +57,19 @@ async function page(num: number): Promise<void> {
 
 function openCreate(): void {
   editId.value = 0
-  Object.assign(form, { title: '', description: '', version: '', type: '' })
+  Object.assign(form, { title: '', description: '', version: '', type: '', client_write_enabled: true })
   showEdit.value = true
 }
 
 function openEdit(p: Project): void {
   editId.value = p.id
-  Object.assign(form, { title: p.title, description: p.description, version: p.version, type: p.type })
+  Object.assign(form, {
+    title: p.title,
+    description: p.description,
+    version: p.version,
+    type: p.type,
+    client_write_enabled: p.client_write_enabled ?? true,
+  })
   showEdit.value = true
 }
 
@@ -125,6 +137,7 @@ onMounted(load)
               {{ p.title }}
             </router-link>
             <div class="pcard-badges">
+              <span class="badge badge--id" :title="t('project.idHint')" @click.stop="copyId(p.id)">#{{ p.id }}</span>
               <span v-if="p.type" class="badge">{{ p.type }}</span>
               <span v-if="p.version" class="badge badge--muted">{{ p.version }}</span>
             </div>
@@ -156,6 +169,10 @@ onMounted(load)
         </n-form-item>
         <n-form-item :label="t('project.description')">
           <n-input v-model:value="form.description" type="textarea" :rows="3" :placeholder="t('common.optional')" />
+        </n-form-item>
+        <n-form-item v-if="editId" :label="t('project.clientWrite')">
+          <n-switch v-model:value="form.client_write_enabled" />
+          <span class="form-hint">{{ t('project.clientWriteHint') }}</span>
         </n-form-item>
       </n-form>
       <template #footer>
@@ -235,6 +252,17 @@ onMounted(load)
   border-color: var(--app-border);
   background: #f5f6f8;
   color: var(--app-muted);
+}
+
+.badge--id {
+  cursor: pointer;
+  font-family: var(--app-font-mono, monospace);
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--app-muted);
+  margin-left: 8px;
 }
 
 .pcard-desc {

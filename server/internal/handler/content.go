@@ -134,6 +134,51 @@ func (h *Handler) DeleteApi(c *gin.Context) {
 	response.OK(c, nil)
 }
 
+// ---- 接口响应示例（多示例） ----
+
+// SaveApiSample 处理 POST /api/api/sample（新增或更新）。
+func (h *Handler) SaveApiSample(c *gin.Context) {
+	var req dto.ApiSampleSaveReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.SaveApiSample(c.Request.Context(), p.UserID, p.Type, req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// ListApiSamples 处理 GET /api/api/samples。
+func (h *Handler) ListApiSamples(c *gin.Context) {
+	var q dto.ApiSampleListQuery
+	if !bindQuery(c, &q) {
+		return
+	}
+	res, err := h.svc.ListApiSamples(c.Request.Context(), q.ApiID)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// DeleteApiSample 处理 DELETE /api/api/sample。
+func (h *Handler) DeleteApiSample(c *gin.Context) {
+	var req dto.ApiSampleDeleteReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	if err := h.svc.DeleteApiSample(c.Request.Context(), p.UserID, p.Type, req.ID); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
 // ImportOpenAPI 处理 POST /api/api/import，body 为标准 OpenAPI(JSON)。
 func (h *Handler) ImportOpenAPI(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)

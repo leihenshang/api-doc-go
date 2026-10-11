@@ -57,6 +57,9 @@ func (s *Service) UpdateProject(ctx context.Context, userID uint64, typ int8, re
 	p.Description = req.Description
 	p.Version = req.Version
 	p.Type = req.Type
+	if req.ClientWriteEnabled != nil {
+		p.ClientWriteEnabled = req.ClientWriteEnabled
+	}
 	if err := s.repo.UpdateProject(ctx, p); err != nil {
 		return nil, wrapBiz(errcode.CodeFailed, err, "保存项目失败，请稍后重试")
 	}
