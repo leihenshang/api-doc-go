@@ -251,8 +251,14 @@ func (h *Handler) UploadImg(c *gin.Context) {
 		fail(c, err)
 		return
 	}
-	// S13 内容寻址：算 sha256 落库
-	data, _ := os.ReadFile(dst)
+	// S13 内容寻址：算 sha256 落库。读取失败必须报错并清理落盘文件，
+	// 否则空内容算出的 hash 会把不同文件绑到同一条记录（/api/file/:hash 返回错文件）。
+	data, err := os.ReadFile(dst)
+	if err != nil {
+		_ = os.Remove(dst)
+		fail(c, err)
+		return
+	}
 	sum := sha256.Sum256(data)
 	hash := hex.EncodeToString(sum[:])
 	f, err := h.svc.SaveFileWithHash(c.Request.Context(), fileHeader.Filename, "/uploads/"+name, hash, fileHeader.Header.Get("Content-Type"), fileHeader.Size)

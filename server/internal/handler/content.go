@@ -224,7 +224,7 @@ func (h *Handler) ExportOpenAPI(c *gin.Context) {
 // resolve=1 时用当前环境变量值替换 {{占位符}}（含敏感值，服务端渲染并写审计日志）。
 func (h *Handler) ExportCurl(c *gin.Context) {
 	p := principal(c)
-	cmd, err := h.svc.ExportCurl(c.Request.Context(), p.UserID, idParam(c), idQuery(c, "env_id"), c.Query("resolve") == "1")
+	cmd, err := h.svc.ExportCurl(c.Request.Context(), p.UserID, p.Type, idParam(c), idQuery(c, "env_id"), c.Query("resolve") == "1")
 	if err != nil {
 		fail(c, err)
 		return
@@ -239,7 +239,7 @@ func (h *Handler) CodeSnippet(c *gin.Context) {
 	envID := idQuery(c, "env_id")
 	resolve := c.Query("resolve") == "1"
 	lang := c.Query("lang")
-	code, err := h.svc.CodeSnippet(c.Request.Context(), p.UserID, apiID, envID, lang, resolve)
+	code, err := h.svc.CodeSnippet(c.Request.Context(), p.UserID, p.Type, apiID, envID, lang, resolve)
 	if err != nil {
 		fail(c, err)
 		return

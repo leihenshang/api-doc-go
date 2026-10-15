@@ -48,8 +48,9 @@ func fail(c *gin.Context, err error) {
 		response.Fail(c, errcode.CodeFailed, "数据不存在")
 		return
 	}
+	// 非业务错误原文可能含 SQL/驱动细节：只落日志，对外统一文案
 	log.Printf("handler: %v", err)
-	response.Fail(c, errcode.CodeFailed, err.Error())
+	response.Fail(c, errcode.CodeFailed, "操作失败")
 }
 
 // bindJSON 绑定请求体；失败写参数错误并返回 false。

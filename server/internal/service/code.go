@@ -24,10 +24,18 @@ const (
 
 // CodeSnippet 生成接口的代码片段；resolve 为真时用当前环境变量值替换占位符。
 // 权限、审计与 model.Api → codegen.Request 的映射留在服务端，纯渲染由共享包 codegen 承担。
-func (s *Service) CodeSnippet(ctx context.Context, userID uint64, apiID, envID uint64, lang string, resolve bool) (string, error) {
+func (s *Service) CodeSnippet(ctx context.Context, userID uint64, typ int8, apiID, envID uint64, lang string, resolve bool) (string, error) {
 	a, err := s.repo.GetApi(ctx, apiID)
 	if err != nil {
 		return "", err
+	}
+	// 越权读防护：代码片段含该接口的 URL/请求头/请求体，非项目成员不得导出
+	if err := s.ensureProjectPermission(ctx, userID, typ, a.ProjectID, model.PermQuery); err != nil {
+		return "", err
+	}
+	// resolve=1 会把敏感变量原文渲染进片段：与 ListVariables 同口径，需可明文权限
+	if resolve && !s.canRevealValues(ctx, userID, typ, a.ProjectID) {
+		return "", newBiz(errcode.CodeForbidden, "无权查看变量明文")
 	}
 	lang = strings.ToLower(strings.TrimSpace(lang))
 	if lang == "" {

@@ -25,7 +25,7 @@ func TestCodeSnippetVariables(t *testing.T) {
 	f.newVar(t, dto.VariableReq{Scope: model.VarScopeProject, ProjectID: f.proj.ID, EnvID: f.dev.ID, Name: "secret", Value: strPtr("s3cret-val"), IsSecret: model.VarSecret})
 
 	// 1) 保留占位符：与历史 cURL 行为一致。
-	raw, err := f.s.ExportCurl(ctx, f.admin.ID, api.ID, f.dev.ID, false)
+	raw, err := f.s.ExportCurl(ctx, f.admin.ID, model.UserTypeSuperuser, api.ID, f.dev.ID, false)
 	if err != nil {
 		t.Fatalf("ExportCurl(resolve=false): %v", err)
 	}
@@ -34,7 +34,7 @@ func TestCodeSnippetVariables(t *testing.T) {
 	}
 
 	// 2) 替换为实际值：已知变量被替换，未定义（kw）原样保留。
-	got, err := f.s.ExportCurl(ctx, f.admin.ID, api.ID, f.dev.ID, true)
+	got, err := f.s.ExportCurl(ctx, f.admin.ID, model.UserTypeSuperuser, api.ID, f.dev.ID, true)
 	if err != nil {
 		t.Fatalf("ExportCurl(resolve=true): %v", err)
 	}
@@ -50,7 +50,7 @@ func TestCodeSnippetVariables(t *testing.T) {
 
 	// 3) 其它语言均可生成，且变量同样被替换。
 	for _, lang := range []string{CodeLangFetch, CodeLangAxios, CodeLangGo, CodeLangPython} {
-		code, err := f.s.CodeSnippet(ctx, f.admin.ID, api.ID, f.dev.ID, lang, true)
+		code, err := f.s.CodeSnippet(ctx, f.admin.ID, model.UserTypeSuperuser, api.ID, f.dev.ID, lang, true)
 		if err != nil {
 			t.Fatalf("CodeSnippet(%s): %v", lang, err)
 		}
@@ -71,7 +71,7 @@ func TestCodeSnippetVariables(t *testing.T) {
 	}
 
 	// 5) 非法语言返回参数错误。
-	_, err = f.s.CodeSnippet(ctx, f.admin.ID, api.ID, f.dev.ID, "ruby", false)
+	_, err = f.s.CodeSnippet(ctx, f.admin.ID, model.UserTypeSuperuser, api.ID, f.dev.ID, "ruby", false)
 	var be *BizError
 	if !errors.As(err, &be) || be.Code != errcode.CodeParamError {
 		t.Fatalf("非法语言应返回参数错误，got %v", err)

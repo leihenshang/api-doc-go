@@ -99,8 +99,8 @@ func openAPIResponses(a *model.Api) []shopenapi.Response {
 
 // ExportCurl 依据接口记录生成可执行的 cURL 命令。
 // envID/resolve 为真时用当前环境变量值替换 {{占位符}}（resolve=false 保持历史行为：占位符原样保留）。
-func (s *Service) ExportCurl(ctx context.Context, userID uint64, apiID, envID uint64, resolve bool) (string, error) {
-	return s.CodeSnippet(ctx, userID, apiID, envID, CodeLangCurl, resolve)
+func (s *Service) ExportCurl(ctx context.Context, userID uint64, typ int8, apiID, envID uint64, resolve bool) (string, error) {
+	return s.CodeSnippet(ctx, userID, typ, apiID, envID, CodeLangCurl, resolve)
 }
 
 // parseRows 解析对象数组列；失败返回 nil。

@@ -22,7 +22,8 @@ func (h *Handler) SyncState(c *gin.Context) {
 		response.Fail(c, errcode.CodeParamError, "project_id 必填")
 		return
 	}
-	out, err := h.svc.SyncState(c.Request.Context(), pid)
+	p := principal(c)
+	out, err := h.svc.SyncState(c.Request.Context(), p.UserID, p.Type, pid)
 	if err != nil {
 		fail(c, err)
 		return
@@ -39,7 +40,8 @@ func (h *Handler) SyncChanges(c *gin.Context) {
 	}
 	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)
 	limit, _ := strconv.Atoi(c.Query("limit"))
-	out, err := h.svc.SyncChanges(c.Request.Context(), pid, since, limit)
+	p := principal(c)
+	out, err := h.svc.SyncChanges(c.Request.Context(), p.UserID, p.Type, pid, since, limit)
 	if err != nil {
 		fail(c, err)
 		return
@@ -56,7 +58,8 @@ func (h *Handler) SyncSnapshot(c *gin.Context) {
 	}
 	offset, _ := strconv.Atoi(c.Query("offset"))
 	limit, _ := strconv.Atoi(c.Query("limit"))
-	out, err := h.svc.SyncSnapshot(c.Request.Context(), pid, offset, limit)
+	p := principal(c)
+	out, err := h.svc.SyncSnapshot(c.Request.Context(), p.UserID, p.Type, pid, offset, limit)
 	if err != nil {
 		fail(c, err)
 		return
@@ -71,7 +74,7 @@ func (h *Handler) SyncPush(c *gin.Context) {
 		return
 	}
 	p := principal(c)
-	out, err := h.svc.SyncPush(c.Request.Context(), p.UserID, &req)
+	out, err := h.svc.SyncPush(c.Request.Context(), p.UserID, p.Type, &req)
 	if err != nil {
 		fail(c, err)
 		return

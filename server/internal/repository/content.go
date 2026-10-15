@@ -298,8 +298,19 @@ func (r *Repository) ListNotifications(ctx context.Context, receiver uint64, q p
 	err = db.Order("id DESC").Limit(q.PageSize).Offset(q.Offset()).Find(&items).Error
 	return items, total, err
 }
-func (r *Repository) MarkNotificationRead(ctx context.Context, id uint64) error {
-	return r.db.WithContext(ctx).Model(&model.Notification{}).Where("id = ?", id).Update("is_read", 1).Error
+
+// MarkNotificationRead 标记通知已读：必须带接收者条件，否则任意登录用户可标记他人通知（IDOR）。
+func (r *Repository) MarkNotificationRead(ctx context.Context, receiver, id uint64) error {
+	res := r.db.WithContext(ctx).Model(&model.Notification{}).
+		Where("id = ? AND receiver = ?", id, receiver).
+		Update("is_read", 1)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ================= 文件 =================

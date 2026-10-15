@@ -5,7 +5,10 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 
@@ -16,6 +19,10 @@ import (
 
 // defaultConfigFile 为默认配置文件路径。
 const defaultConfigFile = "config/config.yaml"
+
+// defaultJWTSecret 是内置默认 JWT 密钥占位符。它同时用于派生 PAT 的 AES 密钥，
+// 一旦在生产沿用即可伪造任意身份（含超管）并解密全量 PAT，因此必须被显式配置替换。
+const defaultJWTSecret = "change-me-in-prod-apidoc-jwt-secret"
 
 // Config 是应用运行期配置。
 type Config struct {
@@ -123,7 +130,25 @@ func Load() (*Config, error) {
 	if len(cfg.Upload.AllowExt) == 0 {
 		cfg.Upload.AllowExt = fileutil.ParseAllowExt("")
 	}
+	// 未显式配置 JWT_SECRET 时随机生成：沿用内置默认密钥可被伪造任意身份并解密全量 PAT。
+	if cfg.JWT.Secret == "" || cfg.JWT.Secret == defaultJWTSecret {
+		if s, err := randomSecret(); err == nil {
+			cfg.JWT.Secret = s
+			log.Printf("config: JWT_SECRET 未配置或仍为内置默认值，已随机生成临时密钥（重启后失效，请显式设置 JWT_SECRET）")
+		} else {
+			return nil, fmt.Errorf("config: 生成临时 JWT 密钥失败: %w", err)
+		}
+	}
 	return cfg, nil
+}
+
+// randomSecret 生成 32 字节随机密钥的 hex 串（用于 JWT 签名与 PAT 加密派生）。
+func randomSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // defaults 返回内置默认值。
@@ -133,7 +158,7 @@ func defaults() *Config {
 		RunMode: "debug",
 		DB:      DatabaseConfig{Driver: "sqlite"},
 		JWT: JWTConfig{
-			Secret:      "change-me-in-prod-apidoc-jwt-secret",
+			Secret:      defaultJWTSecret,
 			ExpireHours: 24,
 		},
 		Upload: UploadConfig{

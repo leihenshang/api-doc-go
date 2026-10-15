@@ -130,7 +130,11 @@ func (s *Service) Meta(ctx context.Context) *MetaResp {
 }
 
 // SyncState 探测游标。
-func (s *Service) SyncState(ctx context.Context, projectID uint64) (*SyncStateResp, error) {
+func (s *Service) SyncState(ctx context.Context, userID uint64, typ int8, projectID uint64) (*SyncStateResp, error) {
+	// 越权读防护：未校验时任意登录用户可遍历 project_id 拉取他人项目游标
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
 	cur, err := s.repo.LatestChangeID(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -143,7 +147,11 @@ func (s *Service) SyncState(ctx context.Context, projectID uint64) (*SyncStateRe
 }
 
 // SyncChanges 增量拉取。
-func (s *Service) SyncChanges(ctx context.Context, projectID uint64, since int64, limit int) (*SyncChangesResp, error) {
+func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, projectID uint64, since int64, limit int) (*SyncChangesResp, error) {
+	// 越权读防护：变更流含全量接口定义（URL/请求头/请求体/响应样例）
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = 200
 	}
@@ -189,7 +197,11 @@ func (s *Service) SyncChanges(ctx context.Context, projectID uint64, since int64
 }
 
 // SyncSnapshot 全量分页。
-func (s *Service) SyncSnapshot(ctx context.Context, projectID uint64, offset, limit int) (*SyncSnapshotResp, error) {
+func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, projectID uint64, offset, limit int) (*SyncSnapshotResp, error) {
+	// 越权读防护：快照返回项目全量 group/api/doc/响应示例原文
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = 200
 	}
@@ -212,9 +224,6 @@ func (s *Service) SyncSnapshot(ctx context.Context, projectID uint64, offset, li
 		}
 		p := SyncPayload{Title: g.Title, Priority: g.Priority, Deleted: g.IsDeleted == model.IsDeletedYes}
 		if g.PID > 0 {
-			if parent, _ := s.repo.FindGroupByExtUID(ctx, projectID, ""); parent != nil {
-				_ = parent
-			}
 			// parent_uid 通过 p_id 反查
 			var pg model.Group
 			if err := s.repo.DB().WithContext(ctx).Where("id = ?", g.PID).First(&pg).Error; err == nil {
@@ -381,10 +390,30 @@ func (s *Service) apiSyncPayload(ctx context.Context, a *model.Api) SyncPayload 
 	return p
 }
 
+// hasDeleteOp 判断批次中是否含删除操作（用于追加 delete 权限位校验）。
+func hasDeleteOp(ops []SyncOpIn) bool {
+	for _, op := range ops {
+		if op.Op == model.SyncOpDelete {
+			return true
+		}
+	}
+	return false
+}
+
 // SyncPush 批量提交（幂等 + 拓扑序 + 冲突检测）。
-func (s *Service) SyncPush(ctx context.Context, userID uint64, req *SyncPushReq) (*SyncPushResp, error) {
+func (s *Service) SyncPush(ctx context.Context, userID uint64, typ int8, req *SyncPushReq) (*SyncPushResp, error) {
 	if req == nil || req.ProjectID == 0 {
 		return nil, errors.New("project_id 必填")
+	}
+	// 越权写防护：此前无任何权限校验，任意登录用户/PAT 可改写甚至物理删除任意项目数据。
+	// 写操作需 update 位；批次中含删除操作时再校验 delete 位。
+	if err := s.ensureProjectPermission(ctx, userID, typ, req.ProjectID, model.PermUpdate); err != nil {
+		return nil, err
+	}
+	if hasDeleteOp(req.Ops) {
+		if err := s.ensureProjectPermission(ctx, userID, typ, req.ProjectID, model.PermDelete); err != nil {
+			return nil, err
+		}
 	}
 	// 写开关（S14）
 	proj, err := s.repo.GetProjectAny(ctx, req.ProjectID)

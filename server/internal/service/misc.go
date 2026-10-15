@@ -192,9 +192,9 @@ func (s *Service) ListNotifications(ctx context.Context, receiver uint64, q page
 	return page.NewResult(items, total, q), nil
 }
 
-// MarkNotificationRead 标记通知已读。
+// MarkNotificationRead 标记通知已读：receiver 必须下沉到查询条件，避免越权标记他人通知。
 func (s *Service) MarkNotificationRead(ctx context.Context, receiver, id uint64) error {
-	return s.repo.MarkNotificationRead(ctx, id)
+	return s.repo.MarkNotificationRead(ctx, receiver, id)
 }
 
 // ---- 操作日志 ----

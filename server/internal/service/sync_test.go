@@ -16,7 +16,8 @@ func pushAPI(t *testing.T, s *Service, userID uint64, projectID uint64, uid, opI
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	resp, err := s.SyncPush(context.Background(), userID, &SyncPushReq{
+	// 超管类型直过权限校验（本用例验证同步语义，不验证权限矩阵）
+	resp, err := s.SyncPush(context.Background(), userID, model.UserTypeSuperuser, &SyncPushReq{
 		ProjectID:  projectID,
 		DeviceID:   "dev-test",
 		DeviceName: "测试设备",
@@ -131,7 +132,7 @@ func TestSyncSnapshotAPIExtra(t *testing.T) {
 		Name: "快照接口", Method: "GET", URL: "/snap", Extra: string(extra),
 	})
 
-	sn, err := f.s.SyncSnapshot(context.Background(), f.proj.ID, 0, 200)
+	sn, err := f.s.SyncSnapshot(context.Background(), 0, model.UserTypeSuperuser, f.proj.ID, 0, 200)
 	if err != nil {
 		t.Fatalf("SyncSnapshot: %v", err)
 	}
@@ -165,7 +166,8 @@ func pushOp(t *testing.T, s *Service, userID, projectID uint64, opID, op, typ, u
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	resp, err := s.SyncPush(context.Background(), userID, &SyncPushReq{
+	// 超管类型直过权限校验（本用例验证同步语义，不验证权限矩阵）
+	resp, err := s.SyncPush(context.Background(), userID, model.UserTypeSuperuser, &SyncPushReq{
 		ProjectID: projectID, DeviceID: "dev-test", DeviceName: "测试设备",
 		Ops: []SyncOpIn{{OpID: opID, Op: op, Type: typ, UID: uid, Payload: body}},
 	})
@@ -217,7 +219,7 @@ func TestSyncExampleRoundTrip(t *testing.T) {
 	}
 
 	// 快照包含示例
-	sn, err := f.s.SyncSnapshot(ctx, f.proj.ID, 0, 200)
+	sn, err := f.s.SyncSnapshot(ctx, 0, model.UserTypeSuperuser, f.proj.ID, 0, 200)
 	if err != nil {
 		t.Fatalf("SyncSnapshot: %v", err)
 	}

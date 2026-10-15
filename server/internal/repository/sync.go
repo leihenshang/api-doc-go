@@ -49,6 +49,10 @@ func (r *Repository) SetLastChange(tx *gorm.DB, entityType string, id uint64, ch
 		col = "group"
 	case model.SyncTypeDoc:
 		col = "doc"
+	// 响应示例：缺此分支时 example 的 last_change_id 永不回写，
+	// 客户端下次 push 会因 base_rev != 0 恒判冲突（见《代码问题分析2》B-07）。
+	case model.SyncTypeExample:
+		col = "api_return_sample"
 	default:
 		return nil
 	}
