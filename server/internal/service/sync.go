@@ -428,14 +428,19 @@ func (s *Service) apiSyncPayload(ctx context.Context, a *model.Api) SyncPayload 
 	return p
 }
 
-// SyncPush 批量提交（幂等 + 拓扑序 + 冲突检测）。
-func (s *Service) SyncPush(ctx context.Context, userID uint64, req *SyncPushReq) (*SyncPushResp, error) {
+// SyncPush 批量提交（幂等 + 拓扑序 + 冲突检测）。typ 为主体用户类型，管理员放行、其余需项目成员 + 修改权限位。
+func (s *Service) SyncPush(ctx context.Context, userID uint64, typ int8, req *SyncPushReq) (*SyncPushResp, error) {
 	if req == nil || req.ProjectID == 0 {
 		return nil, errors.New("project_id 必填")
 	}
 	// 写开关（S14）
 	proj, err := s.repo.GetProjectAny(ctx, req.ProjectID)
 	if err != nil {
+		return nil, err
+	}
+	// 权限位（§4.2）：push 与 Web 写路径同口径，须为项目成员且具备修改权限（管理员放行）。
+	// 堵住此前「任意持有效令牌者可向任意 project_id 推送」的欠账。
+	if err := s.ensureProjectPermission(ctx, userID, typ, req.ProjectID, model.PermUpdate); err != nil {
 		return nil, err
 	}
 	writeDisabled := proj != nil && proj.ClientWriteEnabled != nil && !*proj.ClientWriteEnabled

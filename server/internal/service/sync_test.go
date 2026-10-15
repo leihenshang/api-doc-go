@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"apidoc/internal/dto"
 	"apidoc/internal/model"
 )
 
@@ -16,7 +17,7 @@ func pushAPI(t *testing.T, s *Service, userID uint64, projectID uint64, uid, opI
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	resp, err := s.SyncPush(context.Background(), userID, &SyncPushReq{
+	resp, err := s.SyncPush(context.Background(), userID, model.UserTypeAdmin, &SyncPushReq{
 		ProjectID:  projectID,
 		DeviceID:   "dev-test",
 		DeviceName: "测试设备",
@@ -223,7 +224,7 @@ func pushOp(t *testing.T, s *Service, userID, projectID uint64, opID, op, typ, u
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	resp, err := s.SyncPush(context.Background(), userID, &SyncPushReq{
+	resp, err := s.SyncPush(context.Background(), userID, model.UserTypeAdmin, &SyncPushReq{
 		ProjectID: projectID, DeviceID: "dev-test", DeviceName: "测试设备",
 		Ops: []SyncOpIn{{OpID: opID, Op: op, Type: typ, UID: uid, Payload: body}},
 	})
@@ -234,6 +235,42 @@ func pushOp(t *testing.T, s *Service, userID, projectID uint64, opID, op, typ, u
 		t.Fatalf("push 结果异常: %+v", resp.Results)
 	}
 	return resp.Results[0]
+}
+
+// TestSyncPushRequiresProjectPermission push 路径权限位校验（§4.2）：
+// 非成员 / 只读成员被拒；授予 update 位后放行。堵住「任意持令牌者可推任意项目」。
+func TestSyncPushRequiresProjectPermission(t *testing.T) {
+	f := newVarFixture(t)
+	ctx := f.ctx
+	bob, err := f.s.Register(ctx, dto.RegisterReq{Name: "bob", Pwd: "p123456", RePwd: "p123456"})
+	if err != nil {
+		t.Fatalf("register bob: %v", err)
+	}
+	body, _ := json.Marshal(SyncPayload{Name: "x", Method: "GET", URL: "/x"})
+	pushAs := func(opID string) error {
+		_, err := f.s.SyncPush(ctx, bob.ID, bob.Type, &SyncPushReq{
+			ProjectID: f.proj.ID, DeviceID: "dev",
+			Ops: []SyncOpIn{{OpID: opID, Op: model.SyncOpUpsert, Type: model.SyncTypeAPI, UID: "perm-uid", Payload: body}},
+		})
+		return err
+	}
+	if err := pushAs("op-perm-nonmember"); err == nil {
+		t.Fatal("非成员 push 应被拒绝")
+	}
+	// 只读成员：无 update 位，仍应被拒
+	if err := f.s.AddMember(ctx, f.admin.ID, f.admin.Type, dto.MemberAddReq{ProjectID: f.proj.ID, UserID: bob.ID, Permission: model.PermReadonly}); err != nil {
+		t.Fatalf("add bob: %v", err)
+	}
+	if err := pushAs("op-perm-readonly"); err == nil {
+		t.Fatal("只读成员 push 应被拒绝")
+	}
+	// 授予 update 后可推
+	if err := f.s.SetPermission(ctx, f.admin.ID, f.admin.Type, dto.SetPermissionReq{ProjectID: f.proj.ID, UserID: bob.ID, Permission: model.PermUpdate}); err != nil {
+		t.Fatalf("set bob update: %v", err)
+	}
+	if err := pushAs("op-perm-update"); err != nil {
+		t.Fatalf("有 update 位成员 push 应成功: %v", err)
+	}
 }
 
 // TestSyncExampleRoundTrip 响应示例：push 落库 → 增量/快照载荷可回读 → delete 生效。

@@ -71,7 +71,7 @@ func (h *Handler) SyncPush(c *gin.Context) {
 		return
 	}
 	p := principal(c)
-	out, err := h.svc.SyncPush(c.Request.Context(), p.UserID, &req)
+	out, err := h.svc.SyncPush(c.Request.Context(), p.UserID, p.Type, &req)
 	if err != nil {
 		fail(c, err)
 		return
