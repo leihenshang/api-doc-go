@@ -112,6 +112,12 @@ type SyncPayload struct {
 	Status      int    `json:"status,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 	Seq         int    `json:"seq,omitempty"`
+	// variable / variable_env（S16）：Name 复用为变量名/环境名；secret 变量的 Value
+	// 为客户端密文（enc:v1: 前缀）——服务端只存储、不解析，值本身即「加密数据」标注。
+	EnvUID  string `json:"env_uid,omitempty"` // 变量所属环境的 ext_uid
+	Value   string `json:"value,omitempty"`   // 变量值（明文或 enc:v1: 密文）
+	Secret  bool   `json:"secret,omitempty"`  // 是否敏感值
+	Enabled *bool  `json:"enabled,omitempty"` // 是否启用（nil 视作启用）
 	// 通用
 	Deleted bool `json:"deleted,omitempty"`
 }
@@ -269,6 +275,32 @@ func (s *Service) SyncSnapshot(ctx context.Context, projectID uint64, offset, li
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeExample, ex.ExtUID, p.Deleted, ex.LastChangeID, b})
 	}
+	// 变量类：环境先于变量（拓扑序，变量按 env_uid 挂接）。
+	varEnvs, err := s.repo.ListVarEnvsAll(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, ev := range varEnvs {
+		if ev.ExtUID == "" {
+			continue
+		}
+		p := SyncPayload{Name: ev.Name, Deleted: ev.IsDeleted == model.IsDeletedYes}
+		b, _ := json.Marshal(p)
+		rows = append(rows, row{model.SyncTypeVarEnv, ev.ExtUID, p.Deleted, ev.LastChangeID, b})
+	}
+	vars, err := s.repo.ListVariablesAll(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range vars {
+		if v.ExtUID == "" {
+			continue
+		}
+		p := s.varSyncPayload(ctx, &v)
+		p.Deleted = v.IsDeleted == model.IsDeletedYes
+		b, _ := json.Marshal(p)
+		rows = append(rows, row{model.SyncTypeVariable, v.ExtUID, p.Deleted, v.LastChangeID, b})
+	}
 
 	if offset < 0 {
 		offset = 0
@@ -336,6 +368,18 @@ func (s *Service) loadPayload(ctx context.Context, projectID uint64, entityType,
 			return nil, errors.New("not found")
 		}
 		return json.Marshal(s.exampleSyncPayload(ctx, ex))
+	case model.SyncTypeVarEnv:
+		e, err := s.repo.FindVarEnvByExtUID(ctx, projectID, extUID)
+		if err != nil || e == nil {
+			return nil, errors.New("not found")
+		}
+		return json.Marshal(SyncPayload{Name: e.Name})
+	case model.SyncTypeVariable:
+		v, err := s.repo.FindVariableByExtUID(ctx, projectID, extUID)
+		if err != nil || v == nil {
+			return nil, errors.New("not found")
+		}
+		return json.Marshal(s.varSyncPayload(ctx, v))
 	}
 	return nil, fmt.Errorf("unknown type %s", entityType)
 }
@@ -350,6 +394,22 @@ func (s *Service) exampleSyncPayload(ctx context.Context, ex *model.ApiReturnSam
 		var a model.Api
 		if err := s.repo.DB().WithContext(ctx).Where("id = ?", ex.ApiID).First(&a).Error; err == nil {
 			p.ApiUID = a.ExtUID
+		}
+	}
+	return p
+}
+
+// varSyncPayload 构造变量同步载荷：env_id 反查 env_uid；值原样回传（enc:v1: 密文不解析）。
+func (s *Service) varSyncPayload(ctx context.Context, v *model.Variable) SyncPayload {
+	enabled := v.Enabled == model.VarEnabled
+	p := SyncPayload{
+		Name: v.Name, Value: v.Value,
+		Secret: v.IsSecret == model.VarSecret, Enabled: &enabled,
+	}
+	if v.EnvID > 0 {
+		var env model.VariableEnv
+		if err := s.repo.DB().WithContext(ctx).Where("id = ?", v.EnvID).First(&env).Error; err == nil {
+			p.EnvUID = env.ExtUID
 		}
 	}
 	return p
@@ -471,7 +531,8 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "readonly"}
 	}
 	switch op.Type {
-	case model.SyncTypeGroup, model.SyncTypeAPI, model.SyncTypeDoc, model.SyncTypeExample:
+	case model.SyncTypeGroup, model.SyncTypeAPI, model.SyncTypeDoc, model.SyncTypeExample,
+		model.SyncTypeVarEnv, model.SyncTypeVariable:
 	default:
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 	}
@@ -500,6 +561,16 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 		}
 	case model.SyncTypeExample:
 		e, _ := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		if e != nil {
+			exists, curRev = true, e.LastChangeID
+		}
+	case model.SyncTypeVarEnv:
+		e, _ := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		if e != nil {
+			exists, curRev = true, e.LastChangeID
+		}
+	case model.SyncTypeVariable:
+		e, _ := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
 		if e != nil {
 			exists, curRev = true, e.LastChangeID
 		}
@@ -667,6 +738,75 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 			e.LastChangeID = cid
 		}
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
+
+	case model.SyncTypeVarEnv:
+		// 环境：Name 复用载荷字段；仅建/改同步身份与名称，颜色/描述等 Web 侧属性不覆盖。
+		e, _ := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		if e == nil {
+			e = &model.VariableEnv{ProjectID: req.ProjectID}
+		}
+		e.ExtUID = op.UID
+		if p.Name != "" {
+			e.Name = p.Name
+		}
+		var err error
+		if e.ID == 0 {
+			err = s.repo.CreateVariableEnv(ctx, e)
+		} else {
+			e.IsDeleted = model.IsDeletedNo
+			err = s.repo.UpdateVariableEnv(ctx, e)
+		}
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
+		}
+		cid, err := s.repo.AppendChange(nil, req.ProjectID, model.SyncTypeVarEnv, op.UID, model.SyncOpUpsert, userID, device)
+		if err == nil {
+			_ = s.repo.SetLastChange(nil, model.SyncTypeVarEnv, e.ID, cid)
+			e.LastChangeID = cid
+		}
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
+
+	case model.SyncTypeVariable:
+		// 变量：项目级、挂到 env_uid 对应环境；Value 原样存（secret 为 enc:v1: 密文，服务端不解析）。
+		e, _ := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		if e == nil {
+			e = &model.Variable{ProjectID: req.ProjectID, Scope: model.VarScopeProject}
+		}
+		e.ExtUID = op.UID
+		e.Name = p.Name
+		e.Value = p.Value
+		e.IsSecret = model.VarNotSecret
+		if p.Secret {
+			e.IsSecret = model.VarSecret
+		}
+		e.Enabled = model.VarEnabled
+		if p.Enabled != nil && !*p.Enabled {
+			e.Enabled = model.VarDisabled
+		}
+		e.EnvID = 0
+		if p.EnvUID != "" {
+			env, _ := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, p.EnvUID)
+			if env == nil {
+				return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "parent_missing"}
+			}
+			e.EnvID = env.ID
+		}
+		var err error
+		if e.ID == 0 {
+			err = s.repo.CreateVariable(ctx, e)
+		} else {
+			e.IsDeleted = model.IsDeletedNo
+			err = s.repo.UpdateVariable(ctx, e)
+		}
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
+		}
+		cid, err := s.repo.AppendChange(nil, req.ProjectID, model.SyncTypeVariable, op.UID, model.SyncOpUpsert, userID, device)
+		if err == nil {
+			_ = s.repo.SetLastChange(nil, model.SyncTypeVariable, e.ID, cid)
+			e.LastChangeID = cid
+		}
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
 	}
 	return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 }
@@ -712,6 +852,24 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 		}
 		id = e.ID
 		if err := s.repo.DeleteApiReturnSample(ctx, id); err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
+		}
+	case model.SyncTypeVarEnv:
+		e, _ := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		if e == nil {
+			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
+		}
+		id = e.ID
+		if err := s.repo.DeleteVariableEnv(ctx, id); err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
+		}
+	case model.SyncTypeVariable:
+		e, _ := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		if e == nil {
+			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
+		}
+		id = e.ID
+		if err := s.repo.DeleteVariable(ctx, id); err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	default:

@@ -49,6 +49,12 @@ func (r *Repository) SetLastChange(tx *gorm.DB, entityType string, id uint64, ch
 		col = "group"
 	case model.SyncTypeDoc:
 		col = "doc"
+	case model.SyncTypeExample:
+		col = "api_return_sample"
+	case model.SyncTypeVarEnv:
+		col = "variable_env"
+	case model.SyncTypeVariable:
+		col = "variable"
 	default:
 		return nil
 	}
@@ -251,4 +257,46 @@ func (r *Repository) DeleteUserToken(ctx context.Context, userID, id uint64) err
 	return r.db.WithContext(ctx).Unscoped().
 		Where("id = ? AND user_id = ?", id, userID).
 		Delete(&model.UserToken{}).Error
+}
+
+// ---- 变量类同步（S16）：ext_uid 查找与全量列举（含软删行，快照需带 Deleted 标记）----
+
+// FindVarEnvByExtUID 按同步 uid 查环境（含软删行）。
+func (r *Repository) FindVarEnvByExtUID(ctx context.Context, projectID uint64, extUID string) (*model.VariableEnv, error) {
+	var e model.VariableEnv
+	err := r.db.WithContext(ctx).Where("project_id = ? AND ext_uid = ?", projectID, extUID).First(&e).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// FindVariableByExtUID 按同步 uid 查变量（含软删行）。
+func (r *Repository) FindVariableByExtUID(ctx context.Context, projectID uint64, extUID string) (*model.Variable, error) {
+	var e model.Variable
+	err := r.db.WithContext(ctx).Where("project_id = ? AND ext_uid = ?", projectID, extUID).First(&e).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// ListVarEnvsAll 列出项目全部环境（含软删行），按 id 稳定排序。
+func (r *Repository) ListVarEnvsAll(ctx context.Context, projectID uint64) ([]model.VariableEnv, error) {
+	var out []model.VariableEnv
+	err := r.db.WithContext(ctx).Where("project_id = ?", projectID).Order("id").Find(&out).Error
+	return out, err
+}
+
+// ListVariablesAll 列出项目全部变量（含软删行），按 id 稳定排序。
+func (r *Repository) ListVariablesAll(ctx context.Context, projectID uint64) ([]model.Variable, error) {
+	var out []model.Variable
+	err := r.db.WithContext(ctx).Where("project_id = ?", projectID).Order("id").Find(&out).Error
+	return out, err
 }

@@ -273,6 +273,63 @@ func TestSyncPushRequiresProjectPermission(t *testing.T) {
 	}
 }
 
+// TestSyncVariableRoundTrip 变量类同步（S16）：环境/变量 push 落库 → 载荷回读 →
+// enc:v1: 密文原样存储且不进解析表 → delete 软删生效。
+func TestSyncVariableRoundTrip(t *testing.T) {
+	f := newVarFixture(t)
+	ctx := f.ctx
+
+	envUID, varUID := "env-sync-1", "var-sync-1"
+	pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-env-1", model.SyncOpUpsert, model.SyncTypeVarEnv, envUID,
+		SyncPayload{Name: "qa"})
+	ev, err := f.s.repo.FindVarEnvByExtUID(ctx, f.proj.ID, envUID)
+	if err != nil || ev == nil || ev.Name != "qa" {
+		t.Fatalf("环境未落库: %v %+v", err, ev)
+	}
+
+	enabled := true
+	secret := "enc:v1:QUJD" // 模拟客户端密文（前缀即契约）
+	pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-var-1", model.SyncOpUpsert, model.SyncTypeVariable, varUID,
+		SyncPayload{Name: "token", Value: secret, Secret: true, Enabled: &enabled, EnvUID: envUID})
+	v, err := f.s.repo.FindVariableByExtUID(ctx, f.proj.ID, varUID)
+	if err != nil || v == nil {
+		t.Fatalf("变量未落库: %v", err)
+	}
+	if v.Value != secret || v.IsSecret != model.VarSecret || v.EnvID != ev.ID {
+		t.Fatalf("变量落库不符: %+v", v)
+	}
+
+	// 载荷回读（增量与快照共用 loadPayload）
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeVariable, varUID)
+	if err != nil {
+		t.Fatalf("loadPayload: %v", err)
+	}
+	var got SyncPayload
+	if err := json.Unmarshal(raw, &got); err != nil || got.Name != "token" || got.Value != secret ||
+		!got.Secret || got.EnvUID != envUID {
+		t.Fatalf("回传载荷不符: %s", raw)
+	}
+
+	// 解析表跳过密文：{{token}} 不会被服务端渲染替换
+	table, err := f.s.resolveTable(ctx, f.proj.ID, 0, ev.ID)
+	if err != nil {
+		t.Fatalf("resolveTable: %v", err)
+	}
+	if _, ok := table["token"]; ok {
+		t.Fatal("加密变量不应进入解析表")
+	}
+	if out := renderVars("{{token}}", table); out != "{{token}}" {
+		t.Fatalf("密文变量占位符应原样保留，got %q", out)
+	}
+
+	// delete：change_log 记 tombstone；实体与 DeleteApi 同口径直接删除、行不再可见
+	pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-var-del", model.SyncOpDelete, model.SyncTypeVariable, varUID, SyncPayload{})
+	v2, err := f.s.repo.FindVariableByExtUID(ctx, f.proj.ID, varUID)
+	if err != nil || v2 != nil {
+		t.Fatalf("变量删除后应不可见: %v %+v", err, v2)
+	}
+}
+
 // TestSyncExampleRoundTrip 响应示例：push 落库 → 增量/快照载荷可回读 → delete 生效。
 func TestSyncExampleRoundTrip(t *testing.T) {
 	f := newVarFixture(t)
