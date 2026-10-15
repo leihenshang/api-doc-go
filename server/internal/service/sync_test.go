@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"apidoc/internal/dto"
 	"apidoc/internal/model"
 )
 
@@ -89,6 +90,64 @@ func TestSyncPushAPIParams(t *testing.T) {
 	}
 }
 
+// TestSyncPushAPIExtendedFields 覆盖客户端富字段（S16 扩展）的落库与回传：
+// 请求体/认证/请求设置/脚本/变量/断言/响应内容类型均以原始 JSON/文本列存储，增量载荷原样回传。
+func TestSyncPushAPIExtendedFields(t *testing.T) {
+	f := newVarFixture(t)
+	ctx := context.Background()
+	const uid = "api-ext-uid-1"
+	const (
+		bodyType  = "json"
+		bodyVal   = `{"a":1}`
+		bodyForm  = `[{"name":"k","value":"v","enabled":true}]`
+		authVal   = `{"type":"bearer","token":"t"}`
+		settings  = `{"timeout":10,"followRedirects":-1,"maxRedirects":0,"insecureSsl":1,"encodeUrl":true}`
+		scriptVal = `{"preRequest":"p","postResponse":"q"}`
+		varsVal   = `[{"name":"x","value":"1","enabled":true}]`
+		assertVal = `[{"name":"eq","expr":"a==b"}]`
+		retCT     = "xml"
+	)
+	extra, _ := json.Marshal(map[string]any{
+		"bodyType": bodyType, "body": bodyVal, "bodyForm": bodyForm,
+		"auth": authVal, "settings": settings, "script": scriptVal,
+		"vars": varsVal, "asserts": assertVal, "retContentType": retCT,
+	})
+	pushAPI(t, f.s, f.admin.ID, f.proj.ID, uid, "op-ext-1", SyncPayload{Name: "ext", Method: "GET", URL: "/e", Extra: string(extra)})
+
+	a, err := f.s.repo.FindApiByExtUID(ctx, f.proj.ID, uid)
+	if err != nil || a == nil {
+		t.Fatalf("推送后应能查到接口: %v", err)
+	}
+	if a.HttpRequestBodyType != bodyType || a.HttpRequestBody != bodyVal || a.HttpRequestBodyForm != bodyForm ||
+		a.HttpAuth != authVal || a.RequestSettings != settings || a.HttpScript != scriptVal ||
+		a.ScriptVars != varsVal || a.ScriptAsserts != assertVal || a.HttpReturnContentType != retCT {
+		t.Fatalf("扩展字段未落库: %+v", a)
+	}
+
+	// 增量载荷必须原样回传这些键（与 applyApiExtra 键集对齐），供客户端双向同步。
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeAPI, uid)
+	if err != nil {
+		t.Fatalf("loadPayload: %v", err)
+	}
+	var got SyncPayload
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("载荷反序列化: %v", err)
+	}
+	var em map[string]any
+	if err := json.Unmarshal([]byte(got.Extra), &em); err != nil {
+		t.Fatalf("extra 应为 JSON 对象: %v", err)
+	}
+	for k, want := range map[string]string{
+		"bodyType": bodyType, "body": bodyVal, "bodyForm": bodyForm, "auth": authVal,
+		"settings": settings, "script": scriptVal, "vars": varsVal, "asserts": assertVal,
+		"retContentType": retCT,
+	} {
+		if em[k] != want {
+			t.Fatalf("回传 %s 不符：got %v want %s", k, em[k], want)
+		}
+	}
+}
+
 // TestSyncPushAPIEmptyExtraClears 空串键表示清空；缺键保持不动（整份覆盖 + 部分更新语义）。
 func TestSyncPushAPIEmptyExtraClears(t *testing.T) {
 	f := newVarFixture(t)
@@ -166,8 +225,12 @@ func pushOp(t *testing.T, s *Service, userID, projectID uint64, opID, op, typ, u
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
+<<<<<<< HEAD
 	// 超管类型直过权限校验（本用例验证同步语义，不验证权限矩阵）
 	resp, err := s.SyncPush(context.Background(), userID, model.UserTypeSuperuser, &SyncPushReq{
+=======
+	resp, err := s.SyncPush(context.Background(), userID, model.UserTypeAdmin, &SyncPushReq{
+>>>>>>> 7847bd4eec4eafe7f7a92df0585a551b23dfe6f6
 		ProjectID: projectID, DeviceID: "dev-test", DeviceName: "测试设备",
 		Ops: []SyncOpIn{{OpID: opID, Op: op, Type: typ, UID: uid, Payload: body}},
 	})
@@ -178,6 +241,99 @@ func pushOp(t *testing.T, s *Service, userID, projectID uint64, opID, op, typ, u
 		t.Fatalf("push 结果异常: %+v", resp.Results)
 	}
 	return resp.Results[0]
+}
+
+// TestSyncPushRequiresProjectPermission push 路径权限位校验（§4.2）：
+// 非成员 / 只读成员被拒；授予 update 位后放行。堵住「任意持令牌者可推任意项目」。
+func TestSyncPushRequiresProjectPermission(t *testing.T) {
+	f := newVarFixture(t)
+	ctx := f.ctx
+	bob, err := f.s.Register(ctx, dto.RegisterReq{Name: "bob", Pwd: "p123456", RePwd: "p123456"})
+	if err != nil {
+		t.Fatalf("register bob: %v", err)
+	}
+	body, _ := json.Marshal(SyncPayload{Name: "x", Method: "GET", URL: "/x"})
+	pushAs := func(opID string) error {
+		_, err := f.s.SyncPush(ctx, bob.ID, bob.Type, &SyncPushReq{
+			ProjectID: f.proj.ID, DeviceID: "dev",
+			Ops: []SyncOpIn{{OpID: opID, Op: model.SyncOpUpsert, Type: model.SyncTypeAPI, UID: "perm-uid", Payload: body}},
+		})
+		return err
+	}
+	if err := pushAs("op-perm-nonmember"); err == nil {
+		t.Fatal("非成员 push 应被拒绝")
+	}
+	// 只读成员：无 update 位，仍应被拒
+	if err := f.s.AddMember(ctx, f.admin.ID, f.admin.Type, dto.MemberAddReq{ProjectID: f.proj.ID, UserID: bob.ID, Permission: model.PermReadonly}); err != nil {
+		t.Fatalf("add bob: %v", err)
+	}
+	if err := pushAs("op-perm-readonly"); err == nil {
+		t.Fatal("只读成员 push 应被拒绝")
+	}
+	// 授予 update 后可推
+	if err := f.s.SetPermission(ctx, f.admin.ID, f.admin.Type, dto.SetPermissionReq{ProjectID: f.proj.ID, UserID: bob.ID, Permission: model.PermUpdate}); err != nil {
+		t.Fatalf("set bob update: %v", err)
+	}
+	if err := pushAs("op-perm-update"); err != nil {
+		t.Fatalf("有 update 位成员 push 应成功: %v", err)
+	}
+}
+
+// TestSyncVariableRoundTrip 变量类同步（S16）：环境/变量 push 落库 → 载荷回读 →
+// enc:v1: 密文原样存储且不进解析表 → delete 软删生效。
+func TestSyncVariableRoundTrip(t *testing.T) {
+	f := newVarFixture(t)
+	ctx := f.ctx
+
+	envUID, varUID := "env-sync-1", "var-sync-1"
+	pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-env-1", model.SyncOpUpsert, model.SyncTypeVarEnv, envUID,
+		SyncPayload{Name: "qa"})
+	ev, err := f.s.repo.FindVarEnvByExtUID(ctx, f.proj.ID, envUID)
+	if err != nil || ev == nil || ev.Name != "qa" {
+		t.Fatalf("环境未落库: %v %+v", err, ev)
+	}
+
+	enabled := true
+	secret := "enc:v1:QUJD" // 模拟客户端密文（前缀即契约）
+	pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-var-1", model.SyncOpUpsert, model.SyncTypeVariable, varUID,
+		SyncPayload{Name: "token", Value: secret, Secret: true, Enabled: &enabled, EnvUID: envUID})
+	v, err := f.s.repo.FindVariableByExtUID(ctx, f.proj.ID, varUID)
+	if err != nil || v == nil {
+		t.Fatalf("变量未落库: %v", err)
+	}
+	if v.Value != secret || v.IsSecret != model.VarSecret || v.EnvID != ev.ID {
+		t.Fatalf("变量落库不符: %+v", v)
+	}
+
+	// 载荷回读（增量与快照共用 loadPayload）
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeVariable, varUID)
+	if err != nil {
+		t.Fatalf("loadPayload: %v", err)
+	}
+	var got SyncPayload
+	if err := json.Unmarshal(raw, &got); err != nil || got.Name != "token" || got.Value != secret ||
+		!got.Secret || got.EnvUID != envUID {
+		t.Fatalf("回传载荷不符: %s", raw)
+	}
+
+	// 解析表跳过密文：{{token}} 不会被服务端渲染替换
+	table, err := f.s.resolveTable(ctx, f.proj.ID, 0, ev.ID)
+	if err != nil {
+		t.Fatalf("resolveTable: %v", err)
+	}
+	if _, ok := table["token"]; ok {
+		t.Fatal("加密变量不应进入解析表")
+	}
+	if out := renderVars("{{token}}", table); out != "{{token}}" {
+		t.Fatalf("密文变量占位符应原样保留，got %q", out)
+	}
+
+	// delete：change_log 记 tombstone；实体与 DeleteApi 同口径直接删除、行不再可见
+	pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-var-del", model.SyncOpDelete, model.SyncTypeVariable, varUID, SyncPayload{})
+	v2, err := f.s.repo.FindVariableByExtUID(ctx, f.proj.ID, varUID)
+	if err != nil || v2 != nil {
+		t.Fatalf("变量删除后应不可见: %v %+v", err, v2)
+	}
 }
 
 // TestSyncExampleRoundTrip 响应示例：push 落库 → 增量/快照载荷可回读 → delete 生效。

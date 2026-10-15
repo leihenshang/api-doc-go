@@ -66,6 +66,17 @@ export interface ApiDoc extends BaseEntity {
   develop_language?: string
   object_name?: string
   function_name?: string
+  // 客户端富字段（同步过来，Web 只读展示；均为原始 JSON/文本串）
+  http_request_body_type?: string
+  http_request_body?: string
+  http_request_body_form?: string
+  http_request_body_descs?: string
+  http_auth?: string
+  request_settings?: string
+  http_script?: string
+  script_vars?: string
+  script_asserts?: string
+  http_return_content_type?: string
 }
 
 export interface DocItem extends BaseEntity {

@@ -29,10 +29,12 @@ const (
 // 环境只影响项目变量的取值与展示，不改写任何接口数据。
 type VariableEnv struct {
 	BaseModel
-	ProjectID   uint64 `gorm:"column:project_id;not null;index" json:"project_id"`
-	Name        string `gorm:"column:name;size:100;not null" json:"name"`
-	Description string `gorm:"column:description;type:text" json:"description"`
-	Color       string `gorm:"column:color;size:20" json:"color"`
+	ProjectID    uint64 `gorm:"column:project_id;not null;index" json:"project_id"`
+	ExtUID       string `gorm:"column:ext_uid;size:64;uniqueIndex:uk_var_env_ext_uid,where:is_deleted = 0 AND ext_uid != ''" json:"ext_uid"`
+	LastChangeID int64  `gorm:"column:last_change_id;not null;default:0" json:"last_change_id"`
+	Name         string `gorm:"column:name;size:100;not null" json:"name"`
+	Description  string `gorm:"column:description;type:text" json:"description"`
+	Color        string `gorm:"column:color;size:20" json:"color"`
 	// IsDefault 项目默认环境：同项目由 service 层保证唯一。
 	IsDefault int8 `gorm:"column:is_default;not null;default:0" json:"is_default"`
 	Priority  int  `gorm:"column:priority;not null;default:0" json:"priority"`
@@ -46,7 +48,10 @@ func (VariableEnv) TableName() string { return "variable_env" }
 // 同层同环境不允许重名（局部唯一索引 uk_variable_key，排除软删除行）。
 type Variable struct {
 	BaseModel
-	Scope int8 `gorm:"column:scope;not null;default:1;uniqueIndex:uk_variable_key,priority:1,where:is_deleted = 0" json:"scope"`
+	// ExtUID 同步身份（客户端生成的 UUID）；LastChangeID 为该条目当前版本。
+	ExtUID       string `gorm:"column:ext_uid;size:64;uniqueIndex:uk_variable_ext_uid,where:is_deleted = 0 AND ext_uid != ''" json:"ext_uid"`
+	LastChangeID int64  `gorm:"column:last_change_id;not null;default:0" json:"last_change_id"`
+	Scope        int8   `gorm:"column:scope;not null;default:1;uniqueIndex:uk_variable_key,priority:1,where:is_deleted = 0" json:"scope"`
 	// ProjectID 请求级/项目级必填；全局变量固定 0。
 	ProjectID uint64 `gorm:"column:project_id;not null;default:0;uniqueIndex:uk_variable_key,priority:2;index:idx_variable_scope,priority:1" json:"project_id"`
 	// ApiID 仅请求级（scope=1）填接口 id，其余为 0。

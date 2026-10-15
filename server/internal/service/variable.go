@@ -667,8 +667,16 @@ func apiVarNames(a *model.Api) []string {
 	return out
 }
 
+// encValuePrefix 与客户端 secrets 包的密文前缀逐字一致（enc:v1:）。带该前缀的变量值
+// 是客户端口令加密的密文：服务端只归档存储（is_secret 标注加密），**不解析、不解密、
+// 不参与渲染/Mock/代码生成**——本产品阶段的既定策略，占位符按「未定义」原样保留。
+const encValuePrefix = "enc:v1:"
+
+func isEncryptedValue(v string) bool { return strings.HasPrefix(v, encValuePrefix) }
+
 // resolveTable 返回该接口在当前环境下同名**最高优先级**的变量（保留原文，含敏感值）。
 // 仅供服务端渲染 cURL / 代码片段使用；对外接口仍走 ResolveVariables 的脱敏视图。
+// 客户端加密的 secret（enc:v1: 前缀）一律跳过——服务端不解析密文，占位符保持原样。
 func (s *Service) resolveTable(ctx context.Context, projectID, apiID, envID uint64) (map[string]model.Variable, error) {
 	vars, err := s.repo.VariablesForResolve(ctx, projectID, apiID)
 	if err != nil {
@@ -676,6 +684,9 @@ func (s *Service) resolveTable(ctx context.Context, projectID, apiID, envID uint
 	}
 	best := map[string]resolvedVar{}
 	for _, v := range vars {
+		if isEncryptedValue(v.Value) {
+			continue
+		}
 		rank, ok := varRank(v, envID)
 		if !ok {
 			continue

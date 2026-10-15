@@ -249,6 +249,12 @@ func apiFromCreate(req dto.ApiCreateReq) *model.Api {
 		FunctionName: req.FunctionName, DevelopLanguage: req.DevelopLanguage, HttpReturnType: req.HttpReturnType,
 		HttpRequestHeader: rawString(req.HttpRequestHeader), HttpRequestParams: rawString(req.HttpRequestParams),
 		HttpReturnParams: rawString(req.HttpReturnParams), HttpReturnSample: rawString(req.HttpReturnSample),
+		// 客户端富字段：原样透传（保存须带回原值，避免整条覆盖清空）。
+		HttpRequestBodyType: req.HttpRequestBodyType, HttpRequestBody: req.HttpRequestBody,
+		HttpRequestBodyForm: req.HttpRequestBodyForm, HttpRequestBodyDescs: req.HttpRequestBodyDescs,
+		HttpAuth: req.HttpAuth, RequestSettings: req.RequestSettings,
+		HttpScript: req.HttpScript, ScriptVars: req.ScriptVars,
+		ScriptAsserts: req.ScriptAsserts, HttpReturnContentType: req.HttpReturnContentType,
 	}
 }
 

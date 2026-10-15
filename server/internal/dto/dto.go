@@ -133,6 +133,18 @@ type ApiCreateReq struct {
 	HttpReturnType    string          `json:"http_return_type"`
 	HttpReturnParams  json.RawMessage `json:"http_return_params"`
 	HttpReturnSample  json.RawMessage `json:"http_return_sample"`
+	// 客户端富字段（S16 扩展）：以原始 JSON/文本串透传，Web 只展示/回写、不改语义；
+	// 保存时必须把载入的值原样带回，否则整条覆盖会清空这些列。
+	HttpRequestBodyType   string `json:"http_request_body_type"`
+	HttpRequestBody       string `json:"http_request_body"`
+	HttpRequestBodyForm   string `json:"http_request_body_form"`
+	HttpRequestBodyDescs  string `json:"http_request_body_descs"`
+	HttpAuth              string `json:"http_auth"`
+	RequestSettings       string `json:"request_settings"`
+	HttpScript            string `json:"http_script"`
+	ScriptVars            string `json:"script_vars"`
+	ScriptAsserts         string `json:"script_asserts"`
+	HttpReturnContentType string `json:"http_return_content_type"`
 }
 
 // ApiUpdateReq 更新接口文档。
