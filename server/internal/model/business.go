@@ -12,13 +12,13 @@ const (
 // Doc 对应项目文档表 doc（Markdown 内容）。
 type Doc struct {
 	BaseModel
-	UserID    uint64 `gorm:"column:user_id;not null;index" json:"user_id"`
-	ProjectID uint64 `gorm:"column:project_id;not null;index" json:"project_id"`
-	GroupID   uint64 `gorm:"column:group_id;not null;default:0;index" json:"group_id"`
-	ExtUID    string `gorm:"column:ext_uid;size:64;uniqueIndex:uk_doc_ext_uid,where:is_deleted = 0 AND ext_uid != ''" json:"ext_uid"`
-	LastChangeID int64 `gorm:"column:last_change_id;not null;default:0" json:"last_change_id"`
-	Title     string `gorm:"column:title;size:100;not null" json:"title"`
-	Content   string `gorm:"column:content;type:text;not null" json:"content"`
+	UserID       uint64 `gorm:"column:user_id;not null;index" json:"user_id"`
+	ProjectID    uint64 `gorm:"column:project_id;not null;index" json:"project_id"`
+	GroupID      uint64 `gorm:"column:group_id;not null;default:0;index" json:"group_id"`
+	ExtUID       string `gorm:"column:ext_uid;size:64;uniqueIndex:uk_doc_ext_uid,where:is_deleted = 0 AND ext_uid != ''" json:"ext_uid"`
+	LastChangeID int64  `gorm:"column:last_change_id;not null;default:0" json:"last_change_id"`
+	Title        string `gorm:"column:title;size:100;not null" json:"title"`
+	Content      string `gorm:"column:content;type:text;not null" json:"content"`
 	// Icon 文档图标：上传图片的 URL 或单个 emoji（空则前端用默认文档图标）。
 	Icon      string `gorm:"column:icon;size:500" json:"icon"`
 	State     int8   `gorm:"column:state;not null;default:0" json:"state"`
