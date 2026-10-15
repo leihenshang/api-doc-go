@@ -67,7 +67,7 @@ func (h *Handler) RevealToken(c *gin.Context) {
 	response.OK(c, gin.H{"token": raw})
 }
 
-// VerifyPAT 供鉴权中间件回调（S7）。
-func (h *Handler) VerifyPAT(raw string) (uint64, error) {
+// VerifyPAT 供鉴权中间件回调（S7）：返回用户 ID 与其真实类型，状态异常即拒绝。
+func (h *Handler) VerifyPAT(raw string) (uint64, int8, error) {
 	return h.svc.VerifyToken(context.Background(), raw)
 }

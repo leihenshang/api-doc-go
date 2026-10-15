@@ -113,19 +113,29 @@ func (s *Service) RevealToken(ctx context.Context, userID, id uint64) (string, e
 }
 
 // VerifyToken 校验 PAT 明文，返回 userID。
-func (s *Service) VerifyToken(ctx context.Context, raw string) (uint64, error) {
+// VerifyToken 校验 PAT：返回归属用户 ID 与其类型。
+// 除令牌本身的吊销/过期外，还校验用户存在且状态正常 —— 此前被禁用用户的 PAT 仍可用，
+// 且 PAT 一律被降级为普通用户（管理员持 PAT 会丢失管理权限）。
+func (s *Service) VerifyToken(ctx context.Context, raw string) (uint64, int8, error) {
 	e, err := s.repo.GetUserTokenByHash(ctx, hashToken(raw))
 	if err != nil || e == nil {
-		return 0, errors.New("令牌无效")
+		return 0, 0, errors.New("令牌无效")
 	}
 	if e.Revoked == 1 {
-		return 0, errors.New("令牌已吊销")
+		return 0, 0, errors.New("令牌已吊销")
 	}
 	if !e.ExpireAt.IsZero() && e.ExpireAt.Before(time.Now()) {
-		return 0, errors.New("令牌已过期")
+		return 0, 0, errors.New("令牌已过期")
+	}
+	u, err := s.repo.UserByID(ctx, e.UserID)
+	if err != nil || u == nil {
+		return 0, 0, errors.New("令牌对应用户不存在")
+	}
+	if u.State != model.UserStateNormal {
+		return 0, 0, errors.New("用户已被禁用")
 	}
 	_ = s.repo.TouchUserToken(ctx, e.ID)
-	return e.UserID, nil
+	return e.UserID, u.Type, nil
 }
 
 func tokenInfo(e *model.UserToken) TokenResp {

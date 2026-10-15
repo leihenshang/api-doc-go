@@ -3,6 +3,7 @@ package middleware
 import (
 	"strings"
 
+	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
 	"apidoc/internal/pkg/jwt"
 	"apidoc/internal/pkg/response"
@@ -28,8 +29,8 @@ func Auth(secret string) gin.HandlerFunc {
 }
 
 // AuthOrPAT 先试 JWT，失败再试 PAT（`pat_` 前缀，S7）。
-// verifyPAT 为 nil 时与 Auth 等价。
-func AuthOrPAT(secret string, verifyPAT func(raw string) (uint64, error)) gin.HandlerFunc {
+// verifyPAT 返回用户 ID 与其真实类型（不再一律降级为普通用户）；为 nil 时与 Auth 等价。
+func AuthOrPAT(secret string, verifyPAT func(raw string) (uint64, int8, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tok := bearer(c.GetHeader("Authorization"))
 		if tok == "" {
@@ -45,8 +46,11 @@ func AuthOrPAT(secret string, verifyPAT func(raw string) (uint64, error)) gin.Ha
 		}
 		// PAT：客户端长期在线令牌
 		if verifyPAT != nil && strings.HasPrefix(tok, "pat_") {
-			if uid, err := verifyPAT(tok); err == nil {
-				c.Set(CtxPrincipal, Principal{UserID: uid, Type: 1})
+			if uid, typ, err := verifyPAT(tok); err == nil {
+				if typ == 0 {
+					typ = model.UserTypeNormal
+				}
+				c.Set(CtxPrincipal, Principal{UserID: uid, Type: typ})
 				c.Next()
 				return
 			}
