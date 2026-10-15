@@ -88,6 +88,64 @@ func TestSyncPushAPIParams(t *testing.T) {
 	}
 }
 
+// TestSyncPushAPIExtendedFields 覆盖客户端富字段（S16 扩展）的落库与回传：
+// 请求体/认证/请求设置/脚本/变量/断言/响应内容类型均以原始 JSON/文本列存储，增量载荷原样回传。
+func TestSyncPushAPIExtendedFields(t *testing.T) {
+	f := newVarFixture(t)
+	ctx := context.Background()
+	const uid = "api-ext-uid-1"
+	const (
+		bodyType  = "json"
+		bodyVal   = `{"a":1}`
+		bodyForm  = `[{"name":"k","value":"v","enabled":true}]`
+		authVal   = `{"type":"bearer","token":"t"}`
+		settings  = `{"timeout":10,"followRedirects":-1,"maxRedirects":0,"insecureSsl":1,"encodeUrl":true}`
+		scriptVal = `{"preRequest":"p","postResponse":"q"}`
+		varsVal   = `[{"name":"x","value":"1","enabled":true}]`
+		assertVal = `[{"name":"eq","expr":"a==b"}]`
+		retCT     = "xml"
+	)
+	extra, _ := json.Marshal(map[string]any{
+		"bodyType": bodyType, "body": bodyVal, "bodyForm": bodyForm,
+		"auth": authVal, "settings": settings, "script": scriptVal,
+		"vars": varsVal, "asserts": assertVal, "retContentType": retCT,
+	})
+	pushAPI(t, f.s, f.admin.ID, f.proj.ID, uid, "op-ext-1", SyncPayload{Name: "ext", Method: "GET", URL: "/e", Extra: string(extra)})
+
+	a, err := f.s.repo.FindApiByExtUID(ctx, f.proj.ID, uid)
+	if err != nil || a == nil {
+		t.Fatalf("推送后应能查到接口: %v", err)
+	}
+	if a.HttpRequestBodyType != bodyType || a.HttpRequestBody != bodyVal || a.HttpRequestBodyForm != bodyForm ||
+		a.HttpAuth != authVal || a.RequestSettings != settings || a.HttpScript != scriptVal ||
+		a.ScriptVars != varsVal || a.ScriptAsserts != assertVal || a.HttpReturnContentType != retCT {
+		t.Fatalf("扩展字段未落库: %+v", a)
+	}
+
+	// 增量载荷必须原样回传这些键（与 applyApiExtra 键集对齐），供客户端双向同步。
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeAPI, uid)
+	if err != nil {
+		t.Fatalf("loadPayload: %v", err)
+	}
+	var got SyncPayload
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("载荷反序列化: %v", err)
+	}
+	var em map[string]any
+	if err := json.Unmarshal([]byte(got.Extra), &em); err != nil {
+		t.Fatalf("extra 应为 JSON 对象: %v", err)
+	}
+	for k, want := range map[string]string{
+		"bodyType": bodyType, "body": bodyVal, "bodyForm": bodyForm, "auth": authVal,
+		"settings": settings, "script": scriptVal, "vars": varsVal, "asserts": assertVal,
+		"retContentType": retCT,
+	} {
+		if em[k] != want {
+			t.Fatalf("回传 %s 不符：got %v want %s", k, em[k], want)
+		}
+	}
+}
+
 // TestSyncPushAPIEmptyExtraClears 空串键表示清空；缺键保持不动（整份覆盖 + 部分更新语义）。
 func TestSyncPushAPIEmptyExtraClears(t *testing.T) {
 	f := newVarFixture(t)

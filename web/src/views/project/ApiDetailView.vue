@@ -8,9 +8,6 @@ import EnvPicker from '@/components/EnvPicker.vue'
 import JsonBlock from '@/components/JsonBlock.vue'
 import MethodTag from '@/components/MethodTag.vue'
 import VarText from '@/components/VarText.vue'
-import {
-    apiToMarkdown, apiToStandaloneHtml, downloadText, safeName, type ApiExportInput,
-} from '@/utils/export-doc'
 import { useMdUpload } from '@/composables/md-upload'
 import { useNumParam } from '@/composables/params'
 import { useProjectStore } from '@/stores/project'
@@ -18,6 +15,9 @@ import { useVariableStore } from '@/stores/variable'
 import { ErrCode } from '@/types/api'
 import type { ApiHeader, ApiParam, Group } from '@/types/entities'
 import { headersToParams, paramsToHeaders } from '@/utils/api-params'
+import {
+    apiToMarkdown, apiToStandaloneHtml, downloadText, safeName, type ApiExportInput,
+} from '@/utils/export-doc'
 import { ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, RefreshOutline } from '@vicons/ionicons5'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
@@ -61,6 +61,16 @@ const reqParams = ref<ApiParam[]>([])
 const resParams = ref<ApiParam[]>([])
 const sample = ref('')
 
+/**
+ * 客户端同步过来的富字段（请求体/认证/请求设置/脚本/变量/断言/响应内容类型/请求体备注）：
+ * 均以原始 JSON/文本串保存，Web 只读展示；保存时必须原样回传，否则整条覆盖会清空服务端这些列。
+ */
+const ext = reactive({
+  http_request_body_type: '', http_request_body: '', http_request_body_form: '',
+  http_request_body_descs: '', http_auth: '', request_settings: '',
+  http_script: '', script_vars: '', script_asserts: '', http_return_content_type: '',
+})
+
 const methodOptions = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map((m) => ({ label: m, value: m }))
 
 /** 载入时的 update_time：保存时作为乐观锁期望值回传。 */
@@ -89,9 +99,14 @@ const sections = computed(() => {
   const list = [
     { key: 'headers', label: t('param.headerTitle') },
     { key: 'params', label: t('param.requestTitle') },
-    { key: 'result', label: t('param.responseTitle') },
-    { key: 'sample', label: t('detail.secSample') },
   ]
+  // 客户端富字段仅在查看态且有内容时出现（与模板 data-sec 一一对应）。
+  if (!editing.value && hasBody.value) list.push({ key: 'body', label: t('detail.secBody') })
+  if (!editing.value && hasAuth.value) list.push({ key: 'auth', label: t('detail.secAuth') })
+  list.push({ key: 'result', label: t('param.responseTitle') })
+  list.push({ key: 'sample', label: t('detail.secSample') })
+  if (!editing.value && hasSettings.value) list.push({ key: 'settings', label: t('detail.secSettings') })
+  if (!editing.value && hasScript.value) list.push({ key: 'script', label: t('detail.secScript') })
   if (!editing.value && form.develop_language) list.push({ key: 'info', label: t('detail.secInfo') })
   list.push({ key: 'doc', label: t('detail.secDoc') })
   return list
@@ -144,6 +159,61 @@ function pretty(raw: string | undefined): string {
   }
 }
 
+/** 宽容解析 JSON 对象列，非法/数组时返回空对象（富字段以 JSON 串存储）。 */
+function parseObject(raw: string | undefined): Record<string, unknown> {
+  if (!raw) return {}
+  try {
+    const v = JSON.parse(raw) as unknown
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** 取字符串字段（缺省空串）。 */
+function str(o: Record<string, unknown>, k: string): string {
+  const v = o[k]
+  return typeof v === 'string' ? v : ''
+}
+
+/** 三态布尔 smallint（-1 未设置 / 0 关 / 1 开）→ 可读文案。 */
+function triLabel(v: unknown): string {
+  if (v === 1) return t('detail.triOn')
+  if (v === 0) return t('detail.triOff')
+  return t('detail.triUnset')
+}
+
+/** form/multipart 请求体行。 */
+interface BodyFormRow { name?: string; value?: string; enabled?: boolean; description?: string; type?: string }
+interface NamedVal { name?: string; value?: string; expr?: string; enabled?: boolean }
+
+const bodyFormRows = computed<BodyFormRow[]>(() => parseArray<BodyFormRow>(ext.http_request_body_form))
+/** JSON 体字段备注（path → 备注），来自客户端表格视图。 */
+const bodyDescRows = computed(() =>
+  Object.entries(parseObject(ext.http_request_body_descs))
+    .map(([path, note]) => ({ path, note: typeof note === 'string' ? note : String(note) })))
+const authObj = computed(() => parseObject(ext.http_auth))
+const settingsObj = computed(() => parseObject(ext.request_settings))
+const scriptObj = computed(() => parseObject(ext.http_script))
+const varsRows = computed<NamedVal[]>(() => parseArray<NamedVal>(ext.script_vars))
+const assertRows = computed<NamedVal[]>(() => parseArray<NamedVal>(ext.script_asserts))
+
+/** 各富字段段是否有内容（仅查看态、且非空时才出现在大纲/正文）。 */
+const hasBody = computed(() =>
+  (!!ext.http_request_body_type && ext.http_request_body_type !== 'none') ||
+  !!ext.http_request_body || bodyFormRows.value.length > 0 || bodyDescRows.value.length > 0)
+const hasAuth = computed(() => !!str(authObj.value, 'type'))
+const hasSettings = computed(() =>
+  !!ext.request_settings && Object.keys(settingsObj.value).length > 0)
+const hasScript = computed(() =>
+  !!(str(scriptObj.value, 'preRequest') || str(scriptObj.value, 'postResponse')) ||
+  varsRows.value.length > 0 || assertRows.value.length > 0)
+
+/** 「返回参数」标题旁徽标：根类型 + 响应内容类型（若客户端设过）。 */
+const resultTitleExtra = computed(() =>
+  [form.http_return_type, ext.http_return_content_type].filter(Boolean).join(' · '))
+
+
 /** 加载失败或详情不可用时退回列表（空态占位）。 */
 function goPlaceholder(): void {
   void router.replace({ name: 'projectApis', params: { projectId: projectId.value } })
@@ -176,6 +246,19 @@ async function load(): Promise<boolean> {
     })
     headerRows.value = headersToParams(parseArray<ApiHeader>(a.http_request_header))
     reqParams.value = parseArray<ApiParam>(a.http_request_params)
+    // 富字段原样存入 ext（只读展示 + 保存回传）
+    Object.assign(ext, {
+      http_request_body_type: a.http_request_body_type ?? '',
+      http_request_body: a.http_request_body ?? '',
+      http_request_body_form: a.http_request_body_form ?? '',
+      http_request_body_descs: a.http_request_body_descs ?? '',
+      http_auth: a.http_auth ?? '',
+      request_settings: a.request_settings ?? '',
+      http_script: a.http_script ?? '',
+      script_vars: a.script_vars ?? '',
+      script_asserts: a.script_asserts ?? '',
+      http_return_content_type: a.http_return_content_type ?? '',
+    })
     resParams.value = parseArray<ApiParam>(a.http_return_params)
     sample.value = pretty(a.http_return_sample)
     void loadSamples()
@@ -292,6 +375,8 @@ async function save(): Promise<void> {
       group_id: groupId.value,
       group_id_second: groupIdSecond.value,
       ...form,
+      // 富字段原样回传：整条覆盖式更新，缺省会把同步来的这些列清空。
+      ...ext,
       http_request_header: paramsToHeaders(headerRows.value),
       http_request_params: reqParams.value,
       http_return_params: resParams.value,
@@ -647,13 +732,46 @@ function exportApi(key: string): void {
           <api-param-table v-model="reqParams" kind="request" :editable="editing" :project-id="projectId" :api-id="apiId" />
         </section>
 
+        <section v-if="!editing && hasBody" class="req-sec" data-sec="body">
+          <div class="sec-hd">
+            <span class="sec-title">{{ t('detail.secBody') }}</span>
+            <span v-if="ext.http_request_body_type" class="meta"> · {{ ext.http_request_body_type }}</span>
+          </div>
+          <dl v-if="bodyFormRows.length" class="kv">
+            <div v-for="(r, i) in bodyFormRows" :key="i" class="kv-row">
+              <dt>{{ r.name }}<span v-if="r.type && r.type !== 'text'" class="meta">（{{ r.type }}）</span></dt>
+              <dd>{{ r.value }}<span v-if="r.description" class="meta"> — {{ r.description }}</span></dd>
+            </div>
+          </dl>
+          <json-block v-else :raw="ext.http_request_body" :empty="t('detail.bodyEmpty')" />
+          <template v-if="bodyDescRows.length">
+            <p class="sec-sub meta">{{ t('detail.bodyDescsTitle') }}</p>
+            <dl class="kv">
+              <div v-for="(d, i) in bodyDescRows" :key="'d' + i" class="kv-row"><dt>{{ d.path }}</dt><dd>{{ d.note }}</dd></div>
+            </dl>
+          </template>
+        </section>
+
+        <section v-if="!editing && hasAuth" class="req-sec" data-sec="auth">
+          <div class="sec-hd"><span class="sec-title">{{ t('detail.secAuth') }}</span></div>
+          <dl class="kv">
+            <div class="kv-row"><dt>{{ t('detail.authType') }}</dt><dd>{{ str(authObj, 'type') }}</dd></div>
+            <div v-if="str(authObj, 'username')" class="kv-row"><dt>{{ t('detail.authUsername') }}</dt><dd>{{ str(authObj, 'username') }}</dd></div>
+            <div v-if="str(authObj, 'password')" class="kv-row"><dt>{{ t('detail.authPassword') }}</dt><dd>••••••</dd></div>
+            <div v-if="str(authObj, 'token')" class="kv-row"><dt>{{ t('detail.authToken') }}</dt><dd>••••••</dd></div>
+            <div v-if="str(authObj, 'key')" class="kv-row"><dt>{{ t('detail.authKey') }}</dt><dd>{{ str(authObj, 'key') }}</dd></div>
+            <div v-if="str(authObj, 'value')" class="kv-row"><dt>{{ t('detail.authValue') }}</dt><dd>{{ str(authObj, 'value') }}</dd></div>
+            <div v-if="str(authObj, 'in')" class="kv-row"><dt>{{ t('detail.authIn') }}</dt><dd>{{ str(authObj, 'in') }}</dd></div>
+          </dl>
+        </section>
+
         <section class="req-sec" data-sec="result">
           <api-param-table
             v-model="resParams"
             kind="response"
             :editable="editing"
             :json-source="sample"
-            :title-extra="form.http_return_type"
+            :title-extra="resultTitleExtra"
             :project-id="projectId"
             :api-id="apiId"
             @json-applied="onSampleJson"
@@ -708,6 +826,35 @@ function exportApi(key: string): void {
             <n-input v-model:value="sampleName" :placeholder="t('detail.sampleNamePh')" @keyup.enter="createSample" />
             <p class="meta">{{ t('detail.sampleAddTip') }}</p>
           </n-modal>
+        </section>
+
+        <section v-if="!editing && hasSettings" class="req-sec" data-sec="settings">
+          <div class="sec-hd"><span class="sec-title">{{ t('detail.secSettings') }}</span></div>
+          <dl class="kv">
+            <div v-if="settingsObj.timeout" class="kv-row"><dt>{{ t('detail.setTimeout') }}</dt><dd>{{ settingsObj.timeout }}s</dd></div>
+            <div class="kv-row"><dt>{{ t('detail.setFollowRedirects') }}</dt><dd>{{ triLabel(settingsObj.followRedirects) }}</dd></div>
+            <div v-if="settingsObj.maxRedirects" class="kv-row"><dt>{{ t('detail.setMaxRedirects') }}</dt><dd>{{ settingsObj.maxRedirects }}</dd></div>
+            <div class="kv-row"><dt>{{ t('detail.setInsecureSsl') }}</dt><dd>{{ triLabel(settingsObj.insecureSsl) }}</dd></div>
+            <div v-if="settingsObj.encodeUrl != null" class="kv-row"><dt>{{ t('detail.setEncodeUrl') }}</dt><dd>{{ settingsObj.encodeUrl ? t('detail.triOn') : t('detail.triOff') }}</dd></div>
+          </dl>
+        </section>
+
+        <section v-if="!editing && hasScript" class="req-sec" data-sec="script">
+          <div class="sec-hd"><span class="sec-title">{{ t('detail.secScript') }}</span></div>
+          <template v-if="str(scriptObj, 'preRequest')">
+            <p class="sec-sub meta">{{ t('detail.scriptPre') }}</p>
+            <json-block :raw="str(scriptObj, 'preRequest')" empty="" />
+          </template>
+          <template v-if="str(scriptObj, 'postResponse')">
+            <p class="sec-sub meta">{{ t('detail.scriptPost') }}</p>
+            <json-block :raw="str(scriptObj, 'postResponse')" empty="" />
+          </template>
+          <dl v-if="varsRows.length" class="kv">
+            <div v-for="(v, i) in varsRows" :key="'v' + i" class="kv-row"><dt>{{ v.name }}</dt><dd>{{ v.value }}</dd></div>
+          </dl>
+          <dl v-if="assertRows.length" class="kv">
+            <div v-for="(a, i) in assertRows" :key="'a' + i" class="kv-row"><dt>{{ a.name }}</dt><dd>{{ a.expr }}</dd></div>
+          </dl>
         </section>
 
         <section v-if="!editing && form.develop_language" class="req-sec" data-sec="info">

@@ -355,6 +355,42 @@ func (s *Service) exampleSyncPayload(ctx context.Context, ex *model.ApiReturnSam
 	return p
 }
 
+// applyApiExtra 把同步 extra（JSON 文本）逐键写入 api 文本列：键存在且为字符串才覆盖
+// （空串=清空该列），缺键不动 —— 与 apiSyncPayload 的键集严格对齐，保证旧客户端推旧键集
+// 不会清空服务端新列，反之亦然。富字段均以原始 JSON/文本存列，服务端不解释语义。
+func applyApiExtra(e *model.Api, raw string) {
+	if raw == "" {
+		return
+	}
+	var extra map[string]any
+	if json.Unmarshal([]byte(raw), &extra) != nil {
+		return
+	}
+	setStr := func(key string, dst *string) {
+		if v, ok := extra[key].(string); ok {
+			*dst = v
+		}
+	}
+	setStr("headers", &e.HttpRequestHeader)
+	setStr("params", &e.HttpRequestParams)
+	setStr("retType", &e.HttpReturnType)
+	setStr("retParams", &e.HttpReturnParams)
+	setStr("retSample", &e.HttpReturnSample)
+	setStr("desc", &e.Description)
+	setStr("protocol", &e.ProtocolType)
+	// 客户端富字段（S16 扩展）
+	setStr("bodyType", &e.HttpRequestBodyType)
+	setStr("body", &e.HttpRequestBody)
+	setStr("bodyForm", &e.HttpRequestBodyForm)
+	setStr("bodyDescs", &e.HttpRequestBodyDescs)
+	setStr("auth", &e.HttpAuth)
+	setStr("settings", &e.RequestSettings)
+	setStr("script", &e.HttpScript)
+	setStr("vars", &e.ScriptVars)
+	setStr("asserts", &e.ScriptAsserts)
+	setStr("retContentType", &e.HttpReturnContentType)
+}
+
 // apiSyncPayload 构造 api 条目的同步载荷：名称/方法/URL/分组 + extra 全量原文。
 // 增量（loadPayload）与全量快照（SyncSnapshot）必须同口径，避免两条拉取路径数据不一致。
 func (s *Service) apiSyncPayload(ctx context.Context, a *model.Api) SyncPayload {
@@ -375,6 +411,17 @@ func (s *Service) apiSyncPayload(ctx context.Context, a *model.Api) SyncPayload 
 		"retSample": a.HttpReturnSample,
 		"desc":      a.Description,
 		"protocol":  a.ProtocolType,
+		// 客户端富字段（S16 扩展）回传，键集与 applyApiExtra 严格对齐；空串=该列未设置。
+		"bodyType":       a.HttpRequestBodyType,
+		"body":           a.HttpRequestBody,
+		"bodyForm":       a.HttpRequestBodyForm,
+		"bodyDescs":      a.HttpRequestBodyDescs,
+		"auth":           a.HttpAuth,
+		"settings":       a.RequestSettings,
+		"script":         a.HttpScript,
+		"vars":           a.ScriptVars,
+		"asserts":        a.ScriptAsserts,
+		"retContentType": a.HttpReturnContentType,
 	}
 	eb, _ := json.Marshal(extra)
 	p.Extra = string(eb)
@@ -528,33 +575,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		} else {
 			e.GroupID = 0
 		}
-		if p.Extra != "" {
-			var extra map[string]any
-			if json.Unmarshal([]byte(p.Extra), &extra) == nil {
-				// 键存在且为字符串才覆盖（空串=清空），与 loadPayload/apiSyncPayload 的键集对齐。
-				if v, ok := extra["headers"].(string); ok {
-					e.HttpRequestHeader = v
-				}
-				if v, ok := extra["params"].(string); ok {
-					e.HttpRequestParams = v
-				}
-				if v, ok := extra["retType"].(string); ok {
-					e.HttpReturnType = v
-				}
-				if v, ok := extra["retParams"].(string); ok {
-					e.HttpReturnParams = v
-				}
-				if v, ok := extra["retSample"].(string); ok {
-					e.HttpReturnSample = v
-				}
-				if v, ok := extra["desc"].(string); ok {
-					e.Description = v
-				}
-				if v, ok := extra["protocol"].(string); ok {
-					e.ProtocolType = v
-				}
-			}
-		}
+		applyApiExtra(e, p.Extra)
 		var err error
 		if e.ID == 0 {
 			err = s.repo.CreateApi(ctx, e)

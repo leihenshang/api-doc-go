@@ -29,6 +29,12 @@ func newTestService(t *testing.T) *Service {
 	if err := database.Migrate(db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	// 关闭底层连接，释放 SQLite 文件句柄：否则 Windows 上 t.TempDir 清理 test.db 会因占用而失败。
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db handle: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	cfg := &config.Config{}
 	cfg.JWT.Secret = "test-secret"
 	cfg.JWT.ExpireHours = 1

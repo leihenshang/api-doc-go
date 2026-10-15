@@ -25,6 +25,18 @@ type Api struct {
 	HttpReturnType    string `gorm:"column:http_return_type;size:1000" json:"http_return_type"`
 	HttpReturnParams  string `gorm:"column:http_return_params;type:text" json:"http_return_params"`
 	HttpReturnSample  string `gorm:"column:http_return_sample;type:text" json:"http_return_sample"`
+	// —— 客户端富字段（S16 扩展）：以原始 JSON/文本列存储，服务端不解释语义、原样回传客户端；
+	// Web 详情按字段解析展示。键集与客户端 collection/sync_extra_fields.go 逐字一致。
+	HttpRequestBodyType   string `gorm:"column:http_request_body_type;size:100" json:"http_request_body_type"`
+	HttpRequestBody       string `gorm:"column:http_request_body;type:text" json:"http_request_body"`
+	HttpRequestBodyForm   string `gorm:"column:http_request_body_form;type:text" json:"http_request_body_form"`
+	HttpRequestBodyDescs  string `gorm:"column:http_request_body_descs;type:text" json:"http_request_body_descs"`
+	HttpAuth              string `gorm:"column:http_auth;type:text" json:"http_auth"`
+	RequestSettings       string `gorm:"column:request_settings;type:text" json:"request_settings"`
+	HttpScript            string `gorm:"column:http_script;type:text" json:"http_script"`
+	ScriptVars            string `gorm:"column:script_vars;type:text" json:"script_vars"`
+	ScriptAsserts         string `gorm:"column:script_asserts;type:text" json:"script_asserts"`
+	HttpReturnContentType string `gorm:"column:http_return_content_type;size:100" json:"http_return_content_type"`
 }
 
 // TableName 指定表名。
