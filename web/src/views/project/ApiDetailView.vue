@@ -23,7 +23,7 @@ import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
 import {
-    NButton, NDropdown, NIcon, NInput, NModal, NSelect, NSpin, useDialog, useMessage,
+    NButton, NDropdown, NIcon, NInput, NInputNumber, NModal, NSelect, NSpin, useDialog, useMessage,
     type DropdownOption,
 } from 'naive-ui'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -100,12 +100,15 @@ const sections = computed(() => {
     { key: 'headers', label: t('param.headerTitle') },
     { key: 'params', label: t('param.requestTitle') },
   ]
-  // 客户端富字段仅在查看态且有内容时出现（与模板 data-sec 一一对应）。
+  // 客户端富字段：查看态有内容才出现；编辑态常显（可从零补齐），与模板 data-sec 一一对应。
   if (!editing.value && hasBody.value) list.push({ key: 'body', label: t('detail.secBody') })
+  if (editing.value) list.push({ key: 'body', label: t('detail.secBody') })
   if (!editing.value && hasAuth.value) list.push({ key: 'auth', label: t('detail.secAuth') })
+  if (editing.value) list.push({ key: 'auth', label: t('detail.secAuth') })
   list.push({ key: 'result', label: t('param.responseTitle') })
   list.push({ key: 'sample', label: t('detail.secSample') })
   if (!editing.value && hasSettings.value) list.push({ key: 'settings', label: t('detail.secSettings') })
+  if (editing.value) list.push({ key: 'settings', label: t('detail.secSettings') })
   if (!editing.value && hasScript.value) list.push({ key: 'script', label: t('detail.secScript') })
   if (!editing.value && form.develop_language) list.push({ key: 'info', label: t('detail.secInfo') })
   list.push({ key: 'doc', label: t('detail.secDoc') })
@@ -186,6 +189,122 @@ function triLabel(v: unknown): string {
 /** form/multipart 请求体行。 */
 interface BodyFormRow { name?: string; value?: string; enabled?: boolean; description?: string; type?: string }
 interface NamedVal { name?: string; value?: string; expr?: string; enabled?: boolean }
+
+// ---- 富字段编辑（⑤）：进编辑态时从 ext 串解析，保存时序列化回 ext（未知键保留，全空则清空串） ----
+
+/** 客户端请求体 mode 枚举（同步键 bodyType 的取值域）。 */
+const BODY_TYPES = ['none', 'json', 'text', 'form', 'multipart']
+/** 客户端认证类型枚举（inherit=沿用上级）。 */
+const AUTH_TYPES = ['inherit', 'none', 'basic', 'bearer', 'apikey']
+/** 返回内容类型候选（select 允许自由填写）。 */
+const RET_CONTENT_TYPES = ['application/json', 'application/xml', 'text/plain', 'text/html']
+
+const extEdit = reactive({
+  bodyType: 'none',
+  bodyRaw: '',
+  bodyForm: [] as BodyFormRow[],
+  bodyDescs: [] as { path: string; note: string }[],
+  authType: '',
+  authUser: '', authPass: '', authToken: '', authKey: '', authValue: '', authIn: 'header',
+  authBase: {} as Record<string, unknown>,
+  timeout: null as number | null,
+  maxRedirects: null as number | null,
+  followRedirects: -1,
+  insecureSsl: -1,
+  encodeUrl: '' as '' | 'yes' | 'no',
+  settingsBase: {} as Record<string, unknown>,
+  retContentType: '',
+})
+
+const bodyTypeOptions = BODY_TYPES.map((v) => ({ label: v, value: v }))
+const authTypeOptions = AUTH_TYPES.map((v) => ({ label: v, value: v }))
+const authInOptions = [{ label: 'header', value: 'header' }, { label: 'query', value: 'query' }]
+const triStateOptions = computed(() => [
+  { label: t('detail.triUnset'), value: -1 },
+  { label: t('detail.triOn'), value: 1 },
+  { label: t('detail.triOff'), value: 0 },
+])
+const encodeUrlOptions = computed(() => [
+  { label: t('detail.triUnset'), value: '' },
+  { label: t('detail.triOn'), value: 'yes' },
+  { label: t('detail.triOff'), value: 'no' },
+])
+const retContentTypeOptions = RET_CONTENT_TYPES.map((v) => ({ label: v, value: v }))
+
+/** 从 ext 原始串解析出编辑态（startEdit 调用；解析失败按空处理，绝不 throw 阻断编辑）。 */
+function parseExtEdit(): void {
+  extEdit.bodyType = ext.http_request_body_type || 'none'
+  extEdit.bodyRaw = ext.http_request_body
+  extEdit.bodyForm = parseArray<BodyFormRow>(ext.http_request_body_form)
+  extEdit.bodyDescs = Object.entries(parseObject(ext.http_request_body_descs))
+    .map(([path, note]) => ({ path, note: String(note ?? '') }))
+  const a = parseObject(ext.http_auth)
+  extEdit.authBase = a
+  extEdit.authType = str(a, 'type')
+  extEdit.authUser = str(a, 'username')
+  extEdit.authPass = str(a, 'password')
+  extEdit.authToken = str(a, 'token')
+  extEdit.authKey = str(a, 'key')
+  extEdit.authValue = str(a, 'value')
+  extEdit.authIn = str(a, 'in') || 'header'
+  const s = parseObject(ext.request_settings)
+  extEdit.settingsBase = s
+  extEdit.timeout = typeof s.timeout === 'number' && s.timeout > 0 ? s.timeout : null
+  extEdit.maxRedirects = typeof s.maxRedirects === 'number' && s.maxRedirects > 0 ? s.maxRedirects : null
+  extEdit.followRedirects = typeof s.followRedirects === 'number' ? s.followRedirects : -1
+  extEdit.insecureSsl = typeof s.insecureSsl === 'number' ? s.insecureSsl : -1
+  extEdit.encodeUrl = typeof s.encodeUrl === 'boolean' ? (s.encodeUrl ? 'yes' : 'no') : ''
+  extEdit.retContentType = ext.http_return_content_type
+}
+
+/** 编辑态序列化回 ext 串（save 前调用；语义：全空 → 空串清空对应列）。 */
+function serializeExtEdit(): void {
+  const rows = extEdit.bodyForm.filter((r) => (r.name ?? '').trim())
+  const descs = extEdit.bodyDescs.filter((d) => d.path.trim())
+  const bt = extEdit.bodyType
+  if (bt === 'none' && !extEdit.bodyRaw.trim() && !rows.length && !descs.length) {
+    ext.http_request_body_type = ''
+    ext.http_request_body = ''
+    ext.http_request_body_form = ''
+    ext.http_request_body_descs = ''
+  } else {
+    ext.http_request_body_type = bt
+    ext.http_request_body = bt === 'json' || bt === 'text' ? extEdit.bodyRaw : ''
+    ext.http_request_body_form = bt === 'form' || bt === 'multipart'
+      ? JSON.stringify(rows.map((r) => ({
+        name: r.name, value: r.value ?? '', enabled: r.enabled !== false,
+        description: r.description ?? '', type: r.type ?? 'text',
+      })))
+      : ''
+    ext.http_request_body_descs = descs.length
+      ? JSON.stringify(Object.fromEntries(descs.map((d) => [d.path.trim(), d.note.trim()])))
+      : ''
+  }
+
+  const at = extEdit.authType
+  if (!at) {
+    ext.http_auth = ''
+  } else {
+    const a = { ...extEdit.authBase }
+    for (const k of ['type', 'username', 'password', 'token', 'key', 'value', 'in']) delete a[k]
+    a.type = at
+    if (at === 'basic') { a.username = extEdit.authUser; a.password = extEdit.authPass }
+    if (at === 'bearer') a.token = extEdit.authToken
+    if (at === 'apikey') { a.key = extEdit.authKey; a.value = extEdit.authValue; a.in = extEdit.authIn || 'header' }
+    ext.http_auth = JSON.stringify(a)
+  }
+
+  const s: Record<string, unknown> = { ...extEdit.settingsBase }
+  for (const k of ['timeout', 'maxRedirects', 'followRedirects', 'insecureSsl', 'encodeUrl']) delete s[k]
+  if (extEdit.timeout && extEdit.timeout > 0) s.timeout = extEdit.timeout
+  if (extEdit.maxRedirects && extEdit.maxRedirects > 0) s.maxRedirects = extEdit.maxRedirects
+  if (extEdit.followRedirects !== -1) s.followRedirects = extEdit.followRedirects
+  if (extEdit.insecureSsl !== -1) s.insecureSsl = extEdit.insecureSsl
+  if (extEdit.encodeUrl !== '') s.encodeUrl = extEdit.encodeUrl === 'yes'
+  ext.request_settings = Object.keys(s).length ? JSON.stringify(s) : ''
+
+  ext.http_return_content_type = extEdit.retContentType.trim()
+}
 
 const bodyFormRows = computed<BodyFormRow[]>(() => parseArray<BodyFormRow>(ext.http_request_body_form))
 /** JSON 体字段备注（path → 备注），来自客户端表格视图。 */
@@ -336,6 +455,7 @@ function startEdit(): void {
     resParams: resParams.value.map((p) => ({ ...p })),
     sample: sample.value,
   }
+  parseExtEdit()
   editing.value = true
 }
 
@@ -369,6 +489,7 @@ async function save(): Promise<void> {
   }
   saving.value = true
   try {
+    serializeExtEdit()
     const res = await updateApi({
       id: apiId.value,
       project_id: projectId.value,
@@ -732,37 +853,116 @@ function exportApi(key: string): void {
           <api-param-table v-model="reqParams" kind="request" :editable="editing" :project-id="projectId" :api-id="apiId" />
         </section>
 
-        <section v-if="!editing && hasBody" class="req-sec" data-sec="body">
+        <section v-if="hasBody || editing" class="req-sec" data-sec="body">
           <div class="sec-hd">
             <span class="sec-title">{{ t('detail.secBody') }}</span>
-            <span v-if="ext.http_request_body_type" class="meta"> · {{ ext.http_request_body_type }}</span>
+            <span v-if="!editing && ext.http_request_body_type" class="meta"> · {{ ext.http_request_body_type }}</span>
           </div>
-          <dl v-if="bodyFormRows.length" class="kv">
-            <div v-for="(r, i) in bodyFormRows" :key="i" class="kv-row">
-              <dt>{{ r.name }}<span v-if="r.type && r.type !== 'text'" class="meta">（{{ r.type }}）</span></dt>
-              <dd>{{ r.value }}<span v-if="r.description" class="meta"> — {{ r.description }}</span></dd>
-            </div>
-          </dl>
-          <json-block v-else :raw="ext.http_request_body" :empty="t('detail.bodyEmpty')" />
-          <template v-if="bodyDescRows.length">
-            <p class="sec-sub meta">{{ t('detail.bodyDescsTitle') }}</p>
-            <dl class="kv">
-              <div v-for="(d, i) in bodyDescRows" :key="'d' + i" class="kv-row"><dt>{{ d.path }}</dt><dd>{{ d.note }}</dd></div>
+          <template v-if="!editing">
+            <dl v-if="bodyFormRows.length" class="kv">
+              <div v-for="(r, i) in bodyFormRows" :key="i" class="kv-row">
+                <dt>{{ r.name }}<span v-if="r.type && r.type !== 'text'" class="meta">（{{ r.type }}）</span></dt>
+                <dd>{{ r.value }}<span v-if="r.description" class="meta"> — {{ r.description }}</span></dd>
+              </div>
             </dl>
+            <json-block v-else :raw="ext.http_request_body" :empty="t('detail.bodyEmpty')" />
+            <template v-if="bodyDescRows.length">
+              <p class="sec-sub meta">{{ t('detail.bodyDescsTitle') }}</p>
+              <dl class="kv">
+                <div v-for="(d, i) in bodyDescRows" :key="'d' + i" class="kv-row"><dt>{{ d.path }}</dt><dd>{{ d.note }}</dd></div>
+              </dl>
+            </template>
+          </template>
+          <template v-else>
+            <div class="ext-row">
+              <span class="ext-lb">{{ t('detail.bodyType') }}</span>
+              <n-select v-model:value="extEdit.bodyType" size="small" class="ext-w" :options="bodyTypeOptions" data-testid="ext-body-type" />
+            </div>
+            <n-input
+              v-if="extEdit.bodyType === 'json' || extEdit.bodyType === 'text'"
+              v-model:value="extEdit.bodyRaw"
+              type="textarea"
+              :autosize="{ minRows: 3, maxRows: 14 }"
+              class="ext-raw"
+              data-testid="ext-body-raw"
+              placeholder=""
+            />
+            <template v-else-if="extEdit.bodyType === 'form' || extEdit.bodyType === 'multipart'">
+              <div v-for="(r, i) in extEdit.bodyForm" :key="'bf' + i" class="ext-row">
+                <n-input v-model:value="r.name" size="small" :placeholder="t('varForm.name')" data-testid="ext-form-name" />
+                <n-input v-model:value="r.value" size="small" :placeholder="t('varForm.value')" />
+                <n-input v-model:value="r.type" size="small" class="ext-type" :placeholder="t('detail.colType')" />
+                <n-button size="tiny" quaternary type="error" data-testid="ext-form-del" @click="extEdit.bodyForm.splice(i, 1)">
+                  {{ t('common.delete') }}
+                </n-button>
+              </div>
+              <n-button size="tiny" data-testid="ext-form-add" @click="extEdit.bodyForm.push({ name: '', value: '', enabled: true, type: 'text' })">
+                {{ t('detail.addRow') }}
+              </n-button>
+            </template>
+            <p class="sec-sub meta ext-desc-hd">
+              {{ t('detail.bodyDescsTitle') }}
+              <n-button size="tiny" data-testid="ext-desc-add" @click="extEdit.bodyDescs.push({ path: '', note: '' })">
+                {{ t('detail.addRow') }}
+              </n-button>
+            </p>
+            <div v-for="(d, i) in extEdit.bodyDescs" :key="'bd' + i" class="ext-row">
+              <n-input v-model:value="d.path" size="small" class="ext-path" :placeholder="t('detail.descPath')" data-testid="ext-desc-path" />
+              <n-input v-model:value="d.note" size="small" :placeholder="t('detail.descNote')" />
+              <n-button size="tiny" quaternary type="error" data-testid="ext-desc-del" @click="extEdit.bodyDescs.splice(i, 1)">
+                {{ t('common.delete') }}
+              </n-button>
+            </div>
           </template>
         </section>
 
-        <section v-if="!editing && hasAuth" class="req-sec" data-sec="auth">
+        <section v-if="hasAuth || editing" class="req-sec" data-sec="auth">
           <div class="sec-hd"><span class="sec-title">{{ t('detail.secAuth') }}</span></div>
-          <dl class="kv">
-            <div class="kv-row"><dt>{{ t('detail.authType') }}</dt><dd>{{ str(authObj, 'type') }}</dd></div>
-            <div v-if="str(authObj, 'username')" class="kv-row"><dt>{{ t('detail.authUsername') }}</dt><dd>{{ str(authObj, 'username') }}</dd></div>
-            <div v-if="str(authObj, 'password')" class="kv-row"><dt>{{ t('detail.authPassword') }}</dt><dd>••••••</dd></div>
-            <div v-if="str(authObj, 'token')" class="kv-row"><dt>{{ t('detail.authToken') }}</dt><dd>••••••</dd></div>
-            <div v-if="str(authObj, 'key')" class="kv-row"><dt>{{ t('detail.authKey') }}</dt><dd>{{ str(authObj, 'key') }}</dd></div>
-            <div v-if="str(authObj, 'value')" class="kv-row"><dt>{{ t('detail.authValue') }}</dt><dd>{{ str(authObj, 'value') }}</dd></div>
-            <div v-if="str(authObj, 'in')" class="kv-row"><dt>{{ t('detail.authIn') }}</dt><dd>{{ str(authObj, 'in') }}</dd></div>
-          </dl>
+          <template v-if="!editing">
+            <dl class="kv">
+              <div class="kv-row"><dt>{{ t('detail.authType') }}</dt><dd>{{ str(authObj, 'type') }}</dd></div>
+              <div v-if="str(authObj, 'username')" class="kv-row"><dt>{{ t('detail.authUsername') }}</dt><dd>{{ str(authObj, 'username') }}</dd></div>
+              <div v-if="str(authObj, 'password')" class="kv-row"><dt>{{ t('detail.authPassword') }}</dt><dd>••••••</dd></div>
+              <div v-if="str(authObj, 'token')" class="kv-row"><dt>{{ t('detail.authToken') }}</dt><dd>••••••</dd></div>
+              <div v-if="str(authObj, 'key')" class="kv-row"><dt>{{ t('detail.authKey') }}</dt><dd>{{ str(authObj, 'key') }}</dd></div>
+              <div v-if="str(authObj, 'value')" class="kv-row"><dt>{{ t('detail.authValue') }}</dt><dd>{{ str(authObj, 'value') }}</dd></div>
+              <div v-if="str(authObj, 'in')" class="kv-row"><dt>{{ t('detail.authIn') }}</dt><dd>{{ str(authObj, 'in') }}</dd></div>
+            </dl>
+          </template>
+          <template v-else>
+            <div class="ext-row">
+              <span class="ext-lb">{{ t('detail.authType') }}</span>
+              <n-select v-model:value="extEdit.authType" size="small" class="ext-w" clearable :options="authTypeOptions" data-testid="ext-auth-type" />
+            </div>
+            <template v-if="extEdit.authType === 'basic'">
+              <div class="ext-row">
+                <span class="ext-lb">{{ t('detail.authUsername') }}</span>
+                <n-input v-model:value="extEdit.authUser" size="small" class="ext-w" data-testid="ext-auth-user" />
+              </div>
+              <div class="ext-row">
+                <span class="ext-lb">{{ t('detail.authPassword') }}</span>
+                <n-input v-model:value="extEdit.authPass" size="small" type="password" show-password-on="click" class="ext-w" data-testid="ext-auth-pass" />
+              </div>
+            </template>
+            <div v-if="extEdit.authType === 'bearer'" class="ext-row">
+              <span class="ext-lb">{{ t('detail.authToken') }}</span>
+              <n-input v-model:value="extEdit.authToken" size="small" type="password" show-password-on="click" class="ext-w" data-testid="ext-auth-token" />
+            </div>
+            <template v-if="extEdit.authType === 'apikey'">
+              <div class="ext-row">
+                <span class="ext-lb">{{ t('detail.authKey') }}</span>
+                <n-input v-model:value="extEdit.authKey" size="small" class="ext-w" data-testid="ext-auth-key" />
+              </div>
+              <div class="ext-row">
+                <span class="ext-lb">{{ t('detail.authValue') }}</span>
+                <n-input v-model:value="extEdit.authValue" size="small" type="password" show-password-on="click" class="ext-w" data-testid="ext-auth-value" />
+              </div>
+              <div class="ext-row">
+                <span class="ext-lb">{{ t('detail.authIn') }}</span>
+                <n-select v-model:value="extEdit.authIn" size="small" class="ext-w" :options="authInOptions" />
+              </div>
+            </template>
+          </template>
         </section>
 
         <section class="req-sec" data-sec="result">
@@ -776,6 +976,20 @@ function exportApi(key: string): void {
             :api-id="apiId"
             @json-applied="onSampleJson"
           />
+          <div v-if="editing" class="ext-row">
+            <span class="ext-lb">{{ t('detail.retContentType') }}</span>
+            <n-select
+              v-model:value="extEdit.retContentType"
+              size="small"
+              class="ext-w"
+              filterable
+              tag
+              clearable
+              :options="retContentTypeOptions"
+              data-testid="ext-ret-ct"
+              @update:value="(v: string | null) => (extEdit.retContentType = v ?? '')"
+            />
+          </div>
         </section>
 
         <section class="req-sec" data-sec="sample">
@@ -828,15 +1042,34 @@ function exportApi(key: string): void {
           </n-modal>
         </section>
 
-        <section v-if="!editing && hasSettings" class="req-sec" data-sec="settings">
+        <section v-if="hasSettings || editing" class="req-sec" data-sec="settings">
           <div class="sec-hd"><span class="sec-title">{{ t('detail.secSettings') }}</span></div>
-          <dl class="kv">
+          <dl v-if="!editing" class="kv">
             <div v-if="settingsObj.timeout" class="kv-row"><dt>{{ t('detail.setTimeout') }}</dt><dd>{{ settingsObj.timeout }}s</dd></div>
             <div class="kv-row"><dt>{{ t('detail.setFollowRedirects') }}</dt><dd>{{ triLabel(settingsObj.followRedirects) }}</dd></div>
             <div v-if="settingsObj.maxRedirects" class="kv-row"><dt>{{ t('detail.setMaxRedirects') }}</dt><dd>{{ settingsObj.maxRedirects }}</dd></div>
             <div class="kv-row"><dt>{{ t('detail.setInsecureSsl') }}</dt><dd>{{ triLabel(settingsObj.insecureSsl) }}</dd></div>
             <div v-if="settingsObj.encodeUrl != null" class="kv-row"><dt>{{ t('detail.setEncodeUrl') }}</dt><dd>{{ settingsObj.encodeUrl ? t('detail.triOn') : t('detail.triOff') }}</dd></div>
           </dl>
+          <template v-else>
+            <div class="ext-row">
+              <span class="ext-lb">{{ t('detail.setTimeout') }}</span>
+              <n-input-number v-model:value="extEdit.timeout" size="small" class="ext-num" :min="0" :show-button="false" data-testid="ext-timeout" />
+              <span class="meta">s</span>
+              <span class="ext-lb">{{ t('detail.setMaxRedirects') }}</span>
+              <n-input-number v-model:value="extEdit.maxRedirects" size="small" class="ext-num" :min="0" :show-button="false" data-testid="ext-maxred" />
+            </div>
+            <div class="ext-row">
+              <span class="ext-lb">{{ t('detail.setFollowRedirects') }}</span>
+              <n-select v-model:value="extEdit.followRedirects" size="small" class="ext-w" :options="triStateOptions" data-testid="ext-follow" />
+              <span class="ext-lb">{{ t('detail.setInsecureSsl') }}</span>
+              <n-select v-model:value="extEdit.insecureSsl" size="small" class="ext-w" :options="triStateOptions" data-testid="ext-insecure" />
+            </div>
+            <div class="ext-row">
+              <span class="ext-lb">{{ t('detail.setEncodeUrl') }}</span>
+              <n-select v-model:value="extEdit.encodeUrl" size="small" class="ext-w" :options="encodeUrlOptions" data-testid="ext-encode" />
+            </div>
+          </template>
         </section>
 
         <section v-if="!editing && hasScript" class="req-sec" data-sec="script">
@@ -1315,5 +1548,32 @@ function exportApi(key: string): void {
     padding-left: 14px;
     padding-right: 14px;
   }
+}
+
+/* ---- 富字段编辑行（⑤）：标签 + 控件的紧凑横排 ---- */
+.ext-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.ext-lb {
+  flex: none;
+  min-width: 92px;
+  color: var(--text-2, #666);
+  font-size: 13px;
+}
+
+.ext-w { width: 230px; flex: none; }
+.ext-num { width: 110px; flex: none; }
+.ext-type { width: 110px; flex: none; }
+.ext-path { width: 230px; flex: none; }
+.ext-raw { margin: 6px 0; }
+.ext-desc-hd { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+
+@media (max-width: 768px) {
+  .ext-row { flex-wrap: wrap; }
+  .ext-w, .ext-path { width: 100%; }
 }
 </style>
