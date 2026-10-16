@@ -67,6 +67,8 @@ github.com/leihenshang/api-doc-go-share v0.8.1 h1:1eymAtdWrTecNyW6HjAJq7kMLQx9uA
 github.com/leihenshang/api-doc-go-share v0.8.1/go.mod h1:kopgsdabfKUJEPr0dTyh3nuJxE3auGOW5wUwy/LaUro=
 github.com/leihenshang/api-doc-go-share v0.9.0 h1:aH8R0ZuhsNFZxl/KEYiUBBSydGjNHDAqxuNzlM4GA/Y=
 github.com/leihenshang/api-doc-go-share v0.9.0/go.mod h1:kopgsdabfKUJEPr0dTyh3nuJxE3auGOW5wUwy/LaUro=
+github.com/leihenshang/api-doc-go-share v0.10.0 h1:qlb8MNbVZMbex1tyFeHKhHZ3LE4dLxdLNn3QF50adL4=
+github.com/leihenshang/api-doc-go-share v0.10.0/go.mod h1:kopgsdabfKUJEPr0dTyh3nuJxE3auGOW5wUwy/LaUro=
 github.com/leodido/go-urn v1.4.0 h1:WT9HwE9SGECu3lg4d/dIA+jxlljEa1/ffXKmRjqdmIQ=
 github.com/leodido/go-urn v1.4.0/go.mod h1:bvxc+MVxLKB4z00jd1z+Dvzr47oO32F/QSNjSBOlFxI=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=

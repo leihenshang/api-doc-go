@@ -225,12 +225,8 @@ func pushOp(t *testing.T, s *Service, userID, projectID uint64, opID, op, typ, u
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-<<<<<<< HEAD
 	// 超管类型直过权限校验（本用例验证同步语义，不验证权限矩阵）
 	resp, err := s.SyncPush(context.Background(), userID, model.UserTypeSuperuser, &SyncPushReq{
-=======
-	resp, err := s.SyncPush(context.Background(), userID, model.UserTypeAdmin, &SyncPushReq{
->>>>>>> 7847bd4eec4eafe7f7a92df0585a551b23dfe6f6
 		ProjectID: projectID, DeviceID: "dev-test", DeviceName: "测试设备",
 		Ops: []SyncOpIn{{OpID: opID, Op: op, Type: typ, UID: uid, Payload: body}},
 	})
