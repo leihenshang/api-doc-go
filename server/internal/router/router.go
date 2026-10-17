@@ -103,6 +103,10 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		a.GET("/detail", h.GetApi)
 		a.PUT("", h.UpdateApi)
 		a.DELETE("", h.DeleteApi)
+		// 回收站：恢复进出软删状态，purge 为物理删除
+		a.POST("/restore", h.RestoreApi)
+		a.POST("/restore-batch", h.RestoreApis)
+		a.POST("/purge-batch", h.PurgeApis)
 		a.POST("/import", h.ImportOpenAPI)
 		a.POST("/import-bruno", h.ImportBruno)
 		a.GET("/export", h.ExportOpenAPI)
@@ -123,6 +127,10 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		d.GET("/detail", h.GetDoc)
 		d.PUT("", h.UpdateDoc)
 		d.DELETE("", h.DeleteDoc)
+		// 回收站：恢复进出软删状态，purge 为物理删除
+		d.POST("/restore", h.RestoreDoc)
+		d.POST("/restore-batch", h.RestoreDocs)
+		d.POST("/purge-batch", h.PurgeDocs)
 		d.POST("/like", h.LikeDoc)
 	}
 	// 字段映射

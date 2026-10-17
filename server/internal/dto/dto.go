@@ -94,6 +94,17 @@ type IDReq struct {
 	ID uint64 `json:"id" form:"id" binding:"required"`
 }
 
+// RestoreResult 回收站恢复结果：条目还原数 + 连带还原的祖先分组数。
+type RestoreResult struct {
+	Restored int64 `json:"restored"`
+	Groups   int64 `json:"groups"`
+}
+
+// PurgeResult 彻底删除结果。
+type PurgeResult struct {
+	Purged int64 `json:"purged"`
+}
+
 // ---- 分组 ----
 
 // GroupCreateReq 创建分组。

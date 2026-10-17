@@ -148,6 +148,51 @@ func (h *Handler) DeleteApi(c *gin.Context) {
 	response.OK(c, nil)
 }
 
+// RestoreApi 处理 POST /api/api/restore（回收站单条恢复）。
+func (h *Handler) RestoreApi(c *gin.Context) {
+	var req dto.IDReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.RestoreApis(c.Request.Context(), p.UserID, p.Type, []uint64{req.ID})
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// RestoreApis 处理 POST /api/api/restore-batch（回收站批量恢复）。
+func (h *Handler) RestoreApis(c *gin.Context) {
+	var req dto.IDsReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.RestoreApis(c.Request.Context(), p.UserID, p.Type, req.IDs)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// PurgeApis 处理 POST /api/api/purge-batch（彻底删除，不可恢复）。
+func (h *Handler) PurgeApis(c *gin.Context) {
+	var req dto.IDsReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.PurgeApis(c.Request.Context(), p.UserID, p.Type, req.IDs)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
 // ---- 接口响应示例（多示例） ----
 
 // SaveApiSample 处理 POST /api/api/sample（新增或更新）。
@@ -345,6 +390,51 @@ func (h *Handler) DeleteDoc(c *gin.Context) {
 		return
 	}
 	response.OK(c, nil)
+}
+
+// RestoreDoc 处理 POST /api/doc/restore（回收站单条恢复）。
+func (h *Handler) RestoreDoc(c *gin.Context) {
+	var req dto.IDReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.RestoreDocs(c.Request.Context(), p.UserID, p.Type, []uint64{req.ID})
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// RestoreDocs 处理 POST /api/doc/restore-batch（回收站批量恢复）。
+func (h *Handler) RestoreDocs(c *gin.Context) {
+	var req dto.IDsReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.RestoreDocs(c.Request.Context(), p.UserID, p.Type, req.IDs)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// PurgeDocs 处理 POST /api/doc/purge-batch（彻底删除，不可恢复）。
+func (h *Handler) PurgeDocs(c *gin.Context) {
+	var req dto.IDsReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.PurgeDocs(c.Request.Context(), p.UserID, p.Type, req.IDs)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
 }
 
 // LikeDoc 处理 POST /api/doc/:id/like。

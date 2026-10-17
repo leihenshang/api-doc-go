@@ -16,13 +16,30 @@ func (r *Repository) CreateGroup(ctx context.Context, v *model.Group) error {
 	return gmCreate(ctx, r.db, v)
 }
 func (r *Repository) GetGroup(ctx context.Context, id uint64) (*model.Group, error) {
+	return getActive[model.Group](ctx, r.db, id)
+}
+
+// GetGroupAny 按主键取分组（**含已软删除**）。还原时需回溯祖先链，故不过滤。
+func (r *Repository) GetGroupAny(ctx context.Context, id uint64) (*model.Group, error) {
 	return gmGet[model.Group](ctx, r.db, id)
 }
 func (r *Repository) UpdateGroup(ctx context.Context, v *model.Group) error {
 	return gmSave(ctx, r.db, v)
 }
+
+// DeleteGroup 删除分组：进回收站（is_deleted=1），可由 RestoreGroups 还原。
 func (r *Repository) DeleteGroup(ctx context.Context, id uint64) error {
-	return gmHardDelete[model.Group](ctx, r.db, id)
+	return gmSoftDelete[model.Group](ctx, r.db, id)
+}
+
+// RestoreGroups 批量还原分组，返回实际还原条数。
+func (r *Repository) RestoreGroups(ctx context.Context, ids []uint64) (int64, error) {
+	return gmRestoreByIDs[model.Group](ctx, r.db, ids)
+}
+
+// PurgeGroups 批量彻底删除分组。
+func (r *Repository) PurgeGroups(ctx context.Context, ids []uint64) (int64, error) {
+	return gmPurgeByIDs[model.Group](ctx, r.db, ids)
 }
 
 // UpdateGroupSort 更新分组的父级与同级顺序。
@@ -73,11 +90,28 @@ func (r *Repository) CreateApi(ctx context.Context, v *model.Api) error {
 	return gmCreate(ctx, r.db, v)
 }
 func (r *Repository) GetApi(ctx context.Context, id uint64) (*model.Api, error) {
+	return getActive[model.Api](ctx, r.db, id)
+}
+
+// GetApiAny 按主键取接口（**含已软删除**）。回收站详情需要读 is_deleted=1 的行。
+func (r *Repository) GetApiAny(ctx context.Context, id uint64) (*model.Api, error) {
 	return gmGet[model.Api](ctx, r.db, id)
 }
 func (r *Repository) UpdateApi(ctx context.Context, v *model.Api) error { return gmSave(ctx, r.db, v) }
+
+// DeleteApi 删除接口：进回收站（is_deleted=1），可由 RestoreApis 还原。
 func (r *Repository) DeleteApi(ctx context.Context, id uint64) error {
-	return gmHardDelete[model.Api](ctx, r.db, id)
+	return gmSoftDelete[model.Api](ctx, r.db, id)
+}
+
+// RestoreApis 批量还原接口，返回实际还原条数。
+func (r *Repository) RestoreApis(ctx context.Context, ids []uint64) (int64, error) {
+	return gmRestoreByIDs[model.Api](ctx, r.db, ids)
+}
+
+// PurgeApis 批量彻底删除接口。
+func (r *Repository) PurgeApis(ctx context.Context, ids []uint64) (int64, error) {
+	return gmPurgeByIDs[model.Api](ctx, r.db, ids)
 }
 
 // ApisByIDsAny 取指定 id 的接口（**含已删除**，供批量操作用）。
@@ -100,13 +134,18 @@ func (r *Repository) DocsByIDsAny(ctx context.Context, ids []uint64) ([]model.Do
 	return items, err
 }
 
-// GroupsByProjectsAny 取项目下指定类型的分组（**含已软删除**），供恢复时回溯父级链。
+// GroupsByProjectsAny 取项目下的分组（**含已软删除**），供恢复时回溯父级链。
+// typ < 0 表示不过滤分组类型（接口目录与文档目录可共用分组，恢复时需一并回溯）。
 func (r *Repository) GroupsByProjectsAny(ctx context.Context, projectIDs []uint64, typ int8) ([]model.Group, error) {
 	var items []model.Group
 	if len(projectIDs) == 0 {
 		return items, nil
 	}
-	err := r.db.WithContext(ctx).Where("project_id IN ? AND type = ?", projectIDs, typ).Find(&items).Error
+	db := r.db.WithContext(ctx).Where("project_id IN ?", projectIDs)
+	if typ >= 0 {
+		db = db.Where("type = ?", typ)
+	}
+	err := db.Find(&items).Error
 	return items, err
 }
 
@@ -170,11 +209,28 @@ func (r *Repository) CreateDoc(ctx context.Context, v *model.Doc) error {
 	return gmCreate(ctx, r.db, v)
 }
 func (r *Repository) GetDoc(ctx context.Context, id uint64) (*model.Doc, error) {
+	return getActive[model.Doc](ctx, r.db, id)
+}
+
+// GetDocAny 按主键取文档（**含已软删除**）。
+func (r *Repository) GetDocAny(ctx context.Context, id uint64) (*model.Doc, error) {
 	return gmGet[model.Doc](ctx, r.db, id)
 }
 func (r *Repository) UpdateDoc(ctx context.Context, v *model.Doc) error { return gmSave(ctx, r.db, v) }
+
+// DeleteDoc 删除文档：进回收站（is_deleted=1），可由 RestoreDocs 还原。
 func (r *Repository) DeleteDoc(ctx context.Context, id uint64) error {
-	return gmHardDelete[model.Doc](ctx, r.db, id)
+	return gmSoftDelete[model.Doc](ctx, r.db, id)
+}
+
+// RestoreDocs 批量还原文档，返回实际还原条数。
+func (r *Repository) RestoreDocs(ctx context.Context, ids []uint64) (int64, error) {
+	return gmRestoreByIDs[model.Doc](ctx, r.db, ids)
+}
+
+// PurgeDocs 批量彻底删除文档。
+func (r *Repository) PurgeDocs(ctx context.Context, ids []uint64) (int64, error) {
+	return gmPurgeByIDs[model.Doc](ctx, r.db, ids)
 }
 
 // UpdateDocSort 更新文档的所属分组与同级顺序。

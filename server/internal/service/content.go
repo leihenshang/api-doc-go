@@ -12,22 +12,39 @@ import (
 	"apidoc/internal/pkg/errcode"
 	"apidoc/internal/pkg/page"
 	"apidoc/internal/repository"
+
+	"gorm.io/gorm"
 )
 
 // ---- 分组 ----
 
+// appendChangeTx 在**同一事务**内写变更流水并推进条目版本，两步必须同时成功。
+// 分开写会留下「流水已落库、last_change_id 未前进」的不一致：客户端下轮按旧 revision 比对，
+// 会把其实已经更新的条目误判成冲突（B-12 / B-15）。
+// ctx 经 context.WithoutCancel 脱钩：审计数据不因请求取消而丢，但保留请求内的取值
+// （裸 context.Background() 会把这些上下文一并丢掉）。
+func (s *Service) appendChangeTx(ctx context.Context, entityType, extUID string, projectID, id uint64, op string, actor uint64, device string) (int64, error) {
+	ctx = context.WithoutCancel(ctx)
+	var cid int64
+	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var e error
+		if cid, e = s.repo.AppendChange(tx, projectID, entityType, extUID, op, actor, device); e != nil {
+			return e
+		}
+		return s.repo.SetLastChange(tx, entityType, id, cid)
+	})
+	return cid, err
+}
+
 // recordChange 在 Web 写路径落变更流水（S3：覆盖 Web 与 sync 两个入口）。
-// P1-4：变更流水属审计数据，请求取消也应尽量落库，故用独立 context（不用请求 ctx）。
-// ext_uid 为空时自动生成，保证客户端能按 uid 配对。
+// 失败不回滚已落库的实体——回滚会让用户以为没保存而重复提交。因为改成单事务写入，
+// 失败意味着「流水与版本号都没写」，不会留下半截状态，下轮同步仍能按旧 revision 重新拉到该条目。
+// ext_uid 为空时直接跳过（无 uid 的条目无法参与同步配对）。
 func (s *Service) recordChange(entityType, extUID string, projectID uint64, id uint64, op string, actor uint64) {
 	if extUID == "" {
 		return
 	}
-	cid, err := s.repo.AppendChange(s.repo.DB().WithContext(context.Background()), projectID, entityType, extUID, op, actor, "web")
-	if err != nil {
-		return
-	}
-	_ = s.repo.SetLastChange(s.repo.DB().WithContext(context.Background()), entityType, id, cid)
+	_, _ = s.appendChangeTx(context.Background(), entityType, extUID, projectID, id, op, actor, "web")
 }
 
 // ensureExtUID 条目缺 uid 时补一个（Web 新建也分配，便于后续同步）。
@@ -246,6 +263,149 @@ func (s *Service) DeleteApi(ctx context.Context, userID uint64, typ int8, id uin
 	return nil
 }
 
+// ---- 回收站（恢复 / 彻底删除）----
+
+// batchMax 批量操作单次上限：与分页上限（200）对齐，防止一次请求把库打满。
+const batchMax = 200
+
+// normalizeIDs 去重并校验批量 id：非空、不超上限、不含 0。
+func normalizeIDs(ids []uint64) ([]uint64, error) {
+	if len(ids) == 0 {
+		return nil, newBiz(errcode.CodeParamError, "缺少 id")
+	}
+	if len(ids) > batchMax {
+		return nil, newBiz(errcode.CodeParamError, "单次最多处理 %d 条", batchMax)
+	}
+	seen := make(map[uint64]struct{}, len(ids))
+	out := make([]uint64, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			return nil, newBiz(errcode.CodeParamError, "id 不能为 0")
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+// ensureAllPresent 校验请求的 id 全部命中；缺一即拒绝，避免「部分成功」难以对账。
+func ensureAllPresent(want, have []uint64) error {
+	if len(want) == len(have) {
+		return nil
+	}
+	got := make(map[uint64]struct{}, len(have))
+	for _, id := range have {
+		got[id] = struct{}{}
+	}
+	for _, id := range want {
+		if _, ok := got[id]; !ok {
+			return newBiz(errcode.CodeParamError, "条目 %d 不存在", id)
+		}
+	}
+	return nil
+}
+
+// ensureTrashed 校验条目确实在回收站，防止「彻底删除」误抹活数据。
+func ensureTrashed[T any](items []T, isDeleted func(T) int8, name string) error {
+	for _, it := range items {
+		if isDeleted(it) != 1 {
+			return newBiz(errcode.CodeParamError, "%s不在回收站，请先删除再彻底删除", name)
+		}
+	}
+	return nil
+}
+
+// restoreAncestors 把条目所在分组中「已软删的祖先链」一并还原，返回还原的分组数。
+// 不还原祖先会导致条目还原后仍挂在已删目录下而不可见。
+func (s *Service) restoreAncestors(ctx context.Context, projectIDs, groupIDs []uint64) (int64, error) {
+	if len(groupIDs) == 0 {
+		return 0, nil
+	}
+	groups, err := s.repo.GroupsByProjectsAny(ctx, projectIDs, -1)
+	if err != nil {
+		return 0, err
+	}
+	need := deletedGroupChain(groups, groupIDs)
+	if len(need) == 0 {
+		return 0, nil
+	}
+	return s.repo.RestoreGroups(ctx, need)
+}
+
+// RestoreApis 从回收站恢复接口：需项目写权限，祖先分组一并还原。
+func (s *Service) RestoreApis(ctx context.Context, userID uint64, typ int8, ids []uint64) (*dto.RestoreResult, error) {
+	ids, err := normalizeIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.repo.ApisByIDsAny(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	found := make([]uint64, 0, len(items))
+	for _, a := range items {
+		found = append(found, a.ID)
+	}
+	if err := ensureAllPresent(ids, found); err != nil {
+		return nil, err
+	}
+	projectIDs, groupIDs := collectParents(items, func(a model.Api) (uint64, uint64) { return a.ProjectID, a.GroupID })
+	if err := s.ensureProjectsUpdate(ctx, userID, typ, projectIDs); err != nil {
+		return nil, err
+	}
+	groups, err := s.restoreAncestors(ctx, projectIDs, groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	n, err := s.repo.RestoreApis(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	// 恢复按 upsert 广播：客户端 applyUpsert 会把 Deleted 置回 false，条目自然复活。
+	for _, a := range items {
+		s.recordChange(model.SyncTypeAPI, a.ExtUID, a.ProjectID, a.ID, model.SyncOpUpsert, userID)
+	}
+	return &dto.RestoreResult{Restored: n, Groups: groups}, nil
+}
+
+// PurgeApis 彻底删除接口：需项目删除权限，且仅允许处理回收站内的条目。
+func (s *Service) PurgeApis(ctx context.Context, userID uint64, typ int8, ids []uint64) (*dto.PurgeResult, error) {
+	ids, err := normalizeIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.repo.ApisByIDsAny(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	found := make([]uint64, 0, len(items))
+	for _, a := range items {
+		found = append(found, a.ID)
+	}
+	if err := ensureAllPresent(ids, found); err != nil {
+		return nil, err
+	}
+	if err := ensureTrashed(items, func(a model.Api) int8 { return a.IsDeleted }, "接口"); err != nil {
+		return nil, err
+	}
+	projectIDs, _ := collectParents(items, func(a model.Api) (uint64, uint64) { return a.ProjectID, a.GroupID })
+	if err := s.ensureProjectsPerm(ctx, userID, typ, projectIDs, model.PermDelete); err != nil {
+		return nil, err
+	}
+	n, err := s.repo.PurgeApis(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	// 再广播一次 delete：覆盖「客户端尚未收到首次删除」的情况，重复消费是幂等的。
+	for _, a := range items {
+		s.recordChange(model.SyncTypeAPI, a.ExtUID, a.ProjectID, a.ID, model.SyncOpDelete, userID)
+	}
+	return &dto.PurgeResult{Purged: n}, nil
+}
+
 // collectParents 汇总条目所属的项目 id 与分组 id（去重）。
 func collectParents[T any](items []T, pick func(T) (uint64, uint64)) ([]uint64, []uint64) {
 	projects := make([]uint64, 0, len(items))
@@ -450,6 +610,75 @@ func (s *Service) DeleteDoc(ctx context.Context, userID uint64, typ int8, id uin
 	}
 	s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpDelete, userID)
 	return nil
+}
+
+// RestoreDocs 从回收站恢复文档：需项目写权限，祖先分组一并还原。
+func (s *Service) RestoreDocs(ctx context.Context, userID uint64, typ int8, ids []uint64) (*dto.RestoreResult, error) {
+	ids, err := normalizeIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.repo.DocsByIDsAny(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	found := make([]uint64, 0, len(items))
+	for _, d := range items {
+		found = append(found, d.ID)
+	}
+	if err := ensureAllPresent(ids, found); err != nil {
+		return nil, err
+	}
+	projectIDs, groupIDs := collectParents(items, func(d model.Doc) (uint64, uint64) { return d.ProjectID, d.GroupID })
+	if err := s.ensureProjectsUpdate(ctx, userID, typ, projectIDs); err != nil {
+		return nil, err
+	}
+	groups, err := s.restoreAncestors(ctx, projectIDs, groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	n, err := s.repo.RestoreDocs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range items {
+		s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpUpsert, userID)
+	}
+	return &dto.RestoreResult{Restored: n, Groups: groups}, nil
+}
+
+// PurgeDocs 彻底删除文档：需项目删除权限，且仅允许处理回收站内的条目。
+func (s *Service) PurgeDocs(ctx context.Context, userID uint64, typ int8, ids []uint64) (*dto.PurgeResult, error) {
+	ids, err := normalizeIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.repo.DocsByIDsAny(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	found := make([]uint64, 0, len(items))
+	for _, d := range items {
+		found = append(found, d.ID)
+	}
+	if err := ensureAllPresent(ids, found); err != nil {
+		return nil, err
+	}
+	if err := ensureTrashed(items, func(d model.Doc) int8 { return d.IsDeleted }, "文档"); err != nil {
+		return nil, err
+	}
+	projectIDs, _ := collectParents(items, func(d model.Doc) (uint64, uint64) { return d.ProjectID, d.GroupID })
+	if err := s.ensureProjectsPerm(ctx, userID, typ, projectIDs, model.PermDelete); err != nil {
+		return nil, err
+	}
+	n, err := s.repo.PurgeDocs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range items {
+		s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpDelete, userID)
+	}
+	return &dto.PurgeResult{Purged: n}, nil
 }
 
 // LikeDoc 点赞。
