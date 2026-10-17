@@ -8,120 +8,34 @@ import (
 
 	"apidoc/internal/model"
 	"apidoc/internal/repository"
+
+	syncapi "github.com/leihenshang/api-doc-go-share/syncapi"
 )
 
-// SyncProto 当前同步协议版本（能力协商）。
-const SyncProto = 1
+// SyncProto 当前同步协议版本（能力协商）；真源在 syncapi。
+const SyncProto = syncapi.Proto
 
 // ServerVersion 服务端版本（能力协商）。
 const ServerVersion = "1.0.0"
 
 // ---- DTO ----
+//
+// 同步线协议的唯一真源在共享库 `syncapi`（P2-1）：结构与 `json` tag 都在那边定义，
+// 这里只保留服务端惯用的类型别名。这样两端字段不一致在编译期就不可能发生，
+// 改协议必须先改共享库（并同步升 `syncapi.Proto` 与两端 require）。
 
-// SyncStateResp GET /api/sync/state
-type SyncStateResp struct {
-	Cursor          int64 `json:"cursor"`
-	OldestAvailable int64 `json:"oldest_available"`
-}
-
-// SyncItem 增量/快照里的一条。
-type SyncItem struct {
-	Type    string          `json:"type"`
-	UID     string          `json:"uid"`
-	Op      string          `json:"op"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-	ItemRev int64           `json:"item_rev"`
-	Deleted bool            `json:"deleted,omitempty"`
-}
-
-// SyncChangesResp GET /api/sync/changes
-type SyncChangesResp struct {
-	Cursor  int64      `json:"cursor"`
-	Items   []SyncItem `json:"items"`
-	HasMore bool       `json:"has_more"`
-	Gap     bool       `json:"gap"`
-}
-
-// SyncSnapshotResp GET /api/sync/snapshot
-type SyncSnapshotResp struct {
-	Cursor  int64      `json:"cursor"`
-	Items   []SyncItem `json:"items"`
-	HasMore bool       `json:"has_more"`
-	Offset  int        `json:"offset"`
-}
-
-// SyncOpIn push 的一条。
-type SyncOpIn struct {
-	OpID    string          `json:"op_id"`
-	Op      string          `json:"op"`
-	Type    string          `json:"type"`
-	UID     string          `json:"uid"`
-	BaseRev int64           `json:"base_rev"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-}
-
-// SyncPushReq POST /api/sync/push
-type SyncPushReq struct {
-	ProjectID  uint64     `json:"project_id"`
-	DeviceID   string     `json:"device_id"`
-	DeviceName string     `json:"device_name"`
-	Ops        []SyncOpIn `json:"ops"`
-}
-
-// SyncOpOut 逐条结果。
-type SyncOpOut struct {
-	OpID    string          `json:"op_id"`
-	Status  string          `json:"status"` // ok | conflict | rejected
-	ItemRev int64           `json:"item_rev,omitempty"`
-	Reason  string          `json:"reason,omitempty"`
-	Server  json.RawMessage `json:"server,omitempty"` // conflict 时的服务端版本
-}
-
-// SyncPushResp POST /api/sync/push
-type SyncPushResp struct {
-	Results []SyncOpOut `json:"results"`
-	Cursor  int64       `json:"cursor"`
-}
-
-// MetaResp GET /api/meta 能力协商。
-type MetaResp struct {
-	ServerVersion    string   `json:"server_version"`
-	APIVersion       string   `json:"api_version"`
-	SyncProto        int      `json:"sync_proto"`
-	Features         []string `json:"features"`
-	MinClientVersion string   `json:"min_client_version"`
-}
-
-// SyncPayload 条目序列化载荷（客户端按 type 解析）。
-type SyncPayload struct {
-	// group
-	Title    string `json:"title,omitempty"`
-	PID      string `json:"parent_uid,omitempty"`
-	Priority int    `json:"priority,omitempty"`
-	// api
-	Name     string `json:"name,omitempty"`
-	Method   string `json:"method,omitempty"`
-	URL      string `json:"url,omitempty"`
-	GroupUID string `json:"group_uid,omitempty"`
-	Extra    string `json:"extra,omitempty"` // 客户端全量原文 JSON（S11）
-	// doc
-	Content string `json:"content,omitempty"`
-	Icon    string `json:"icon,omitempty"`
-	// example（响应示例）：Name 复用为示例名
-	ApiUID      string `json:"api_uid,omitempty"`
-	Sample      string `json:"sample,omitempty"`
-	Status      int    `json:"status,omitempty"`
-	ContentType string `json:"content_type,omitempty"`
-	Seq         int    `json:"seq,omitempty"`
-	// variable / variable_env（S16）：Name 复用为变量名/环境名；secret 变量的 Value
-	// 为客户端密文（enc:v1: 前缀）——服务端只存储、不解析，值本身即「加密数据」标注。
-	EnvUID  string `json:"env_uid,omitempty"` // 变量所属环境的 ext_uid
-	Value   string `json:"value,omitempty"`   // 变量值（明文或 enc:v1: 密文）
-	Secret  bool   `json:"secret,omitempty"`  // 是否敏感值
-	Enabled *bool  `json:"enabled,omitempty"` // 是否启用（nil 视作启用）
-	// 通用
-	Deleted bool `json:"deleted,omitempty"`
-}
+type (
+	SyncStateResp    = syncapi.State
+	SyncItem         = syncapi.Item
+	SyncChangesResp  = syncapi.Changes
+	SyncSnapshotResp = syncapi.Snapshot
+	SyncOpIn         = syncapi.Op
+	SyncPushReq      = syncapi.PushReq
+	SyncOpOut        = syncapi.OpResult
+	SyncPushResp     = syncapi.PushResp
+	MetaResp         = syncapi.Meta
+	SyncPayload      = syncapi.Payload
+)
 
 // ---- Service ----
 
@@ -407,7 +321,7 @@ func (s *Service) exampleSyncPayload(ctx context.Context, ex *model.ApiReturnSam
 		ContentType: ex.ContentType, Seq: ex.Seq,
 	}
 	if ex.ApiID > 0 {
-		p.ApiUID = s.repo.ApiExtUID(ctx, ex.ApiID)
+		p.APIUID = s.repo.ApiExtUID(ctx, ex.ApiID)
 	}
 	return p
 }
@@ -431,7 +345,7 @@ func (s *Service) exampleSyncPayloadWith(ex *model.ApiReturnSample, apiUID map[u
 		Name: ex.Name, Sample: ex.SampleText, Status: ex.Status,
 		ContentType: ex.ContentType, Seq: ex.Seq,
 	}
-	p.ApiUID = apiUID[ex.ApiID]
+	p.APIUID = apiUID[ex.ApiID]
 	return p
 }
 
@@ -870,8 +784,8 @@ func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, use
 		e.Status = p.Status
 		e.ContentType = p.ContentType
 		e.Seq = p.Seq
-		if p.ApiUID != "" {
-			if a, _ := r.FindApiByExtUID(ctx, req.ProjectID, p.ApiUID); a != nil {
+		if p.APIUID != "" {
+			if a, _ := r.FindApiByExtUID(ctx, req.ProjectID, p.APIUID); a != nil {
 				e.ApiID = a.ID
 			} else {
 				return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "parent_missing"}

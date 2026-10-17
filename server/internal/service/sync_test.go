@@ -351,7 +351,7 @@ func TestSyncExampleRoundTrip(t *testing.T) {
 	})
 	const uid = "ex-sample-1"
 	if out := pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-ex-1", model.SyncOpUpsert, model.SyncTypeExample, uid, SyncPayload{
-		Name: "成功", ApiUID: apiUID, Sample: `{"code":200}`, Status: 200, ContentType: "application/json", Seq: 1,
+		Name: "成功", APIUID: apiUID, Sample: `{"code":200}`, Status: 200, ContentType: "application/json", Seq: 1,
 	}); out.Status != "ok" {
 		t.Fatalf("example push 应成功: %+v", out)
 	}
@@ -373,7 +373,7 @@ func TestSyncExampleRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(raw, &p); err != nil {
 		t.Fatalf("载荷反序列化: %v", err)
 	}
-	if p.ApiUID != apiUID || p.Name != "成功" || p.Sample != `{"code":200}` {
+	if p.APIUID != apiUID || p.Name != "成功" || p.Sample != `{"code":200}` {
 		t.Fatalf("载荷回读不符: %+v", p)
 	}
 
@@ -403,7 +403,7 @@ func TestSyncExampleRoundTrip(t *testing.T) {
 
 	// 缺宿主的示例被拒绝
 	if out := pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-ex-3", model.SyncOpUpsert, model.SyncTypeExample, "ex-orphan", SyncPayload{
-		Name: "孤儿", ApiUID: "no-such-api",
+		Name: "孤儿", APIUID: "no-such-api",
 	}); out.Status != "rejected" {
 		t.Fatalf("缺少宿主接口应拒绝: %+v", out)
 	}
