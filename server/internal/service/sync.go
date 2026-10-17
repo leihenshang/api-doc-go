@@ -230,13 +230,8 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 			continue
 		}
 		p := SyncPayload{Title: g.Title, Priority: g.Priority, Deleted: g.IsDeleted == model.IsDeletedYes}
-		if g.PID > 0 {
-			// parent_uid 通过 p_id 反查
-			var pg model.Group
-			if err := s.repo.DB().WithContext(ctx).Where("id = ?", g.PID).First(&pg).Error; err == nil {
-				p.PID = pg.ExtUID
-			}
-		}
+		// parent_uid 通过 p_id 反查（仓储层统一做 id → ext_uid，service 不直连 ORM）
+		p.PID = s.repo.GroupExtUID(ctx, g.PID)
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeGroup, g.ExtUID, p.Deleted, g.LastChangeID, b})
 	}
@@ -264,10 +259,7 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 		}
 		p := SyncPayload{Title: d.Title, Content: d.Content, Icon: d.Icon, Deleted: d.IsDeleted == model.IsDeletedYes}
 		if d.GroupID > 0 {
-			var g model.Group
-			if err := s.repo.DB().WithContext(ctx).Where("id = ?", d.GroupID).First(&g).Error; err == nil {
-				p.GroupUID = g.ExtUID
-			}
+			p.GroupUID = s.repo.GroupExtUID(ctx, d.GroupID)
 		}
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeDoc, d.ExtUID, p.Deleted, d.LastChangeID, b})
@@ -347,10 +339,7 @@ func (s *Service) loadPayload(ctx context.Context, projectID uint64, entityType,
 		}
 		p := SyncPayload{Title: g.Title, Priority: g.Priority}
 		if g.PID > 0 {
-			var pg model.Group
-			if err := s.repo.DB().WithContext(ctx).Where("id = ?", g.PID).First(&pg).Error; err == nil {
-				p.PID = pg.ExtUID
-			}
+			p.PID = s.repo.GroupExtUID(ctx, g.PID)
 		}
 		return json.Marshal(p)
 	case model.SyncTypeAPI:
@@ -390,10 +379,7 @@ func (s *Service) exampleSyncPayload(ctx context.Context, ex *model.ApiReturnSam
 		ContentType: ex.ContentType, Seq: ex.Seq,
 	}
 	if ex.ApiID > 0 {
-		var a model.Api
-		if err := s.repo.DB().WithContext(ctx).Where("id = ?", ex.ApiID).First(&a).Error; err == nil {
-			p.ApiUID = a.ExtUID
-		}
+		p.ApiUID = s.repo.ApiExtUID(ctx, ex.ApiID)
 	}
 	return p
 }
@@ -406,10 +392,7 @@ func (s *Service) varSyncPayload(ctx context.Context, v *model.Variable) SyncPay
 		Secret: v.IsSecret == model.VarSecret, Enabled: &enabled,
 	}
 	if v.EnvID > 0 {
-		var env model.VariableEnv
-		if err := s.repo.DB().WithContext(ctx).Where("id = ?", v.EnvID).First(&env).Error; err == nil {
-			p.EnvUID = env.ExtUID
-		}
+		p.EnvUID = s.repo.VarEnvExtUID(ctx, v.EnvID)
 	}
 	return p
 }
@@ -461,10 +444,7 @@ func (s *Service) docSyncPayload(ctx context.Context, projectID uint64, extUID s
 	}
 	p := SyncPayload{Title: d.Title, Content: d.Content, Icon: d.Icon}
 	if d.GroupID > 0 {
-		var g model.Group
-		if err := s.repo.DB().WithContext(ctx).Where("id = ?", d.GroupID).First(&g).Error; err == nil {
-			p.GroupUID = g.ExtUID
-		}
+		p.GroupUID = s.repo.GroupExtUID(ctx, d.GroupID)
 	}
 	return p
 }
@@ -472,10 +452,7 @@ func (s *Service) docSyncPayload(ctx context.Context, projectID uint64, extUID s
 func (s *Service) apiSyncPayload(ctx context.Context, a *model.Api) SyncPayload {
 	p := SyncPayload{Name: a.ApiName, Method: a.HttpMethodType, URL: a.URL}
 	if a.GroupID > 0 {
-		var g model.Group
-		if err := s.repo.DB().WithContext(ctx).Where("id = ?", a.GroupID).First(&g).Error; err == nil {
-			p.GroupUID = g.ExtUID
-		}
+		p.GroupUID = s.repo.GroupExtUID(ctx, a.GroupID)
 	}
 	// Extra：把接口全量原文聚合（S11）。值均为 DB 中的 JSON 文本列（空串=未设置），
 	// 客户端按 type 自行解析；新增键时 push 侧（applyUpsert）也要同步接收。

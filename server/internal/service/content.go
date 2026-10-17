@@ -12,8 +12,6 @@ import (
 	"apidoc/internal/pkg/errcode"
 	"apidoc/internal/pkg/page"
 	"apidoc/internal/repository"
-
-	"gorm.io/gorm"
 )
 
 // ---- 分组 ----
@@ -26,12 +24,14 @@ import (
 func (s *Service) appendChangeTx(ctx context.Context, entityType, extUID string, projectID, id uint64, op string, actor uint64, device string) (int64, error) {
 	ctx = context.WithoutCancel(ctx)
 	var cid int64
-	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// 走仓储层的 Transaction 而不是自己开 gorm 事务：service 不该持有 *gorm.DB。
+	// 事务内拿到的 Repository 的 db 已是 tx，故 AppendChange/SetLastChange 传 nil 即可。
+	err := s.repo.Transaction(ctx, func(tx *repository.Repository) error {
 		var e error
-		if cid, e = s.repo.AppendChange(tx, projectID, entityType, extUID, op, actor, device); e != nil {
+		if cid, e = tx.AppendChange(nil, projectID, entityType, extUID, op, actor, device); e != nil {
 			return e
 		}
-		return s.repo.SetLastChange(tx, entityType, id, cid)
+		return tx.SetLastChange(nil, entityType, id, cid)
 	})
 	return cid, err
 }
