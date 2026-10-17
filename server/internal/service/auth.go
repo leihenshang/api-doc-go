@@ -31,7 +31,7 @@ func (s *Service) Login(ctx context.Context, req dto.LoginReq) (*LoginResult, er
 	if u.State == model.UserStateDisabled {
 		return nil, newBiz(errcode.CodeForbidden, "账号已禁用")
 	}
-	token, err := jwt.Generate(u.ID, u.Type, "apidoc", s.cfg.JWT.Secret, hours(s.cfg.JWT.ExpireHours))
+	token, err := jwt.Generate(u.ID, u.Type, jwt.Issuer, s.cfg.JWT.Secret, hours(s.cfg.JWT.ExpireHours))
 	if err != nil {
 		return nil, err
 	}
