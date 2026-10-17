@@ -230,13 +230,20 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 	if err != nil {
 		return nil, err
 	}
+	// P2-26：先把 id → ext_uid 一次性建成 map，后面所有「父分组 / 所属分组 / 所属接口 /
+	// 所属环境」的反查都走 map。此前每行一次单列查询，200 行快照就是 200+ 次往返。
+	groupUID := make(map[uint64]string, len(groups))
+	for _, g := range groups {
+		if g.ExtUID != "" {
+			groupUID[g.ID] = g.ExtUID
+		}
+	}
 	for _, g := range groups {
 		if g.ExtUID == "" {
 			continue
 		}
 		p := SyncPayload{Title: g.Title, Priority: g.Priority, Deleted: g.IsDeleted == model.IsDeletedYes}
-		// parent_uid 通过 p_id 反查（仓储层统一做 id → ext_uid，service 不直连 ORM）
-		p.PID = s.repo.GroupExtUID(ctx, g.PID)
+		p.PID = groupUID[g.PID]
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeGroup, g.ExtUID, p.Deleted, g.LastChangeID, b})
 	}
@@ -244,12 +251,18 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 	if err != nil {
 		return nil, err
 	}
+	apiUID := make(map[uint64]string, len(apis))
+	for _, a := range apis {
+		if a.ExtUID != "" {
+			apiUID[a.ID] = a.ExtUID
+		}
+	}
 	for _, a := range apis {
 		if a.ExtUID == "" {
 			continue
 		}
 		// 与增量路径（loadPayload）同口径；快照含软删行，需要补 Deleted 标记。
-		p := s.apiSyncPayload(ctx, &a)
+		p := s.apiSyncPayloadWith(ctx, &a, groupUID)
 		p.Deleted = a.IsDeleted == model.IsDeletedYes
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeAPI, a.ExtUID, p.Deleted, a.LastChangeID, b})
@@ -263,9 +276,7 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 			continue
 		}
 		p := SyncPayload{Title: d.Title, Content: d.Content, Icon: d.Icon, Deleted: d.IsDeleted == model.IsDeletedYes}
-		if d.GroupID > 0 {
-			p.GroupUID = s.repo.GroupExtUID(ctx, d.GroupID)
-		}
+		p.GroupUID = groupUID[d.GroupID]
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeDoc, d.ExtUID, p.Deleted, d.LastChangeID, b})
 	}
@@ -277,7 +288,7 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 		if ex.ExtUID == "" {
 			continue
 		}
-		p := s.exampleSyncPayload(ctx, &ex)
+		p := s.exampleSyncPayloadWith(&ex, apiUID)
 		p.Deleted = ex.IsDeleted == model.IsDeletedYes
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeExample, ex.ExtUID, p.Deleted, ex.LastChangeID, b})
@@ -286,6 +297,12 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 	varEnvs, err := s.repo.ListVarEnvsAll(ctx, projectID)
 	if err != nil {
 		return nil, err
+	}
+	envUID := make(map[uint64]string, len(varEnvs))
+	for _, ev := range varEnvs {
+		if ev.ExtUID != "" {
+			envUID[ev.ID] = ev.ExtUID
+		}
 	}
 	for _, ev := range varEnvs {
 		if ev.ExtUID == "" {
@@ -303,7 +320,7 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 		if v.ExtUID == "" {
 			continue
 		}
-		p := s.varSyncPayload(ctx, &v)
+		p := s.varSyncPayloadWith(&v, envUID)
 		p.Deleted = v.IsDeleted == model.IsDeletedYes
 		b, _ := json.Marshal(p)
 		rows = append(rows, row{model.SyncTypeVariable, v.ExtUID, p.Deleted, v.LastChangeID, b})
@@ -408,6 +425,27 @@ func (s *Service) varSyncPayload(ctx context.Context, v *model.Variable) SyncPay
 	return p
 }
 
+// exampleSyncPayloadWith 快照路径用：所属接口 uid 从已建好的 map 取，避免逐行查询。
+func (s *Service) exampleSyncPayloadWith(ex *model.ApiReturnSample, apiUID map[uint64]string) SyncPayload {
+	p := SyncPayload{
+		Name: ex.Name, Sample: ex.SampleText, Status: ex.Status,
+		ContentType: ex.ContentType, Seq: ex.Seq,
+	}
+	p.ApiUID = apiUID[ex.ApiID]
+	return p
+}
+
+// varSyncPayloadWith 快照路径用：所属环境 uid 从已建好的 map 取。
+func (s *Service) varSyncPayloadWith(v *model.Variable, envUID map[uint64]string) SyncPayload {
+	enabled := v.Enabled == model.VarEnabled
+	p := SyncPayload{
+		Name: v.Name, Value: v.Value,
+		Secret: v.IsSecret == model.VarSecret, Enabled: &enabled,
+	}
+	p.EnvUID = envUID[v.EnvID]
+	return p
+}
+
 // applyApiExtra 把同步 extra（JSON 文本）逐键写入 api 文本列：键存在且为字符串才覆盖
 // （空串=清空该列），缺键不动 —— 与 apiSyncPayload 的键集严格对齐，保证旧客户端推旧键集
 // 不会清空服务端新列，反之亦然。富字段均以原始 JSON/文本存列，服务端不解释语义。
@@ -461,9 +499,18 @@ func (s *Service) docSyncPayload(ctx context.Context, projectID uint64, extUID s
 }
 
 func (s *Service) apiSyncPayload(ctx context.Context, a *model.Api) SyncPayload {
+	return s.apiSyncPayloadWith(ctx, a, nil)
+}
+
+// apiSyncPayloadWith 同上，但所属分组 uid 可由调用方预先建好的 map 提供（map 为 nil 时回退单查）。
+func (s *Service) apiSyncPayloadWith(ctx context.Context, a *model.Api, groupUID map[uint64]string) SyncPayload {
 	p := SyncPayload{Name: a.ApiName, Method: a.HttpMethodType, URL: a.URL}
 	if a.GroupID > 0 {
-		p.GroupUID = s.repo.GroupExtUID(ctx, a.GroupID)
+		if groupUID != nil {
+			p.GroupUID = groupUID[a.GroupID]
+		} else {
+			p.GroupUID = s.repo.GroupExtUID(ctx, a.GroupID)
+		}
 	}
 	// Extra：把接口全量原文聚合（S11）。值均为 DB 中的 JSON 文本列（空串=未设置），
 	// 客户端按 type 自行解析；新增键时 push 侧（applyUpsert）也要同步接收。
