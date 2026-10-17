@@ -47,6 +47,7 @@ func upFiles(t *testing.T, dialect string) []string {
 // 于是 0010 的 `BIGINT PRIMARY KEY AUTOINCREMENT`（SQLite 不允许）与
 // 0011 的 `ALTER TABLE user_token`（表尚未创建）长期无人发现。
 func TestSQLiteMigrationsApply(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatalf("打开内存库: %v", err)
@@ -84,6 +85,7 @@ func TestSQLiteMigrationsApply(t *testing.T) {
 // `where is_deleted = 0`。否则应用层 UserTaken（走 active() 排除软删）判定「名字可用」，
 // 插入却撞 DB 约束，两边结论互相矛盾。
 func TestUserNameEmailPartialUnique(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatalf("打开内存库: %v", err)
@@ -118,6 +120,7 @@ func TestUserNameEmailPartialUnique(t *testing.T) {
 // B-04 的根因就是 postgres 缺了 0010 而后续文件照旧从 0010 开始编号，
 // 表现为「文件齐全、版本号连续」，但实际少了一份迁移、且 0011 的 ALTER 指向不存在的表。
 func TestMigrationVersionParity(t *testing.T) {
+	t.Parallel()
 	versions := map[string]map[string]string{}
 	for _, dialect := range []string{"sqlite", "postgres"} {
 		seen := map[string]string{}

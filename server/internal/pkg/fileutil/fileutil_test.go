@@ -21,6 +21,7 @@ func pngHead(t *testing.T) []byte {
 
 // TestParseAllowExt 覆盖白名单解析：补点、小写、去重、默认值兜底。
 func TestParseAllowExt(t *testing.T) {
+	t.Parallel()
 	if got := ParseAllowExt(""); len(got) != len(DefaultAllowExt) {
 		t.Fatalf("空配置应回退默认白名单，got %v", got)
 	}
@@ -36,6 +37,7 @@ func TestParseAllowExt(t *testing.T) {
 
 // TestNormalizeAndAllowed 覆盖扩展名归一化与白名单判断。
 func TestNormalizeAndAllowed(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"a.PNG": ".png", "dir/b.jpeg": ".jpeg", "noext": "", "trailing.": "", ".hidden": ".hidden",
 	}
@@ -55,6 +57,7 @@ func TestNormalizeAndAllowed(t *testing.T) {
 
 // TestSniffAllowed 覆盖内容嗅探：真实 PNG 通过，改名后的 HTML/脚本被拒。
 func TestSniffAllowed(t *testing.T) {
+	t.Parallel()
 	if !SniffAllowed(pngHead(t), ".png") {
 		t.Fatal("真实 PNG 应通过嗅探")
 	}
@@ -72,6 +75,7 @@ func TestSniffAllowed(t *testing.T) {
 
 // TestRandomNameAndContentType 覆盖随机命名与响应类型映射。
 func TestRandomNameAndContentType(t *testing.T) {
+	t.Parallel()
 	a, err := RandomName(".png")
 	if err != nil {
 		t.Fatalf("RandomName: %v", err)
@@ -87,6 +91,7 @@ func TestRandomNameAndContentType(t *testing.T) {
 
 // TestSign 覆盖访问签名：空密钥不启用、同输入稳定、不同文件不同签名。
 func TestSign(t *testing.T) {
+	t.Parallel()
 	if Sign("a.png", "") != "" {
 		t.Fatal("空密钥应返回空签名（表示不启用）")
 	}

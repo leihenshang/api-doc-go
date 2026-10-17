@@ -48,6 +48,7 @@ func newGroup(t *testing.T, r *Repository, projectID uint64, title string) *mode
 }
 
 func TestGroupSoftDeleteLifecycle(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newTestRepo(t)
 	g := newGroup(t, r, 1, "用户")
@@ -99,6 +100,7 @@ func TestGroupSoftDeleteLifecycle(t *testing.T) {
 }
 
 func TestListGroupsAllowsAnyType(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newTestRepo(t)
 	apiGroup := newGroup(t, r, 1, "接口组")
@@ -126,6 +128,7 @@ func TestListGroupsAllowsAnyType(t *testing.T) {
 }
 
 func TestExtUIDByID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newTestRepo(t)
 	g := newGroup(t, r, 1, "用户")
@@ -151,6 +154,7 @@ func TestExtUIDByID(t *testing.T) {
 }
 
 func TestSoftDeleteByIDsEmptyInput(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newTestRepo(t)
 	// 空 id 列表不应拼出 "WHERE id IN ()" 这种非法 SQL。
@@ -162,6 +166,7 @@ func TestSoftDeleteByIDsEmptyInput(t *testing.T) {
 // TestAddMemberIdempotent 同一 (project_id, user_id) 只允许一行活数据（P1-9）。
 // 并发添加同一成员时不得出现重复行，重复调用应是「更新」而不是「再插一行」。
 func TestAddMemberIdempotent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newTestRepo(t)
 
@@ -216,6 +221,7 @@ func TestAddMemberIdempotent(t *testing.T) {
 
 // TestAddMemberAfterSoftDelete 之前被软删的成员重新添加时，不应堆积死行。
 func TestAddMemberAfterSoftDelete(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newTestRepo(t)
 	if err := r.AddMember(ctx, &model.UserProject{UserID: 3, ProjectID: 20, Permission: model.PermReadonly}); err != nil {

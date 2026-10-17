@@ -42,6 +42,7 @@ func newTestService(t *testing.T) *Service {
 }
 
 func TestAuthFlow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := newTestService(t)
 
@@ -75,6 +76,7 @@ func TestAuthFlow(t *testing.T) {
 }
 
 func TestProjectPermissionFlow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := newTestService(t)
 	admin, err := s.InitAdmin(ctx, "admin", "admin123")
@@ -119,6 +121,7 @@ func TestProjectPermissionFlow(t *testing.T) {
 // TestProjectTitleReuse 覆盖名称唯一性的两条边界：
 // 未删除项目重名必须被拒；软删除后同名必须可以重建（曾被全局唯一索引阻挡）。
 func TestProjectTitleReuse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := newTestService(t)
 	admin, err := s.InitAdmin(ctx, "admin", "admin123")
@@ -156,6 +159,7 @@ func TestProjectTitleReuse(t *testing.T) {
 
 // TestUserLangPreference 界面语言偏好：本人可改、白名单校验、登录响应带回、不可改他人。
 func TestUserLangPreference(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := newTestService(t)
 	if _, err := s.InitAdmin(ctx, "admin", "admin123"); err != nil {

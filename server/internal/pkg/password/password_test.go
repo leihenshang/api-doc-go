@@ -10,6 +10,7 @@ import (
 )
 
 func TestGenerateVerifyRoundTrip(t *testing.T) {
+	t.Parallel()
 	hash, err := Generate("p@ssw0rd-中文")
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -30,6 +31,7 @@ func TestGenerateVerifyRoundTrip(t *testing.T) {
 }
 
 func TestVerifyWrongPassword(t *testing.T) {
+	t.Parallel()
 	hash, err := Generate("secret")
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -49,6 +51,7 @@ func TestVerifyWrongPassword(t *testing.T) {
 }
 
 func TestGenerateSalted(t *testing.T) {
+	t.Parallel()
 	// 同一口令两次生成必须不同（随机盐），否则相同口令的用户在库里长得一样，
 	// 泄露后即可批量识别「共用同一口令」的账号。
 	h1, err := Generate("same")
@@ -71,6 +74,7 @@ func TestGenerateSalted(t *testing.T) {
 }
 
 func TestVerifyMalformedHash(t *testing.T) {
+	t.Parallel()
 	// 格式非法是「系统故障」而不是「口令错」：必须返回错误，
 	// 让上层能区分「密码错」与「库里数据坏了」。
 	for _, bad := range []string{"", "not-a-hash", "$2a$10$short", "md5:abc"} {
@@ -81,6 +85,7 @@ func TestVerifyMalformedHash(t *testing.T) {
 }
 
 func TestGenerateLongPassword(t *testing.T) {
+	t.Parallel()
 	// bcrypt 只取前 72 字节且超长会报错：确认我们没有被静默截断到「不同口令等价」。
 	long := strings.Repeat("a", 100)
 	if _, err := Generate(long); err == nil {

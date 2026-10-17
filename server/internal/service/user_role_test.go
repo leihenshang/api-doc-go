@@ -36,6 +36,7 @@ func newUserFixture(t *testing.T) (s *Service, ctx context.Context, admin, manag
 
 // TestRoleChangeGuards 锁定 W-05 的三条越权边界。
 func TestRoleChangeGuards(t *testing.T) {
+	t.Parallel()
 	s, ctx, admin, manager, plain := newUserFixture(t)
 
 	// ① 普通用户不能给自己提权
@@ -78,6 +79,7 @@ func TestRoleChangeGuards(t *testing.T) {
 // TestUpdateOwnProfileNotBlocked 前端保存资料时会把当前 state/type 原值一起回传，
 // 这些「没有变化」的字段不应触发越权拦截，否则普通用户改昵称都会失败。
 func TestUpdateOwnProfileNotBlocked(t *testing.T) {
+	t.Parallel()
 	s, ctx, admin, _, plain := newUserFixture(t)
 
 	got, err := s.UpdateUser(ctx, *plain, plain.ID, dto.UserUpdateReq{
@@ -101,6 +103,7 @@ func TestUpdateOwnProfileNotBlocked(t *testing.T) {
 
 // TestListUsersScrubsPrivateFields 用户列表对普通用户只回名字，不回邮箱/手机号/登录信息。
 func TestListUsersScrubsPrivateFields(t *testing.T) {
+	t.Parallel()
 	s, ctx, admin, _, plain := newUserFixture(t)
 
 	res, err := s.ListUsers(ctx, *plain, page.Query{PageSize: 200}, "")

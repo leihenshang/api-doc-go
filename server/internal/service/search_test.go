@@ -11,6 +11,7 @@ import (
 // TestGlobalSearch 覆盖全局搜索的可见性与命中范围：
 // 普通用户只能搜到自己参与的项目，管理员可搜全量；支持接口名/URL、文档标题/正文；空关键词返回空。
 func TestGlobalSearch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := newTestService(t)
 	admin, err := s.InitAdmin(ctx, "admin", "admin123")

@@ -35,6 +35,7 @@ func containsID(ids []uint64, id uint64) bool {
 // TestRecycleBinSoftDelete 锁定回收站语义（B-06）：
 // 删除只置 is_deleted=1 不落物理删除；详情视同不存在；恢复回到正常列表；彻底删除仅限回收站内条目。
 func TestRecycleBinSoftDelete(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	a := f.newAPI(t, "待删接口", "/v1/x", "")
 
@@ -100,6 +101,7 @@ func TestRecycleBinSoftDelete(t *testing.T) {
 // TestRestoreWithDeletedGroupChain 恢复条目时必须把「已软删的祖先分组链」一并还原，
 // 否则条目虽然复活，却仍挂在已删目录下不可见。
 func TestRestoreWithDeletedGroupChain(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := f.ctx
 
@@ -172,6 +174,7 @@ func TestRestoreWithDeletedGroupChain(t *testing.T) {
 
 // TestRecycleBinRejectsForeignIDs 批量入口必须拒绝不存在的 id 与超限批量。
 func TestRecycleBinRejectsForeignIDs(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 
 	if _, err := f.s.RestoreApis(f.ctx, f.admin.ID, f.admin.Type, []uint64{999999}); err == nil {

@@ -34,6 +34,7 @@ func pushDoc(t *testing.T, s *Service, userID, projectID uint64, uid, opID strin
 // TestSyncDocGroupPlacement 文档的 group_uid 必须落到 doc.group_id（J11）：
 // ① 带 group_uid → 命中分组；② 不带 → 未分组；③ 回传载荷也要带 GroupUID（拉取方向）。
 func TestSyncDocGroupPlacement(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 

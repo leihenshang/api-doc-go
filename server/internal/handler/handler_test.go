@@ -89,6 +89,7 @@ func call(t *testing.T, engine *gin.Engine, method, path, token string, body any
 }
 
 func TestUnauthenticatedRequestReturns34(t *testing.T) {
+	t.Parallel()
 	_, engine, _ := newTestHandler(t)
 
 	out := call(t, engine, http.MethodGet, "/api/user/me", "", nil)
@@ -104,6 +105,7 @@ func TestUnauthenticatedRequestReturns34(t *testing.T) {
 }
 
 func TestLoginThenMe(t *testing.T) {
+	t.Parallel()
 	_, engine, svc := newTestHandler(t)
 	if _, err := svc.InitAdmin(context.Background(), "admin", "admin123"); err != nil {
 		t.Fatalf("InitAdmin: %v", err)
@@ -139,6 +141,7 @@ func TestLoginThenMe(t *testing.T) {
 }
 
 func TestListUsersNonAdminScrubsPrivateFields(t *testing.T) {
+	t.Parallel()
 	_, engine, svc := newTestHandler(t)
 	ctx := context.Background()
 	if _, err := svc.InitAdmin(ctx, "admin", "admin123"); err != nil {

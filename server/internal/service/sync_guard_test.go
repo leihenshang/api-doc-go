@@ -12,6 +12,7 @@ import (
 // TestSyncPushBadPayloadRejected 覆盖 P0-3：payload 反序列化失败必须 rejected，
 // 不能用零值覆盖存量数据。
 func TestSyncPushBadPayloadRejected(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	// 先建一条接口，确保「坏 payload 落到已存在实体」的场景成立
 	if _, err := f.s.CreateApi(context.Background(), f.admin.ID, f.admin.Type, dto.ApiCreateReq{
@@ -51,6 +52,7 @@ func TestSyncPushBadPayloadRejected(t *testing.T) {
 // TestVariableWriteLogsChange 覆盖 P0-7：Web 写变量必须落 change_log 并回写 last_change_id，
 // 否则客户端增量拉取永远收不到这次变更。
 func TestVariableWriteLogsChange(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	val := "v1"

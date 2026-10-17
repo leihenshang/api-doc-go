@@ -15,6 +15,7 @@ import (
 // resolve=false 保留占位符（回归历史 cURL 行为），resolve=true 用当前环境实际值替换（未定义者原样保留），
 // 涉及敏感值时写审计日志（不记值），非法语言返回参数错误。
 func TestCodeSnippetVariables(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	headers := `[{"name":"Authorization","value":"Bearer {{token}}"},{"name":"X-Host","value":"{{host}}"},{"name":"X-Secret","value":"{{secret}}"}]`

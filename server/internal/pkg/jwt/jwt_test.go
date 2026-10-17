@@ -8,6 +8,7 @@ import (
 )
 
 func TestGenerateParseRoundTrip(t *testing.T) {
+	t.Parallel()
 	tok, err := Generate(42, 2, "apidoc", "secret", time.Hour)
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -22,6 +23,7 @@ func TestGenerateParseRoundTrip(t *testing.T) {
 }
 
 func TestParseRejectsWrongSecret(t *testing.T) {
+	t.Parallel()
 	tok, _ := Generate(1, 1, "apidoc", "secret", time.Hour)
 	if _, err := Parse(tok, "other"); err == nil {
 		t.Fatal("expected error for wrong secret")
@@ -29,6 +31,7 @@ func TestParseRejectsWrongSecret(t *testing.T) {
 }
 
 func TestParseRejectsTamperedPayload(t *testing.T) {
+	t.Parallel()
 	tok, _ := Generate(1, 1, "apidoc", "secret", time.Hour)
 	parts := strings.Split(tok, ".")
 	tampered := parts[0] + "." + parts[1] + "x." + parts[2]
@@ -38,6 +41,7 @@ func TestParseRejectsTamperedPayload(t *testing.T) {
 }
 
 func TestParseRejectsExpired(t *testing.T) {
+	t.Parallel()
 	tok, _ := Generate(1, 1, "apidoc", "secret", -time.Minute)
 	if _, err := Parse(tok, "secret"); err == nil {
 		t.Fatal("expected error for expired token")
@@ -48,6 +52,7 @@ func TestParseRejectsExpired(t *testing.T) {
 // 不做这一步时，只要将来有人按 header 选算法（很自然的「支持 RS256」演进），
 // `{"alg":"none"}` 就会立刻变成签名绕过。
 func TestParseRejectsWrongAlg(t *testing.T) {
+	t.Parallel()
 	tok, err := Generate(1, 1, Issuer, "secret", time.Hour)
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -63,6 +68,7 @@ func TestParseRejectsWrongAlg(t *testing.T) {
 
 // TestParseRejectsForeignIssuer iss 非空时必须等于本系统的 Issuer。
 func TestParseRejectsForeignIssuer(t *testing.T) {
+	t.Parallel()
 	tok, err := Generate(1, 1, "someone-else", "secret", time.Hour)
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -82,6 +88,7 @@ func TestParseRejectsForeignIssuer(t *testing.T) {
 
 // TestParseRejectsMissingExp 没有 exp 的令牌一律拒绝（否则等于永不过期）。
 func TestParseRejectsMissingExp(t *testing.T) {
+	t.Parallel()
 	head := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	body := base64.RawURLEncoding.EncodeToString([]byte(`{"uid":1,"typ":1,"iss":"apidoc"}`))
 	signing := head + "." + body

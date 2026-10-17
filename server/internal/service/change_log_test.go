@@ -13,6 +13,7 @@ import (
 // 否则会留下「有流水、实体 revision 没前进」的不一致（B-12 / B-15）。
 // 这里用未知实体类型触发 SetLastChange 的显式报错来制造失败点。
 func TestAppendChangeTxRollsBackOnSetLastChangeError(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t)
 	ctx := context.Background()
 
@@ -32,6 +33,7 @@ func TestAppendChangeTxRollsBackOnSetLastChangeError(t *testing.T) {
 
 // TestAppendChangeTxWritesBoth 成功路径：流水与 last_change_id 都要落库，且指向同一条流水。
 func TestAppendChangeTxWritesBoth(t *testing.T) {
+	t.Parallel()
 	s, ctx, admin, _, _ := newUserFixture(t)
 
 	proj, err := s.CreateProject(ctx, admin.ID, dto.ProjectCreateReq{Title: "change-log-proj"})

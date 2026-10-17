@@ -37,6 +37,7 @@ func changeCount(t *testing.T, f *varFixture) int64 {
 // TestSyncPushRejectedLeavesNoTrace 业务性拒绝必须整体回滚：
 // 既不写幂等记录（否则客户端重试永远拿 rejected），也不写变更流水。
 func TestSyncPushRejectedLeavesNoTrace(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	before := changeCount(t, f)
@@ -64,6 +65,7 @@ func TestSyncPushRejectedLeavesNoTrace(t *testing.T) {
 
 // TestSyncPushOkIsAtomicAndIdempotent 成功路径三项都要落库，且重放同一 op 不再产生新流水。
 func TestSyncPushOkIsAtomicAndIdempotent(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	payload, err := json.Marshal(SyncPayload{Title: "同步分组"})
@@ -115,6 +117,7 @@ func TestSyncPushOkIsAtomicAndIdempotent(t *testing.T) {
 // TestSyncPushConflictKeepsIdempotencyRecord 冲突要落幂等记录：
 // 重复推送同一条过期数据应稳定返回 conflict，而不是每轮重新算一遍。
 func TestSyncPushConflictKeepsIdempotencyRecord(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	payload, err := json.Marshal(SyncPayload{Title: "冲突分组"})
@@ -157,6 +160,7 @@ func TestSyncPushConflictKeepsIdempotencyRecord(t *testing.T) {
 // 把 sync_op 表删掉，让幂等记录写入必然失败：此时实体写入必须一起回滚，
 // 否则客户端收到 rejected 去重试时，第一轮的实体已经躺在库里了（重复创建）。
 func TestSyncPushRollsBackEntityWhenIdempotencyWriteFails(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	if err := f.s.repo.DB().Exec("DROP TABLE sync_op").Error; err != nil {
@@ -185,6 +189,7 @@ func TestSyncPushRollsBackEntityWhenIdempotencyWriteFails(t *testing.T) {
 // TestSyncEndpointsFailLoudWhenCursorBroken P2-5：游标读不出来时必须报错。
 // 静默回落 0 会让客户端以为服务端是空的，下一轮从 0 全量重拉。
 func TestSyncEndpointsFailLoudWhenCursorBroken(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	// 造一条流水，保证正常路径下能读出非 0 游标

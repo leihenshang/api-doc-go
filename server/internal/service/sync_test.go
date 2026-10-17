@@ -36,6 +36,7 @@ func pushAPI(t *testing.T, s *Service, userID uint64, projectID uint64, uid, opI
 // TestSyncPushAPIParams 客户端推送的请求头/请求参数/返回字段必须落到 api 表，
 // 且能经增量载荷（loadPayload）原样读出（修复「同步后服务端看不到请求参数」）。
 func TestSyncPushAPIParams(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 
@@ -93,6 +94,7 @@ func TestSyncPushAPIParams(t *testing.T) {
 // TestSyncPushAPIExtendedFields 覆盖客户端富字段（S16 扩展）的落库与回传：
 // 请求体/认证/请求设置/脚本/变量/断言/响应内容类型均以原始 JSON/文本列存储，增量载荷原样回传。
 func TestSyncPushAPIExtendedFields(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	const uid = "api-ext-uid-1"
@@ -150,6 +152,7 @@ func TestSyncPushAPIExtendedFields(t *testing.T) {
 
 // TestSyncPushAPIEmptyExtraClears 空串键表示清空；缺键保持不动（整份覆盖 + 部分更新语义）。
 func TestSyncPushAPIEmptyExtraClears(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	const uid = "api-params-uid-2"
@@ -181,6 +184,7 @@ func TestSyncPushAPIEmptyExtraClears(t *testing.T) {
 
 // TestSyncSnapshotAPIExtra 全量快照里 api 的 extra 必须是聚合 JSON（回归：曾误为 header 裸文本）。
 func TestSyncSnapshotAPIExtra(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	const uid = "api-params-uid-3"
 	extra, _ := json.Marshal(map[string]any{
@@ -242,6 +246,7 @@ func pushOp(t *testing.T, s *Service, userID, projectID uint64, opID, op, typ, u
 // TestSyncPushRequiresProjectPermission push 路径权限位校验（§4.2）：
 // 非成员 / 只读成员被拒；授予 update 位后放行。堵住「任意持令牌者可推任意项目」。
 func TestSyncPushRequiresProjectPermission(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := f.ctx
 	bob, err := f.s.Register(ctx, dto.RegisterReq{Name: "bob", Pwd: "p123456", RePwd: "p123456"})
@@ -278,6 +283,7 @@ func TestSyncPushRequiresProjectPermission(t *testing.T) {
 // TestSyncVariableRoundTrip 变量类同步（S16）：环境/变量 push 落库 → 载荷回读 →
 // enc:v1: 密文原样存储且不进解析表 → delete 软删生效。
 func TestSyncVariableRoundTrip(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := f.ctx
 
@@ -334,6 +340,7 @@ func TestSyncVariableRoundTrip(t *testing.T) {
 
 // TestSyncExampleRoundTrip 响应示例：push 落库 → 增量/快照载荷可回读 → delete 生效。
 func TestSyncExampleRoundTrip(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 

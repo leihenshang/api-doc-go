@@ -6,6 +6,7 @@ import "testing"
 
 // TestCodeValuesStable 数值与前端约定一致，改动必须同时改前端。
 func TestCodeValuesStable(t *testing.T) {
+	t.Parallel()
 	want := map[string]int{
 		"CodeSuccess":      200,
 		"CodeParamError":   22,
@@ -28,6 +29,7 @@ func TestCodeValuesStable(t *testing.T) {
 }
 
 func TestMessage(t *testing.T) {
+	t.Parallel()
 	if Message(CodeSuccess) != "success" {
 		t.Fatalf("成功文案异常: %q", Message(CodeSuccess))
 	}

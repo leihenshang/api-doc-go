@@ -26,6 +26,7 @@ func openapiDoc(specs ...string) string {
 // TestImportOverwriteKeepsDataOnBadBody 覆盖导入会先清空项目现有接口：
 // 文档解析失败时必须原样保留旧数据，否则用户一次误操作就丢掉整个项目。
 func TestImportOverwriteKeepsDataOnBadBody(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	f.newAPI(t, "老接口", "/legacy/keep", "")
 
@@ -52,6 +53,7 @@ func TestImportOverwriteKeepsDataOnBadBody(t *testing.T) {
 
 // TestImportOverwriteReplacesApis 覆盖策略成功后旧接口应被清空（软删除），只留新导入内容。
 func TestImportOverwriteReplacesApis(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	f.newAPI(t, "老接口", "/legacy/gone", "")
 
@@ -74,6 +76,7 @@ func TestImportOverwriteReplacesApis(t *testing.T) {
 
 // TestImportSharedTagReusesGroup 同一份文档里重复出现的 tag 只能建一个分组。
 func TestImportSharedTagReusesGroup(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	body := []byte(openapiDoc(
 		"/v1/a|get|A|用户",
@@ -112,6 +115,7 @@ func TestImportSharedTagReusesGroup(t *testing.T) {
 
 // TestImportSkipsGhostMethods Path Item 的 summary / parameters 之类不能变成接口。
 func TestImportSkipsGhostMethods(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	body := []byte(`{
 	  "info": {"title": "t", "version": "1"},

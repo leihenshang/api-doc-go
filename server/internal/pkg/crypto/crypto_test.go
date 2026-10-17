@@ -3,6 +3,7 @@ package crypto
 import "testing"
 
 func TestRoundTrip(t *testing.T) {
+	t.Parallel()
 	const secret = "test-jwt-secret-change-me"
 	const plain = "pat_0123456789abcdef0123456789abcdef"
 	enc, err := Encrypt(secret, plain)
@@ -22,6 +23,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestNonceRandom(t *testing.T) {
+	t.Parallel()
 	const secret = "s"
 	a, _ := Encrypt(secret, "pat_x")
 	b, _ := Encrypt(secret, "pat_x")
@@ -31,6 +33,7 @@ func TestNonceRandom(t *testing.T) {
 }
 
 func TestWrongSecretFails(t *testing.T) {
+	t.Parallel()
 	enc, err := Encrypt("key-a", "pat_x")
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
@@ -41,6 +44,7 @@ func TestWrongSecretFails(t *testing.T) {
 }
 
 func TestTamperedFails(t *testing.T) {
+	t.Parallel()
 	enc, err := Encrypt("key", "pat_x")
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)

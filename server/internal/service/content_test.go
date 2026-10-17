@@ -14,6 +14,7 @@ import (
 // TestOptimisticLock 覆盖并发编辑保护（接口与文档）：
 // 传入载入时的 update_time 时，若他人已保存则拒绝；传当前值可保存；不传该字段保持历史行为。
 func TestOptimisticLock(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 

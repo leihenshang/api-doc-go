@@ -13,6 +13,7 @@ import (
 // TestReadAPIsRequireProjectPermission 覆盖 P0-1：非项目成员的读请求必须被拒
 // （GetApi / ListApis / GetDoc / ListDocs / ListGroups / ListFieldMappings）。
 func TestReadAPIsRequireProjectPermission(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 

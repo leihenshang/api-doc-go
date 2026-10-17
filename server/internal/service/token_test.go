@@ -12,6 +12,7 @@ import (
 )
 
 func TestTokenDigestIsPeppered(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	res, err := f.s.CreateToken(ctx, f.admin.ID, &CreateTokenReq{Name: "ci"})
@@ -47,6 +48,7 @@ func TestTokenDigestIsPeppered(t *testing.T) {
 }
 
 func TestVerifyTokenUpgradesLegacyHash(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	// 手工造一条「旧版记录」：摘要为裸 sha256，密文留空（旧数据形态）

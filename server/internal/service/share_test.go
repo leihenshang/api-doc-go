@@ -15,6 +15,7 @@ import (
 
 // TestShareLinkFlow 覆盖分享链接：生成 → 免登录读取 → 过期 → 失效。
 func TestShareLinkFlow(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	api := f.newAPI(t, "share-api", "https://api/share/list", "")
@@ -62,6 +63,7 @@ func TestShareLinkFlow(t *testing.T) {
 
 // TestMockResponse 覆盖 mock：按方法+路径命中、变量渲染、未命中 404、方法兜底。
 func TestMockResponse(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	if _, err := f.s.CreateApi(ctx, f.admin.ID, f.admin.Type, dto.ApiCreateReq{
@@ -98,6 +100,7 @@ func TestMockResponse(t *testing.T) {
 
 // TestPostmanRoundTrip 覆盖 Postman 导出 → 导入另一个项目 → 重复导入去重。
 func TestPostmanRoundTrip(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	ctx := context.Background()
 	grp, err := f.s.CreateGroup(ctx, f.admin.ID, f.admin.Type, dto.GroupCreateReq{

@@ -6,6 +6,7 @@ package page
 import "testing"
 
 func TestNormalizeBounds(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in                Query
 		wantNum, wantSize int
@@ -27,6 +28,7 @@ func TestNormalizeBounds(t *testing.T) {
 }
 
 func TestOffset(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		q    Query
 		want int
@@ -43,6 +45,7 @@ func TestOffset(t *testing.T) {
 }
 
 func TestNewResultPageTotal(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		total, size, wantTotal int
 	}{

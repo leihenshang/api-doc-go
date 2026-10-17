@@ -14,6 +14,7 @@ import (
 )
 
 func TestOK(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -36,6 +37,7 @@ func TestOK(t *testing.T) {
 }
 
 func TestFail(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	// 显式文案优先
 	w := httptest.NewRecorder()

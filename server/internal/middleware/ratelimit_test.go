@@ -33,6 +33,7 @@ func doPing(engine *gin.Engine, ip string) (int, string) {
 
 // TestRateLimitPerIP 覆盖限流：超限返回 HTTP 200 + code 14 且带 Retry-After；不同 IP 互不影响。
 func TestRateLimitPerIP(t *testing.T) {
+	t.Parallel()
 	engine := newLimitEngine(2)
 
 	if code, body := doPing(engine, "1.1.1.1"); code != http.StatusOK || body != "pong" {
@@ -65,6 +66,7 @@ func TestRateLimitPerIP(t *testing.T) {
 
 // TestRateLimitDisabledAndRetryAfter 覆盖关闭开关与 Retry-After 头。
 func TestRateLimitDisabled(t *testing.T) {
+	t.Parallel()
 	engine := newLimitEngine(0)
 	for i := 0; i < 5; i++ {
 		if _, body := doPing(engine, "3.3.3.3"); body != "pong" {
@@ -75,6 +77,7 @@ func TestRateLimitDisabled(t *testing.T) {
 
 // TestRateLimitRetryAfter 覆盖 Retry-After 头存在且为正整数。
 func TestRateLimitRetryAfter(t *testing.T) {
+	t.Parallel()
 	engine := newLimitEngine(1)
 	doPing(engine, "4.4.4.4")
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
@@ -90,6 +93,7 @@ func TestRateLimitRetryAfter(t *testing.T) {
 
 // TestClientIP 覆盖客户端 IP 解析：优先 X-Forwarded-For / X-Real-IP。
 func TestClientIP(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
@@ -111,6 +115,7 @@ func TestClientIP(t *testing.T) {
 // TestRateLimiterBoundedEntries P1-11：X-Forwarded-For 是客户端可控的，
 // 大量伪造 IP 不能在窗口内把计数器 map 撑到无界。
 func TestRateLimiterBoundedEntries(t *testing.T) {
+	t.Parallel()
 	l := newRateLimiter(5)
 	l.maxEntries = 100
 	for i := 0; i < 10000; i++ {
@@ -134,6 +139,7 @@ func TestRateLimiterBoundedEntries(t *testing.T) {
 
 // TestRateLimiterWindowReset 窗口过期后重新放行，且过期的键会被清理。
 func TestRateLimiterWindowReset(t *testing.T) {
+	t.Parallel()
 	l := newRateLimiter(2)
 	now := time.Now()
 	l.nowFunc = func() time.Time { return now }
@@ -155,6 +161,7 @@ func TestRateLimiterWindowReset(t *testing.T) {
 
 // TestRateLimiterDisabled limit<=0 时一律放行。
 func TestRateLimiterDisabled(t *testing.T) {
+	t.Parallel()
 	l := newRateLimiter(0)
 	for i := 0; i < 100; i++ {
 		if !l.allow("any") {

@@ -101,6 +101,7 @@ func resolveValue(items []ResolveItem, name string) (string, string, bool) {
 // TestVariableResolvePrecedence 覆盖四层优先级与环境隔离：
 // 请求级 > 项目级(当前环境) > 项目级(通用) > 全局；绑定其它环境的变量不参与解析。
 func TestVariableResolvePrecedence(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	api := f.newAPI(t, "list", "https://{{host}}/api/user/list?token={{token}}", "")
 
@@ -150,6 +151,7 @@ func TestVariableResolvePrecedence(t *testing.T) {
 
 // TestVariableSecretMasking 覆盖敏感值脱敏：列表与解析只回掩码，仅具备写权限者 with_value 可取明文。
 func TestVariableSecretMasking(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	api := f.newAPI(t, "secret", "https://api/{{apikey}}", "")
 	f.newVar(t, dto.VariableReq{
@@ -196,6 +198,7 @@ func TestVariableSecretMasking(t *testing.T) {
 
 // TestVariableEnvDeleteGuard 覆盖环境删除拦截：默认环境、仍被变量引用的环境都拒绝并给出明细。
 func TestVariableEnvDeleteGuard(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 
 	// dev 是默认环境 → 拒绝。
@@ -265,6 +268,7 @@ func TestVariableEnvDeleteGuard(t *testing.T) {
 // TestVariableUniquenessAndReuse 覆盖同层同环境唯一、跨环境同名允许、软删除后可重建，
 // 并校验 AutoMigrate 建出的是带 WHERE 的局部唯一索引。
 func TestVariableUniquenessAndReuse(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 
 	var ddl string
@@ -306,6 +310,7 @@ func TestVariableUniquenessAndReuse(t *testing.T) {
 
 // TestVariablePermissions 覆盖写权限：只读成员不能建项目/请求变量，全局变量仅管理员可维护。
 func TestVariablePermissions(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	bob := f.registerReadonly(t, "bob")
 	api := f.newAPI(t, "list", "https://api/user/list", "")
@@ -348,6 +353,7 @@ func TestVariablePermissions(t *testing.T) {
 
 // TestVariableSummaryMatchesResolve 覆盖列表徽标统计与解析口径一致（含切环境后未定义数变化）。
 func TestVariableSummaryMatchesResolve(t *testing.T) {
+	t.Parallel()
 	f := newVarFixture(t)
 	headers := `[{"name":"Authorization","value":"Bearer {{token}}"},{"name":"X-Trace-Id","value":"{{traceId}}"}]`
 	api := f.newAPI(t, "list", "https://{{host}}/api/user/list?name={{keyword}}", headers)
