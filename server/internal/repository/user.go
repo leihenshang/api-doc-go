@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/page"
@@ -149,9 +150,45 @@ func (r *Repository) ListProjects(ctx context.Context, userID uint64, onlyMine b
 
 // ---- 项目成员 ----
 
-// AddMember 添加成员关系。
+// AddMember 幂等写入成员关系：同一 (project_id, user_id) 只保留一行活数据。
+//
+// P1-9：原来是「查不到就 INSERT」，两步之间没有原子性，两个并发请求会各插一行；
+// 按 user_id 单查时命中哪条不确定，权限判定随之不可预测。
+//
+// 实现上没有用 `clause.OnConflict`：gorm 生成的
+// `ON CONFLICT (user_id,project_id) WHERE is_deleted = 0 DO UPDATE ...` 在 SQLite 上
+// 匹配不到部分唯一索引（实测报 "does not match any PRIMARY KEY or UNIQUE constraint"），
+// 而手写 SQL 又会把方言差异摊到调用方。这里改成「先更新（含软删行复活）→ 无行则插入 →
+// 插入被唯一索引拒绝说明并发抢先，退化为更新」，语句各自独立、不共享事务，
+// 因此某一语句失败不会污染后续操作；重复行由 uk_user_project 从数据库层兜底。
 func (r *Repository) AddMember(ctx context.Context, m *model.UserProject) error {
-	return r.tx(ctx).Create(m).Error
+	revive := map[string]any{
+		"is_leader":   m.IsLeader,
+		"permission":  m.Permission,
+		"is_deleted":  model.IsDeletedNo,
+		"update_time": time.Now(),
+	}
+	// Unscoped：软删行也要能被「复活」，否则每次重新添加都会再堆一行死数据。
+	res := r.db.WithContext(ctx).Unscoped().Model(&model.UserProject{}).
+		Where("user_id = ? AND project_id = ?", m.UserID, m.ProjectID).
+		Updates(revive)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		return nil
+	}
+	if err := r.db.WithContext(ctx).Create(m).Error; err != nil {
+		// 并发下另一个请求刚插入：唯一索引拒绝本次 INSERT，改成更新即为成功。
+		retry := r.db.WithContext(ctx).Unscoped().Model(&model.UserProject{}).
+			Where("user_id = ? AND project_id = ?", m.UserID, m.ProjectID).
+			Updates(revive)
+		if retry.Error == nil && retry.RowsAffected > 0 {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // Member 取某用户在某项目的成员记录。

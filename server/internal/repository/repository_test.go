@@ -7,6 +7,7 @@ package repository
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"apidoc/internal/config"
@@ -155,5 +156,95 @@ func TestSoftDeleteByIDsEmptyInput(t *testing.T) {
 	// 空 id 列表不应拼出 "WHERE id IN ()" 这种非法 SQL。
 	if n, err := gmSoftDeleteByIDs[model.Group](ctx, r.db, nil); err != nil || n != 0 {
 		t.Fatalf("空列表应 no-op：n=%d err=%v", n, err)
+	}
+}
+
+// TestAddMemberIdempotent 同一 (project_id, user_id) 只允许一行活数据（P1-9）。
+// 并发添加同一成员时不得出现重复行，重复调用应是「更新」而不是「再插一行」。
+func TestAddMemberIdempotent(t *testing.T) {
+	ctx := context.Background()
+	r := newTestRepo(t)
+
+	// 串行重复调用：第二次应更新权限而不是插新行。
+	if err := r.AddMember(ctx, &model.UserProject{UserID: 1, ProjectID: 10, Permission: model.PermReadonly}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := r.AddMember(ctx, &model.UserProject{UserID: 1, ProjectID: 10, Permission: model.PermUpdate, IsLeader: 1}); err != nil {
+		t.Fatalf("AddMember(again): %v", err)
+	}
+	var count int64
+	if err := r.db.Model(&model.UserProject{}).
+		Where("user_id = ? AND project_id = ? AND is_deleted = 0", 1, 10).Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("重复添加不应产生第二行，got %d 行", count)
+	}
+	m, err := r.Member(ctx, 1, 10)
+	if err != nil {
+		t.Fatalf("Member: %v", err)
+	}
+	if m.Permission != model.PermUpdate || m.IsLeader != 1 {
+		t.Fatalf("第二次调用应更新权限/负责人，got %+v", m)
+	}
+
+	// 并发添加同一成员：唯一索引必须挡住重复行。
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs <- r.AddMember(ctx, &model.UserProject{UserID: 2, ProjectID: 10, Permission: model.PermReadonly})
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("并发 AddMember 出错: %v", err)
+		}
+	}
+	if err := r.db.Model(&model.UserProject{}).
+		Where("user_id = ? AND project_id = ? AND is_deleted = 0", 2, 10).Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("并发添加同一成员只应留 1 行，got %d 行", count)
+	}
+}
+
+// TestAddMemberAfterSoftDelete 之前被软删的成员重新添加时，不应堆积死行。
+func TestAddMemberAfterSoftDelete(t *testing.T) {
+	ctx := context.Background()
+	r := newTestRepo(t)
+	if err := r.AddMember(ctx, &model.UserProject{UserID: 3, ProjectID: 20, Permission: model.PermReadonly}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	// 软删该成员关系
+	if err := r.db.Model(&model.UserProject{}).
+		Where("user_id = ? AND project_id = ?", 3, 20).
+		Update("is_deleted", model.IsDeletedYes).Error; err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	// 重新添加：应恢复为活行
+	if err := r.AddMember(ctx, &model.UserProject{UserID: 3, ProjectID: 20, Permission: model.PermUpdate}); err != nil {
+		t.Fatalf("AddMember(重新添加): %v", err)
+	}
+	var total, live int64
+	if err := r.db.Unscoped().Model(&model.UserProject{}).
+		Where("user_id = ? AND project_id = ?", 3, 20).Count(&total).Error; err != nil {
+		t.Fatalf("count total: %v", err)
+	}
+	if err := r.db.Model(&model.UserProject{}).
+		Where("user_id = ? AND project_id = ? AND is_deleted = 0", 3, 20).Count(&live).Error; err != nil {
+		t.Fatalf("count live: %v", err)
+	}
+	if live != 1 || total != 1 {
+		t.Fatalf("重新添加后应只有 1 行且为活行，got live=%d total=%d", live, total)
+	}
+	m, err := r.Member(ctx, 3, 20)
+	if err != nil || m.Permission != model.PermUpdate {
+		t.Fatalf("重新添加应按新权限生效，got %+v (%v)", m, err)
 	}
 }
