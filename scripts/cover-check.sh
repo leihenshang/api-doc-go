@@ -32,6 +32,7 @@ fi
 THRESHOLDS=$(cat <<'EOF'
 internal/service 50
 internal/handler 3
+internal/router 90
 internal/repository 7
 internal/middleware 45
 internal/database 28
