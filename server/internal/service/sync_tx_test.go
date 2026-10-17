@@ -181,3 +181,37 @@ func TestSyncPushRollsBackEntityWhenIdempotencyWriteFails(t *testing.T) {
 		t.Fatalf("幂等记录失败时实体必须回滚，但分组已存在: %+v", g)
 	}
 }
+
+// TestSyncEndpointsFailLoudWhenCursorBroken P2-5：游标读不出来时必须报错。
+// 静默回落 0 会让客户端以为服务端是空的，下一轮从 0 全量重拉。
+func TestSyncEndpointsFailLoudWhenCursorBroken(t *testing.T) {
+	f := newVarFixture(t)
+	ctx := context.Background()
+	// 造一条流水，保证正常路径下能读出非 0 游标
+	payload, err := json.Marshal(SyncPayload{Title: "游标分组"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := f.s.SyncPush(ctx, f.admin.ID, model.UserTypeSuperuser, &SyncPushReq{
+		ProjectID: f.proj.ID, DeviceID: "dev",
+		Ops: []SyncOpIn{{OpID: "op-cur", Op: model.SyncOpUpsert, Type: model.SyncTypeGroup, UID: "uid-cur", Payload: payload}},
+	}); err != nil {
+		t.Fatalf("SyncPush: %v", err)
+	}
+	// 破坏流水表：此后 LatestChangeID 必然失败
+	if err := f.s.repo.DB().Exec("DROP TABLE change_log").Error; err != nil {
+		t.Fatalf("drop change_log: %v", err)
+	}
+	if _, err := f.s.SyncSnapshot(ctx, f.admin.ID, model.UserTypeSuperuser, f.proj.ID, 0, 10); err == nil {
+		t.Fatal("快照取不到游标时应报错，而不是返回 cursor=0")
+	}
+	if _, err := f.s.SyncChanges(ctx, f.admin.ID, model.UserTypeSuperuser, f.proj.ID, 0, 10); err == nil {
+		t.Fatal("增量取不到游标时应报错")
+	}
+	if _, err := f.s.SyncPush(ctx, f.admin.ID, model.UserTypeSuperuser, &SyncPushReq{
+		ProjectID: f.proj.ID, DeviceID: "dev",
+		Ops: []SyncOpIn{{OpID: "op-cur2", Op: model.SyncOpUpsert, Type: model.SyncTypeGroup, UID: "uid-cur2", Payload: payload}},
+	}); err == nil {
+		t.Fatal("写成功后读不到游标时应让本次响应失败，避免客户端误判从小游标重拉")
+	}
+}

@@ -196,7 +196,12 @@ func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, proj
 	if len(logs) > 0 {
 		cursor = logs[len(logs)-1].ID
 	}
-	cur, _ := s.repo.LatestChangeID(ctx, projectID)
+	// P2-5：取不到服务端游标时必须报错。静默回落 0 会让客户端以为「服务端什么都没有」，
+	// 进而从 0 全量重拉（大项目直接雪崩）。
+	cur, err := s.repo.LatestChangeID(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
 	if !hasMore && cursor < cur {
 		cursor = cur
 	}
@@ -308,7 +313,10 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 		offset = 0
 	}
 	if offset >= len(rows) {
-		cur, _ := s.repo.LatestChangeID(ctx, projectID)
+		cur, cerr := s.repo.LatestChangeID(ctx, projectID)
+		if cerr != nil {
+			return nil, cerr // P2-5：游标取不到就报错，不要回落 0
+		}
 		return &SyncSnapshotResp{Cursor: cur, Offset: offset}, nil
 	}
 	end := offset + limit
@@ -325,7 +333,10 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 			ItemRev: r.rev, Deleted: r.deleted,
 		})
 	}
-	cur, _ := s.repo.LatestChangeID(ctx, projectID)
+	cur, cerr := s.repo.LatestChangeID(ctx, projectID)
+	if cerr != nil {
+		return nil, cerr // P2-5
+	}
 	return &SyncSnapshotResp{Cursor: cur, Items: items, HasMore: hasMore, Offset: offset}, nil
 }
 
@@ -526,7 +537,12 @@ func (s *Service) SyncPush(ctx context.Context, userID uint64, typ int8, req *Sy
 		}
 		out = append(out, s.execOp(ctx, userID, req, op, writeDisabled))
 	}
-	cur, _ := s.repo.LatestChangeID(ctx, req.ProjectID)
+	// P2-5：批量写入已经提交，但游标读不出来时不能假装 cursor=0 ——
+	// 客户端会以为自己的游标最旧，下一轮从 0 全量重拉。宁可让本次响应失败，让它重试。
+	cur, err := s.repo.LatestChangeID(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
+	}
 	return &SyncPushResp{Results: out, Cursor: cur}, nil
 }
 
