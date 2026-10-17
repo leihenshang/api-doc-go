@@ -359,18 +359,7 @@ func (s *Service) loadPayload(ctx context.Context, projectID uint64, entityType,
 		}
 		return json.Marshal(s.apiSyncPayload(ctx, a))
 	case model.SyncTypeDoc:
-		d, err := s.repo.FindDocByExtUID(ctx, projectID, extUID)
-		if err != nil || d == nil {
-			return nil, errors.New("not found")
-		}
-		p := SyncPayload{Title: d.Title, Content: d.Content, Icon: d.Icon}
-		if d.GroupID > 0 {
-			var g model.Group
-			if err := s.repo.DB().WithContext(ctx).Where("id = ?", d.GroupID).First(&g).Error; err == nil {
-				p.GroupUID = g.ExtUID
-			}
-		}
-		return json.Marshal(p)
+		return json.Marshal(s.docSyncPayload(ctx, projectID, extUID))
 	case model.SyncTypeExample:
 		ex, err := s.repo.FindApiReturnSampleByExtUID(ctx, projectID, extUID)
 		if err != nil || ex == nil {
@@ -462,6 +451,23 @@ func applyApiExtra(e *model.Api, raw string) {
 
 // apiSyncPayload 构造 api 条目的同步载荷：名称/方法/URL/分组 + extra 全量原文。
 // 增量（loadPayload）与全量快照（SyncSnapshot）必须同口径，避免两条拉取路径数据不一致。
+// docSyncPayload 文档的同步载荷（J11）：group_id → group_uid 回传，
+// 客户端据此把文档落到对应目录；找不到记录返回空载荷。
+func (s *Service) docSyncPayload(ctx context.Context, projectID uint64, extUID string) SyncPayload {
+	d, err := s.repo.FindDocByExtUID(ctx, projectID, extUID)
+	if err != nil || d == nil {
+		return SyncPayload{}
+	}
+	p := SyncPayload{Title: d.Title, Content: d.Content, Icon: d.Icon}
+	if d.GroupID > 0 {
+		var g model.Group
+		if err := s.repo.DB().WithContext(ctx).Where("id = ?", d.GroupID).First(&g).Error; err == nil {
+			p.GroupUID = g.ExtUID
+		}
+	}
+	return p
+}
+
 func (s *Service) apiSyncPayload(ctx context.Context, a *model.Api) SyncPayload {
 	p := SyncPayload{Name: a.ApiName, Method: a.HttpMethodType, URL: a.URL}
 	if a.GroupID > 0 {
