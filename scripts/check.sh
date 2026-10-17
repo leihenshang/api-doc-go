@@ -32,8 +32,12 @@ echo "== 2/7 go build =="
 echo "== 3/7 go vet =="
 (cd "$ROOT/server" && go vet ./...)
 
-echo "== 4/7 go test $RACE =="
-(cd "$ROOT/server" && go test $RACE ./...)
+echo "== 4/7 go test $RACE + 覆盖率门禁 =="
+RACE_ARG=""
+if [[ -z "$RACE" ]]; then
+    RACE_ARG="--no-race"
+fi
+bash "$ROOT/scripts/cover-check.sh" $RACE_ARG
 
 echo "== 5/7 前端类型检查 + ESLint =="
 (cd "$ROOT/web" && npm run --silent type-check && npm run --silent lint)
