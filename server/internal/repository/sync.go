@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"apidoc/internal/model"
@@ -53,8 +54,15 @@ func (r *Repository) SetLastChange(tx *gorm.DB, entityType string, id uint64, ch
 	// 客户端下次 push 会因 base_rev != 0 恒判冲突（见《代码问题分析2》B-07）。
 	case model.SyncTypeExample:
 		col = "api_return_sample"
+	// P0-6：变量与环境同样要回写修订号，否则变量类实体同步必然冲突
+	case model.SyncTypeVariable:
+		col = "variable"
+	case model.SyncTypeVarEnv:
+		col = "variable_env"
 	default:
-		return nil
+		// 未知实体类型必须显式报错：静默 return nil 会让调用方以为写成功，
+		// 而修订号实际没落库（B-07/P0-6 两类 bug 的共同根因）。
+		return fmt.Errorf("SetLastChange: 未知实体类型 %q", entityType)
 	}
 	return db.Table(col).Where("id = ?", id).Update("last_change_id", changeID).Error
 }

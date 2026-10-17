@@ -57,12 +57,31 @@ func (s *Service) CreateShareLink(ctx context.Context, userID uint64, typ int8, 
 	return link, nil
 }
 
-// ListShareLinks 项目下的分享链接。
-func (s *Service) ListShareLinks(ctx context.Context, projectID uint64) ([]model.ShareLink, error) {
+// ListShareLinks 项目下的分享链接（P0-2：需项目读权限，且令牌不回原文）。
+// 令牌只回掩码：列表场景不需要原文，回原文等于把「可访问该项目的凭据」交给任何能读到接口的人。
+func (s *Service) ListShareLinks(ctx context.Context, userID uint64, typ int8, projectID uint64) ([]model.ShareLink, error) {
 	if projectID == 0 {
 		return nil, newBiz(errcode.CodeParamError, "缺少 project_id")
 	}
-	return s.repo.ListShareLinks(ctx, projectID)
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
+	links, err := s.repo.ListShareLinks(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range links {
+		links[i].Token = maskToken(links[i].Token)
+	}
+	return links, nil
+}
+
+// maskToken 令牌脱敏：保留前 6 位便于识别，其余以 * 代替。
+func maskToken(tok string) string {
+	if len(tok) <= 6 {
+		return "******"
+	}
+	return tok[:6] + strings.Repeat("*", len(tok)-6)
 }
 
 // DeleteShareLink 失效一个分享链接（软删除）。

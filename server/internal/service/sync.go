@@ -626,7 +626,11 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushReq, op SyncOpIn) SyncOpOut {
 	var p SyncPayload
 	if len(op.Payload) > 0 {
-		_ = json.Unmarshal(op.Payload, &p)
+		// P0-3：解析失败必须拒收（rejected），不能用零值覆盖存量数据——
+		// 否则一次畸形 payload 就会把服务端上的标题/内容/请求参数静默清空。
+		if err := json.Unmarshal(op.Payload, &p); err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "bad payload"}
+		}
 	}
 	device := req.DeviceID
 	if req.DeviceName != "" {
