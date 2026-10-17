@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"apidoc/internal/model"
+	"apidoc/internal/repository"
 )
 
 // SyncProto 当前同步协议版本（能力协商）。
@@ -585,32 +586,56 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 	var exists bool
 	switch op.Type {
 	case model.SyncTypeGroup:
-		e, _ := s.repo.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e != nil {
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeAPI:
-		e, _ := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e != nil {
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeDoc:
-		e, _ := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e != nil {
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeExample:
-		e, _ := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e != nil {
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeVarEnv:
-		e, _ := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e != nil {
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeVariable:
-		e, _ := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e != nil {
 			exists, curRev = true, e.LastChangeID
 		}
@@ -626,6 +651,15 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 		return s.applyDelete(ctx, userID, req, op)
 	}
 	return s.applyUpsert(ctx, userID, req, op)
+}
+
+// lookupRejected 查询实体出错时返回 rejected（P1-3）：
+// 只有确实不存在才允许走新建分支；DB 错误被当成不存在会导致重复创建或整条覆盖。
+func lookupRejected(op SyncOpIn, err error) (SyncOpOut, bool) {
+	if err == nil || errors.Is(err, repository.ErrNotFound) {
+		return SyncOpOut{}, false
+	}
+	return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "lookup failed"}, true
 }
 
 func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushReq, op SyncOpIn) SyncOpOut {
@@ -644,7 +678,11 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 
 	switch op.Type {
 	case model.SyncTypeGroup:
-		e, _ := s.repo.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			e = &model.Group{ProjectID: req.ProjectID, Type: model.GroupTypeAPI}
 		}
@@ -678,7 +716,11 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
 
 	case model.SyncTypeAPI:
-		e, _ := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			e = &model.Api{ProjectID: req.ProjectID}
 		}
@@ -714,7 +756,11 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
 
 	case model.SyncTypeDoc:
-		e, _ := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			e = &model.Doc{ProjectID: req.ProjectID, UserID: userID}
 		}
@@ -749,7 +795,11 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
 
 	case model.SyncTypeExample:
-		e, _ := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			e = &model.ApiReturnSample{ProjectID: req.ProjectID}
 		}
@@ -785,7 +835,11 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 
 	case model.SyncTypeVarEnv:
 		// 环境：Name 复用载荷字段；仅建/改同步身份与名称，颜色/描述等 Web 侧属性不覆盖。
-		e, _ := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			e = &model.VariableEnv{ProjectID: req.ProjectID}
 		}
@@ -812,7 +866,11 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 
 	case model.SyncTypeVariable:
 		// 变量：项目级、挂到 env_uid 对应环境；Value 原样存（secret 为 enc:v1: 密文，服务端不解析）。
-		e, _ := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			e = &model.Variable{ProjectID: req.ProjectID, Scope: model.VarScopeProject}
 		}
@@ -863,7 +921,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 	var id uint64
 	switch op.Type {
 	case model.SyncTypeGroup:
-		e, _ := s.repo.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
@@ -872,7 +934,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeAPI:
-		e, _ := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
@@ -881,7 +947,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeDoc:
-		e, _ := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
@@ -890,7 +960,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeExample:
-		e, _ := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
@@ -899,7 +973,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeVarEnv:
-		e, _ := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
@@ -908,7 +986,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeVariable:
-		e, _ := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
 		if e == nil {
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
