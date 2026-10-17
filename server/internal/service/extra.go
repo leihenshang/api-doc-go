@@ -8,7 +8,18 @@ import (
 
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
+	"apidoc/internal/repository"
 )
+
+// importScope 把「上下文 + 写句柄」捆在一起传给导入辅助函数。
+//
+// 覆盖导入是「先删旧数据、再写新数据」的两段写：必须落在同一个事务里，
+// 否则中途失败会留下一个被清空且只导入了一半的项目。所以这些辅助函数
+// 不能再直接用服务上的 s.repo（那是事务外的句柄），必须接收事务句柄。
+type importScope struct {
+	ctx  context.Context
+	repo *repository.Repository
+}
 
 // SaveFile 记录已上传文件。
 func (s *Service) SaveFile(ctx context.Context, title, path string) (*model.FileRecord, error) {
@@ -80,16 +91,18 @@ func apiUniqueKey(method, url string) string {
 
 // prepareImport 按策略准备项目：覆盖时清空现有接口与接口目录（结果集为纯导入内容），
 // 追加时返回现存接口去重键集合（同键跳过）。
-func (s *Service) prepareImport(ctx context.Context, projectID uint64, strategy string) (map[string]struct{}, error) {
-	apis, err := s.repo.ListApisByProject(ctx, projectID)
+//
+// 覆盖分支是破坏性写入，调用方必须保证它在事务内、且解析已经成功。
+func (s *Service) prepareImport(sc importScope, projectID uint64, strategy string) (map[string]struct{}, error) {
+	apis, err := sc.repo.ListApisByProject(sc.ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
 	if normalizeStrategy(strategy) == StrategyOverwrite {
-		if err := s.repo.SoftDeleteApisByProject(ctx, projectID); err != nil {
+		if err := sc.repo.SoftDeleteApisByProject(sc.ctx, projectID); err != nil {
 			return nil, err
 		}
-		if err := s.repo.SoftDeleteGroupsByProject(ctx, projectID, model.GroupTypeAPI); err != nil {
+		if err := sc.repo.SoftDeleteGroupsByProject(sc.ctx, projectID, model.GroupTypeAPI); err != nil {
 			return nil, err
 		}
 		return map[string]struct{}{}, nil
@@ -107,37 +120,47 @@ func (s *Service) ImportOpenAPI(ctx context.Context, userID uint64, typ int8, pr
 	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermCreate); err != nil {
 		return ImportResult{}, err
 	}
-	keys, err := s.prepareImport(ctx, projectID, strategy)
-	if err != nil {
-		return ImportResult{}, err
-	}
+	// 先解析再动数据：覆盖策略会清空项目现有接口，若先把数据删了再发现
+	// 文档解析不了，用户就白丢了一整个项目的内容。
 	doc, err := shopenapi.Decode(body)
 	if err != nil {
 		return ImportResult{}, newBiz(errcode.CodeParamError, "OpenAPI 解析失败：%v", err)
 	}
-	groups, err := s.repo.ListGroups(ctx, projectID, model.GroupTypeAPI)
-	if err != nil {
-		return ImportResult{}, err
-	}
 	var res ImportResult
-	for _, op := range doc.Ops {
-		method := upperMethod(op.Method)
-		if _, dup := keys[apiUniqueKey(method, op.Path)]; dup {
-			res.Skipped++
-			continue
+	// 清空与导入同事务：任一硬错误（库不可用等）回滚，旧数据原样保留。
+	err = s.repo.Transaction(ctx, func(tx *repository.Repository) error {
+		sc := importScope{ctx: ctx, repo: tx}
+		keys, err := s.prepareImport(sc, projectID, strategy)
+		if err != nil {
+			return err
 		}
-		target := s.resolveGroup(ctx, projectID, groupID, op.Tags, groups)
-		a := &model.Api{
-			ProjectID: projectID, GroupID: target,
-			ApiName:        firstNonEmpty(op.Summary, op.OperationID, method+" "+op.Path),
-			HttpMethodType: method, URL: op.Path, ProtocolType: "http",
-			Source: SourceOpenAPI,
+		groups, err := tx.ListGroups(ctx, projectID, model.GroupTypeAPI)
+		if err != nil {
+			return err
 		}
-		if err := s.repo.CreateApi(ctx, a); err != nil {
-			return res, err
+		for _, op := range doc.Ops {
+			method := upperMethod(op.Method)
+			if _, dup := keys[apiUniqueKey(method, op.Path)]; dup {
+				res.Skipped++
+				continue
+			}
+			target := s.resolveGroup(sc, projectID, groupID, op.Tags, &groups)
+			a := &model.Api{
+				ProjectID: projectID, GroupID: target,
+				ApiName:        firstNonEmpty(op.Summary, op.OperationID, method+" "+op.Path),
+				HttpMethodType: method, URL: op.Path, ProtocolType: "http",
+				Source: SourceOpenAPI,
+			}
+			if err := tx.CreateApi(ctx, a); err != nil {
+				return err
+			}
+			keys[apiUniqueKey(method, op.Path)] = struct{}{}
+			res.Imported++
 		}
-		keys[apiUniqueKey(method, op.Path)] = struct{}{}
-		res.Imported++
+		return nil
+	})
+	if err != nil {
+		return res, err
 	}
 	s.recordOp(ctx, projectID, userID, projectID, model.LogObjectAPI, "import",
 		"导入 OpenAPI 接口 "+itoa(res.Imported)+" 条（跳过 "+itoa(res.Skipped)+"）")
@@ -145,7 +168,11 @@ func (s *Service) ImportOpenAPI(ctx context.Context, userID uint64, typ int8, pr
 }
 
 // resolveGroup 依据 tag 找到或创建二级分组，返回其 id；空白 tag 归入默认分组，避免生成无标题的空分组。
-func (s *Service) resolveGroup(ctx context.Context, projectID, defaultGroup uint64, tags []string, existing []model.Group) uint64 {
+//
+// existing 必须传指针：新建分组要写回调用方的切片，否则同一份文档里
+// 重复出现的同名 tag 每遇到一次就再建一个同名分组（按值传递的 append
+// 永远不会被调用方看到）。
+func (s *Service) resolveGroup(sc importScope, projectID, defaultGroup uint64, tags []string, existing *[]model.Group) uint64 {
 	if len(tags) == 0 {
 		return defaultGroup
 	}
@@ -153,14 +180,14 @@ func (s *Service) resolveGroup(ctx context.Context, projectID, defaultGroup uint
 	if tag == "" {
 		return defaultGroup
 	}
-	for _, g := range existing {
+	for _, g := range *existing {
 		if g.Title == tag {
 			return g.ID
 		}
 	}
 	g := &model.Group{ProjectID: projectID, PID: defaultGroup, Title: tag, Type: model.GroupTypeAPI}
-	if err := s.repo.CreateGroup(ctx, g); err == nil {
-		existing = append(existing, *g)
+	if err := sc.repo.CreateGroup(sc.ctx, g); err == nil {
+		*existing = append(*existing, *g)
 		return g.ID
 	}
 	return defaultGroup

@@ -12,6 +12,7 @@ import (
 
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
+	"apidoc/internal/repository"
 )
 
 // ---- 导出 ----
@@ -132,65 +133,66 @@ func (s *Service) ImportPostman(ctx context.Context, userID uint64, typ int8, pr
 	if len(col.Items) == 0 {
 		return ImportResult{}, newBiz(errcode.CodeParamError, "集合里没有请求（item 为空），请确认导出的是 Collection v2.x")
 	}
-	keys, err := s.prepareImport(ctx, projectID, strategy)
-	if err != nil {
-		return ImportResult{}, err
-	}
-	groups, err := s.repo.ListGroups(ctx, projectID, model.GroupTypeAPI)
-	if err != nil {
-		return ImportResult{}, err
-	}
-	ensure := s.postmanGroupEnsurer(ctx, projectID, &groups)
-
 	var res ImportResult
-	var walkErr error
-	var walk func(items []shpostman.Item, parent uint64) error
-	walk = func(items []shpostman.Item, parent uint64) error {
-		for _, it := range items {
-			if it.Folder {
-				name := strings.TrimSpace(it.Name)
-				if name == "" {
-					name = "未命名目录"
-				}
-				gid, err := ensure(parent, name)
-				if err != nil {
-					return err
-				}
-				if err := walk(it.Items, gid); err != nil {
-					return err
-				}
-				continue
-			}
-			if it.Req == nil {
-				continue
-			}
-			a, err := buildPostmanApi(projectID, parent, it)
-			if err != nil {
-				res.addFailure(it.Name + "：" + err.Error())
-				continue
-			}
-			if a == nil {
-				res.addFailure(it.Name + "：缺少 method 或 url")
-				continue
-			}
-			key := apiUniqueKey(a.HttpMethodType, a.URL)
-			if _, dup := keys[key]; dup {
-				res.Skipped++
-				continue
-			}
-			if err := s.repo.CreateApi(ctx, a); err != nil {
-				return err
-			}
-			keys[key] = struct{}{}
-			res.Imported++
+	// 解析已在上方完成；清空（覆盖策略）与写入同事务，失败即整体回滚。
+	err = s.repo.Transaction(ctx, func(tx *repository.Repository) error {
+		sc := importScope{ctx: ctx, repo: tx}
+		keys, err := s.prepareImport(sc, projectID, strategy)
+		if err != nil {
+			return err
 		}
-		return nil
-	}
-	if err := walk(col.Items, 0); err != nil {
-		walkErr = err
-	}
-	if walkErr != nil {
-		return res, walkErr
+		groups, err := tx.ListGroups(ctx, projectID, model.GroupTypeAPI)
+		if err != nil {
+			return err
+		}
+		ensure := s.postmanGroupEnsurer(sc, projectID, &groups)
+
+		var walk func(items []shpostman.Item, parent uint64) error
+		walk = func(items []shpostman.Item, parent uint64) error {
+			for _, it := range items {
+				if it.Folder {
+					name := strings.TrimSpace(it.Name)
+					if name == "" {
+						name = "未命名目录"
+					}
+					gid, err := ensure(parent, name)
+					if err != nil {
+						return err
+					}
+					if err := walk(it.Items, gid); err != nil {
+						return err
+					}
+					continue
+				}
+				if it.Req == nil {
+					continue
+				}
+				a, err := buildPostmanApi(projectID, parent, it)
+				if err != nil {
+					res.addFailure(it.Name + "：" + err.Error())
+					continue
+				}
+				if a == nil {
+					res.addFailure(it.Name + "：缺少 method 或 url")
+					continue
+				}
+				key := apiUniqueKey(a.HttpMethodType, a.URL)
+				if _, dup := keys[key]; dup {
+					res.Skipped++
+					continue
+				}
+				if err := tx.CreateApi(ctx, a); err != nil {
+					return err
+				}
+				keys[key] = struct{}{}
+				res.Imported++
+			}
+			return nil
+		}
+		return walk(col.Items, 0)
+	})
+	if err != nil {
+		return res, err
 	}
 	s.recordOp(ctx, projectID, userID, projectID, model.LogObjectAPI, "import",
 		"导入 Postman 接口 "+itoa(res.Imported)+" 条（跳过 "+itoa(res.Skipped)+"，失败 "+itoa(res.Failed)+"）")
@@ -198,7 +200,7 @@ func (s *Service) ImportPostman(ctx context.Context, userID uint64, typ int8, pr
 }
 
 // postmanGroupEnsurer 惰性建分组：同名同父直接复用（与 Bruno 导入一致）。
-func (s *Service) postmanGroupEnsurer(ctx context.Context, projectID uint64, groups *[]model.Group) func(parent uint64, name string) (uint64, error) {
+func (s *Service) postmanGroupEnsurer(sc importScope, projectID uint64, groups *[]model.Group) func(parent uint64, name string) (uint64, error) {
 	return func(parent uint64, name string) (uint64, error) {
 		for _, g := range *groups {
 			if g.PID == parent && g.Title == name {
@@ -206,7 +208,7 @@ func (s *Service) postmanGroupEnsurer(ctx context.Context, projectID uint64, gro
 			}
 		}
 		g := &model.Group{ProjectID: projectID, PID: parent, Title: name, Type: model.GroupTypeAPI}
-		if err := s.repo.CreateGroup(ctx, g); err != nil {
+		if err := sc.repo.CreateGroup(sc.ctx, g); err != nil {
 			return 0, err
 		}
 		*groups = append(*groups, *g)

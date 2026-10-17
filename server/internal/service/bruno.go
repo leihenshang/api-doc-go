@@ -17,6 +17,7 @@ import (
 	"apidoc/internal/dto"
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
+	"apidoc/internal/repository"
 )
 
 // apiHeaderRow / apiParamRow 与前端 ApiHeader / ApiParam 的 JSON 契约对齐。
@@ -43,55 +44,62 @@ func (s *Service) ImportBruno(ctx context.Context, userID uint64, typ int8, proj
 	if len(files) == 0 {
 		return ImportResult{}, newBiz(errcode.CodeParamError, "请选择 Bruno 集合目录")
 	}
-	keys, err := s.prepareImport(ctx, projectID, strategy)
-	if err != nil {
-		return ImportResult{}, err
-	}
-	groups, err := s.repo.ListGroups(ctx, projectID, model.GroupTypeAPI)
-	if err != nil {
-		return ImportResult{}, err
-	}
-
 	gids, reqs, err := splitBrunoFiles(files)
 	if err != nil {
 		return ImportResult{}, err
 	}
-	ensure := s.brunoGroupEnsurer(ctx, projectID, &groups, gids)
-
 	var res ImportResult
-	for _, f := range reqs {
-		req, err := collection.DecodeRequest([]byte(f.Content))
+	// 文件已解析完毕；清空（覆盖策略）与写入同事务，失败即整体回滚。
+	err = s.repo.Transaction(ctx, func(tx *repository.Repository) error {
+		sc := importScope{ctx: ctx, repo: tx}
+		keys, err := s.prepareImport(sc, projectID, strategy)
 		if err != nil {
-			res.addFailure(f.Path + "：YAML 解析失败")
-			continue
+			return err
 		}
-		if req.Info.Type != "http" {
-			// 环境变量、脚本等非请求文件，按设计跳过，不计入失败
-			continue
-		}
-		if strings.TrimSpace(req.HTTP.URL) == "" || strings.TrimSpace(req.HTTP.Method) == "" {
-			res.addFailure(f.Path + "：缺少 method 或 url")
-			continue
-		}
-		gid, err := ensure(path.Dir(f.Path))
+		groups, err := tx.ListGroups(ctx, projectID, model.GroupTypeAPI)
 		if err != nil {
-			return res, err
+			return err
 		}
-		key := apiUniqueKey(req.HTTP.Method, req.HTTP.URL)
-		if _, dup := keys[key]; dup {
-			res.Skipped++
-			continue
+		ensure := s.brunoGroupEnsurer(sc, projectID, &groups, gids)
+
+		for _, f := range reqs {
+			req, err := collection.DecodeRequest([]byte(f.Content))
+			if err != nil {
+				res.addFailure(f.Path + "：YAML 解析失败")
+				continue
+			}
+			if req.Info.Type != "http" {
+				// 环境变量、脚本等非请求文件，按设计跳过，不计入失败
+				continue
+			}
+			if strings.TrimSpace(req.HTTP.URL) == "" || strings.TrimSpace(req.HTTP.Method) == "" {
+				res.addFailure(f.Path + "：缺少 method 或 url")
+				continue
+			}
+			gid, err := ensure(path.Dir(f.Path))
+			if err != nil {
+				return err
+			}
+			key := apiUniqueKey(req.HTTP.Method, req.HTTP.URL)
+			if _, dup := keys[key]; dup {
+				res.Skipped++
+				continue
+			}
+			a, err := s.buildBrunoApi(projectID, gid, req)
+			if err != nil {
+				res.addFailure(f.Path + "：" + err.Error())
+				continue
+			}
+			if err := tx.CreateApi(ctx, a); err != nil {
+				return err
+			}
+			keys[key] = struct{}{}
+			res.Imported++
 		}
-		a, err := s.buildBrunoApi(projectID, gid, req)
-		if err != nil {
-			res.addFailure(f.Path + "：" + err.Error())
-			continue
-		}
-		if err := s.repo.CreateApi(ctx, a); err != nil {
-			return res, err
-		}
-		keys[key] = struct{}{}
-		res.Imported++
+		return nil
+	})
+	if err != nil {
+		return res, err
 	}
 	s.recordOp(ctx, projectID, userID, projectID, model.LogObjectAPI, "import",
 		"导入 Bruno 接口 "+itoa(res.Imported)+" 条（跳过 "+itoa(res.Skipped)+"，失败 "+itoa(res.Failed)+"）")
@@ -118,7 +126,7 @@ func splitBrunoFiles(files []dto.BrunoFile) (map[string]string, []dto.BrunoFile,
 }
 
 // brunoGroupEnsurer 返回「目录 -> 分组 id」的惰性建组器：父目录先建，同名同级分组复用。
-func (s *Service) brunoGroupEnsurer(ctx context.Context, projectID uint64, groups *[]model.Group, folderYAML map[string]string) func(dir string) (uint64, error) {
+func (s *Service) brunoGroupEnsurer(sc importScope, projectID uint64, groups *[]model.Group, folderYAML map[string]string) func(dir string) (uint64, error) {
 	gidByDir := map[string]uint64{".": 0, "": 0}
 	var ensure func(dir string) (uint64, error)
 	ensure = func(dir string) (uint64, error) {
@@ -142,7 +150,7 @@ func (s *Service) brunoGroupEnsurer(ctx context.Context, projectID uint64, group
 			}
 		}
 		g := &model.Group{ProjectID: projectID, PID: parent, Title: name, Type: model.GroupTypeAPI}
-		if err := s.repo.CreateGroup(ctx, g); err != nil {
+		if err := sc.repo.CreateGroup(sc.ctx, g); err != nil {
 			return 0, err
 		}
 		*groups = append(*groups, *g)
