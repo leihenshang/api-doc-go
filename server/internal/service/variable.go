@@ -97,12 +97,8 @@ func (s *Service) logVarChange(ctx context.Context, projectID uint64, entityType
 	if extUID == "" {
 		return
 	}
-	// 显式带 ctx 的 tx：AppendChange 首参是 *gorm.DB，传 nil 会用不带 ctx 的 r.db（P1-4）
-	cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), projectID, entityType, extUID, op, actor, "")
-	if err != nil || cid == 0 {
-		return
-	}
-	_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), entityType, id, cid)
+	// 流水与 last_change_id 同事务写入（B-12/B-15），失败不回滚已落库的变量。
+	_, _ = s.appendChangeTx(ctx, entityType, extUID, projectID, id, op, actor, "")
 }
 
 func (s *Service) CreateVariableEnv(ctx context.Context, userID uint64, typ int8, req dto.VariableEnvReq) (*model.VariableEnv, error) {

@@ -708,12 +708,12 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeGroup, op.UID, model.SyncOpUpsert, userID, device)
-		if err == nil {
-			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeGroup, e.ID, cid)
-			e.LastChangeID = cid
+		cid, err := s.appendChangeTx(ctx, model.SyncTypeGroup, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
-		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
+		e.LastChangeID = cid
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeAPI:
 		e, lerr := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
@@ -748,12 +748,12 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeAPI, op.UID, model.SyncOpUpsert, userID, device)
-		if err == nil {
-			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeAPI, e.ID, cid)
-			e.LastChangeID = cid
+		cid, err := s.appendChangeTx(ctx, model.SyncTypeAPI, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
-		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
+		e.LastChangeID = cid
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeDoc:
 		e, lerr := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
@@ -787,12 +787,12 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeDoc, op.UID, model.SyncOpUpsert, userID, device)
-		if err == nil {
-			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeDoc, e.ID, cid)
-			e.LastChangeID = cid
+		cid, err := s.appendChangeTx(ctx, model.SyncTypeDoc, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
-		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
+		e.LastChangeID = cid
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeExample:
 		e, lerr := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
@@ -826,12 +826,12 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeExample, op.UID, model.SyncOpUpsert, userID, device)
-		if err == nil {
-			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeExample, e.ID, cid)
-			e.LastChangeID = cid
+		cid, err := s.appendChangeTx(ctx, model.SyncTypeExample, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
-		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
+		e.LastChangeID = cid
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeVarEnv:
 		// 环境：Name 复用载荷字段；仅建/改同步身份与名称，颜色/描述等 Web 侧属性不覆盖。
@@ -857,12 +857,12 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeVarEnv, op.UID, model.SyncOpUpsert, userID, device)
-		if err == nil {
-			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeVarEnv, e.ID, cid)
-			e.LastChangeID = cid
+		cid, err := s.appendChangeTx(ctx, model.SyncTypeVarEnv, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
-		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
+		e.LastChangeID = cid
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeVariable:
 		// 变量：项目级、挂到 env_uid 对应环境；Value 原样存（secret 为 enc:v1: 密文，服务端不解析）。
@@ -903,12 +903,12 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeVariable, op.UID, model.SyncOpUpsert, userID, device)
-		if err == nil {
-			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeVariable, e.ID, cid)
-			e.LastChangeID = cid
+		cid, err := s.appendChangeTx(ctx, model.SyncTypeVariable, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
-		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
+		e.LastChangeID = cid
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 	}
 	return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 }
@@ -1001,10 +1001,9 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 	default:
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 	}
-	cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, op.Type, op.UID, model.SyncOpDelete, userID, device)
-	if err == nil {
-		_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), op.Type, id, cid)
-		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
+	cid, err := s.appendChangeTx(ctx, op.Type, op.UID, req.ProjectID, id, model.SyncOpDelete, userID, device)
+	if err != nil {
+		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 	}
-	return SyncOpOut{OpID: op.OpID, Status: "ok"}
+	return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 }
