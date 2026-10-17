@@ -7,9 +7,30 @@ export type LoginUser = User & { token: string }
 
 const STORAGE_KEY = 'userInfo'
 
+/**
+ * 读取本地登录态。
+ *
+ * 这里必须吞掉解析异常：store 的 state 是在模块求值期构造的，
+ * 一旦 JSON.parse 抛出，整个 pinia 初始化失败，应用直接白屏且用户
+ * 没有任何自助恢复手段（清缓存属于不可发现的路径）。损坏数据只可能
+ * 来自手工篡改或旧版本残留，处理方式是丢弃它并当作未登录，让用户
+ * 走一次正常登录重新写入。
+ */
 function loadFromStorage(): LoginUser | null {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as LoginUser) : null
+    if (!raw) return null
+    try {
+        const parsed = JSON.parse(raw) as Partial<LoginUser> | null
+        // 结构校验：token 非空才算有效登录态，否则等同于未登录。
+        if (!parsed || typeof parsed.token !== 'string' || !parsed.token) {
+            localStorage.removeItem(STORAGE_KEY)
+            return null
+        }
+        return parsed as LoginUser
+    } catch {
+        localStorage.removeItem(STORAGE_KEY)
+        return null
+    }
 }
 
 export const useUserStore = defineStore('user', {

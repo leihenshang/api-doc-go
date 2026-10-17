@@ -409,6 +409,8 @@ export default {
   },
   user: {
     hello: 'hello, {name}',
+    // 用户表里查不到 id 时的兜底显示名（作者/操作人回显用），避免前端把 key 串直接渲染出来
+    fallbackName: '用户 {id}',
     profile: '修改资料',
     password: '修改密码',
     logout: '退出登录',

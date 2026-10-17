@@ -1,5 +1,5 @@
 // i18n 语言包自查（供 `npm run i18n:check` 使用）：
-// ① zh-CN 与 en-US 的 key 是否一一对应 ② 源码里 t('x.y') 用到的 key 是否都在语言包里。
+// ① zh-CN 与 en-US 的 key 是否一一对应 ② 源码里 t('x.y') / translate('x.y') 用到的 key 是否都在语言包里。
 // 用法：node scripts/i18n-check.mjs [web 目录，缺省为当前工作目录]
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
@@ -43,8 +43,11 @@ function walk(dir, out = []) {
 }
 
 const used = new Map()
+// 同时匹配 t('k')、$t('k')、translate('k')：非组件代码（utils/composable）只能用 translate，
+// 此前只扫 t( 会漏掉这类调用，缺 key 也照常退出 0。
+const USAGE = /\b(?:t|translate)\(\s*['"]([\w.-]+)['"]/g
 for (const file of walk(join(webDir, 'src'))) {
-  for (const m of readFileSync(file, 'utf8').matchAll(/\bt\(\s*['"]([\w.-]+)['"]/g)) {
+  for (const m of readFileSync(file, 'utf8').matchAll(USAGE)) {
     if (!used.has(m[1])) used.set(m[1], [])
     used.get(m[1]).push(relative(webDir, file))
   }

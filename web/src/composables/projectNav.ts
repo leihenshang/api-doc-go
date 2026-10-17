@@ -34,10 +34,10 @@ const API_TABS: TabDef[] = [
   { key: 'projectBugs', labelKey: 'nav.bugs', icon: BugOutline },
 ]
 
-/** 全局页签（非项目内）：用户管理与公共属性。 */
+/** 全局页签（非项目内）：用户管理与公共属性，两者均仅管理员可见。 */
 const GLOBAL_TABS: TabDef[] = [
   { key: 'projects', labelKey: 'nav.projectList', icon: GridOutline },
-  { key: 'users', labelKey: 'nav.users', icon: PeopleOutline },
+  { key: 'users', labelKey: 'nav.users', icon: PeopleOutline, adminOnly: true },
   { key: 'properties', labelKey: 'nav.properties', icon: OptionsOutline, adminOnly: true },
 ]
 

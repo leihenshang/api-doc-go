@@ -408,6 +408,8 @@ export default {
   },
   user: {
     hello: 'hello, {name}',
+    // Fallback display name when a user id isn't in the user table (author/operator rendering)
+    fallbackName: 'User {id}',
     profile: 'Edit profile',
     password: 'Change password',
     logout: 'Sign out',

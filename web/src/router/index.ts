@@ -65,8 +65,8 @@ const routes: RouteRecordRaw[] = [
 
             // 全局
             { path: 'notifications', name: 'notifications', component: () => import('@/views/NotificationView.vue'), meta: { title: '我的通知' } },
-            { path: 'users', name: 'users', component: () => import('@/views/user/UserManagerView.vue'), meta: { title: '用户管理' } },
-            { path: 'properties', name: 'properties', component: () => import('@/views/PropertyView.vue'), meta: { title: '公共属性' } },
+            { path: 'users', name: 'users', component: () => import('@/views/user/UserManagerView.vue'), meta: { title: '用户管理', requiresAdmin: true } },
+            { path: 'properties', name: 'properties', component: () => import('@/views/PropertyView.vue'), meta: { title: '公共属性', requiresAdmin: true } },
             { path: 'me', name: 'myCenter', component: () => import('@/views/user/MyCenterView.vue'), meta: { title: '个人中心' } },
         ],
     },
@@ -83,6 +83,11 @@ router.beforeEach((to) => {
     const needsAuth = to.matched.some((r) => r.meta.requiresAuth)
     if (needsAuth && !user.isLogged) {
         return { name: 'login' }
+    }
+    // 管理员页面（用户管理 / 公共属性）必须挡在路由层：只隐藏页签挡不住手输 URL
+    const needsAdmin = to.matched.some((r) => r.meta.requiresAdmin)
+    if (needsAdmin && !user.isAdmin) {
+        return { name: 'projects' }
     }
     return true
 })

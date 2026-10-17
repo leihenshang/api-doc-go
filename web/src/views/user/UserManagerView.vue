@@ -2,15 +2,17 @@
 // 用户管理：列表/检索，管理员可改昵称、邮箱、状态与角色。
 import { listUsers, updateProfile } from '@/api/auth'
 import TablePager from '@/components/TablePager.vue'
+import { useUserStore } from '@/stores/user'
 import { ErrCode } from '@/types/api'
 import type { User } from '@/types/entities'
 import { fmtTime } from '@/utils/format'
 import {
     NButton, NCard, NEmpty, NForm, NFormItem, NInput, NModal, NSelect, NSpin, NTable, NTag, useMessage,
 } from 'naive-ui'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 const message = useMessage()
+const userStore = useUserStore()
 const rows = ref<User[]>([])
 const total = ref(0)
 const pageNum = ref(1)
@@ -24,11 +26,20 @@ const stateOptions = [
   { label: '正常', value: 1 },
   { label: '禁用', value: 2 },
 ]
-const typeOptions = [
+/** 角色文案：与下拉分开，避免按权限裁剪选项后表格里查不到超管的标签。 */
+const ROLE_LABELS: Record<number, string> = { 1: '普通用户', 2: '管理员', 3: '超级管理员' }
+const ALL_ROLE_OPTIONS = [
   { label: '普通用户', value: 1 },
   { label: '管理员', value: 2 },
   { label: '超级管理员', value: 3 },
 ]
+/** 当前账号的角色等级；可授予的角色不得超过它（后端同样只允许超管改角色）。 */
+const operatorType = computed(() => userStore.userInfo?.type ?? 0)
+const typeOptions = computed(() => ALL_ROLE_OPTIONS.filter((o) => o.value <= operatorType.value))
+/** 超管账号只有超管能改，其他管理员连编辑入口都不给。 */
+function canEditRow(u: User): boolean {
+  return u.type !== 3 || operatorType.value === 3
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -101,14 +112,14 @@ onMounted(load)
               <td>{{ u.name }}</td>
               <td>{{ u.nick_name || '—' }}</td>
               <td class="muted ellipsis" :title="u.email">{{ u.email || '—' }}</td>
-              <td class="muted nowrap">{{typeOptions.find((o) => o.value === u.type)?.label ?? u.type}}</td>
+              <td class="muted nowrap">{{ ROLE_LABELS[u.type] ?? u.type }}</td>
               <td>
                 <n-tag :type="u.state === 1 ? 'success' : 'error'" size="small" :bordered="false">
                   {{ u.state === 1 ? '正常' : '禁用' }}
                 </n-tag>
               </td>
               <td class="muted nowrap">{{ fmtTime(u.create_time) }}</td>
-              <td><n-button text type="primary" size="small" @click="openEdit(u)">编辑</n-button></td>
+              <td><n-button text type="primary" size="small" :disabled="!canEditRow(u)" @click="openEdit(u)">编辑</n-button></td>
             </tr>
           </tbody>
         </n-table>
