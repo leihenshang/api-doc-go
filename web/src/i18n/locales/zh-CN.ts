@@ -262,6 +262,8 @@ export default {
     backToTop: '返回顶部',
   },
   doc: {
+    groupFilter: '分组：{name}',
+    clearFilter: '显示全部',
     titleField: '标题',
     titlePlaceholder: '文档标题',
     titleRequired: '请输入文档标题',

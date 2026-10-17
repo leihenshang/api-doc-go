@@ -10,6 +10,19 @@ export function createGroup(payload: { project_id: number; title: string; p_id?:
 export function listGroups(projectId: number, type?: number): Promise<ApiResponse<Group[]>> {
   return get<Group[]>('/group', { project_id: projectId, type })
 }
+
+/** B19：文档分组树 —— 含文档的分组（不分 type）+ 未分组文档数。 */
+export interface DocGroupItem {
+  id: number
+  p_id: number
+  title: string
+  type: number
+  priority: number
+  doc_count: number
+}
+export function listDocGroups(projectId: number): Promise<ApiResponse<{ groups: DocGroupItem[]; ungrouped: number }>> {
+  return get<{ groups: DocGroupItem[]; ungrouped: number }>('/doc/groups', { project_id: projectId })
+}
 export function updateGroup(payload: { id: number; title?: string; p_id?: number; priority?: number }): Promise<ApiResponse<Group>> {
   return put<Group>('/group', payload)
 }

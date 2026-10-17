@@ -261,6 +261,8 @@ export default {
     backToTop: 'Back to top',
   },
   doc: {
+    groupFilter: 'Group: {name}',
+    clearFilter: 'Show all',
     titleField: 'Title',
     titlePlaceholder: 'Document title',
     titleRequired: 'Please enter a document title',

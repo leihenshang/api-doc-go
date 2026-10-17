@@ -32,6 +32,13 @@ const projectId = useNumParam('projectId')
 const trash = computed(() => route.query.trash === '1')
 /** 右侧视图：回收站 / 详情 / 空态占位。 */
 const docId = computed(() => Number(route.query.doc) || 0)
+/** B19：当前选中的文档分组（?group=<id>；0/缺省 = 不过滤）。 */
+const groupId = computed(() => Number(route.query.group) || 0)
+const groupTitle = computed(() => {
+  const id = groupId.value
+  if (!id) return ''
+  return project.docGroups.find((g) => g.id === id)?.title ?? ''
+})
 
 const treeRef = ref<InstanceType<typeof SectionTree> | null>(null)
 
@@ -57,6 +64,7 @@ async function loadTrash(): Promise<void> {
   try {
     const res = await listDocs({
       project_id: projectId.value,
+      group_id: groupId.value || undefined,
       deleted: 1,
       keyword: keyword.value.trim() || undefined,
       page_num: pageNum.value,
@@ -96,7 +104,8 @@ async function submit(): Promise<void> {
     message.warning(t('doc.titleRequired'))
     return
   }
-  const res = await createDoc({ project_id: projectId.value, group_id: 0, title: form.title.trim() })
+  // B19：新建落在当前选中的分组（未选 = 未分组），与客户端「文档在所在目录」对齐
+  const res = await createDoc({ project_id: projectId.value, group_id: groupId.value, title: form.title.trim() })
   if (res.code !== ErrCode.Success || !res.data) {
     message.error(res.msg || t('common.createFailed'))
     return
@@ -182,6 +191,11 @@ function purgeOne(d: DocItem): void {
   purgeSelected()
 }
 
+/** B19：清除分组过滤（回到「全部文档」）。 */
+function clearGroupFilter(): void {
+  void router.push({ name: 'projectDocs', params: { projectId: projectId.value }, query: {} })
+}
+
 onMounted(() => {
   void ensureUsers()
   if (trash.value) void loadTrash()
@@ -212,6 +226,13 @@ onMounted(() => {
     </teleport>
 
     <div class="split-main">
+      <!-- B19：当前分组过滤（点左侧分组标题设置；清除后显示全部文档） -->
+      <div v-if="!trash && groupId > 0" class="doc-filter" data-testid="docs.groupFilter">
+        <span class="lbl">{{ t('doc.groupFilter', { name: groupTitle || t('tree.ungrouped') }) }}</span>
+        <n-button size="tiny" quaternary data-testid="docs.groupClear" @click="clearGroupFilter">
+          {{ t('doc.clearFilter') }}
+        </n-button>
+      </div>
       <!-- 回收站 -->
       <n-card v-if="trash" :bordered="true" class="pane-card table-card" content-style="padding: 0">
         <!-- 批量操作条：勾选后一键还原（服务端会一并恢复所属分组） -->
@@ -321,5 +342,20 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* B19：分组过滤条 */
+.doc-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--app-border);
+  font-size: 12px;
+  color: var(--app-muted);
+}
+
+.doc-filter .lbl {
+  color: var(--app-text);
 }
 </style>

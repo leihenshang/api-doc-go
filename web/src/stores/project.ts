@@ -1,5 +1,5 @@
 // 当前项目状态：供侧边导航、项目切换下拉与面包屑复用，避免各页重复拉取。
-import { listGroups } from '@/api/content'
+import { listDocGroups, listGroups } from '@/api/content'
 import { getProject, listProjects, myPermission } from '@/api/project'
 import { useUserStore } from '@/stores/user'
 import { ErrCode } from '@/types/api'
@@ -16,6 +16,9 @@ export const useProjectStore = defineStore('project', {
         /** 当前项目的接口分组（type=1）与文档分组（type=3），供侧导航子菜单使用。 */
         apiGroups: [] as Group[],
         docGroups: [] as Group[],
+        /** B19：分组 id → 文档数；ungroupedDocs = 未分组文档数（用于树上的「未分组」节点）。 */
+        docGroupCounts: {} as Record<number, number>,
+        ungroupedDocs: 0,
     }),
     getters: {
         id(state): number {
@@ -48,11 +51,21 @@ export const useProjectStore = defineStore('project', {
             if (!projectId) {
                 this.apiGroups = []
                 this.docGroups = []
+                this.docGroupCounts = {}
+                this.ungroupedDocs = 0
                 return
             }
-            const [apis, docs] = await Promise.all([listGroups(projectId, 1), listGroups(projectId, 3)])
+            // B19：接口分组仍按 type=1；文档分组改用 /doc/groups（含文档的分组，不分 type），
+            // 这样客户端把文档放进请求分组后，Web 文档树也能看到（方案 A）。
+            const [apis, docs] = await Promise.all([listGroups(projectId, 1), listDocGroups(projectId)])
             this.apiGroups = apis.code === ErrCode.Success && apis.data ? apis.data : []
-            this.docGroups = docs.code === ErrCode.Success && docs.data ? docs.data : []
+            // /doc/groups 只回展示所需字段，补齐 Group 形状（SectionTree 仍按 Group[] 消费）
+            this.docGroups = (docs.code === ErrCode.Success ? docs.data?.groups ?? [] : []).map((g) => ({
+                id: g.id, p_id: g.p_id, project_id: projectId, title: g.title,
+                priority: g.priority, type: g.type, create_time: '', update_time: '',
+            }))
+            this.docGroupCounts = Object.fromEntries((docs.data?.groups ?? []).map((g) => [g.id, g.doc_count]))
+            this.ungroupedDocs = docs.data?.ungrouped ?? 0
         },
         /** 项目切换下拉数据；force 为真时忽略已有缓存。 */
         async loadProjects(force = false): Promise<void> {

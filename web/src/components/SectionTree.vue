@@ -52,6 +52,9 @@ const { t } = useI18n()
 const project = useProjectStore()
 
 const groups = computed(() => (props.section === 'apis' ? project.apiGroups : project.docGroups))
+
+/** B19：文档树下「未分组」虚拟根（有未分组文档才出现），点击按 group_id=0 过滤。 */
+const ungroupedDocs = computed(() => (props.section === 'docs' ? project.ungroupedDocs : 0))
 /** 空标题分组属无效数据（如导入产生）：自身不渲染为「空文件夹」，其叶子并入「未分组」。 */
 const blankGroupIds = computed(() => new Set(groups.value.filter((g) => !(g.title ?? '').trim()).map((g) => g.id)))
 const roots = computed(() => buildGroupTree(groups.value.filter((g) => !blankGroupIds.value.has(g.id))))
@@ -100,6 +103,9 @@ const selectedId = computed(() => {
   const key = props.section === 'apis' ? 'api' : 'doc'
   return Number(route.query[key]) || 0
 })
+
+/** 当前选中的文档分组（?group=<id>；0 = 未分组）。 */
+const selectedGroup = computed(() => Number(route.query.group) || 0)
 
 const trashActive = computed(() => route.query.trash === '1')
 const canCreate = computed(() => project.can(2))
@@ -208,6 +214,11 @@ function goItem(it: TreeItem): void {
   const name = props.section === 'apis' ? 'projectApis' : 'projectDocs'
   const key = props.section === 'apis' ? 'api' : 'doc'
   void router.push({ name, params: { projectId: props.projectId }, query: { [key]: String(it.id) } })
+}
+
+/** B19：按分组过滤右侧文档列表（group=0 = 未分组；不带 doc 参数避免跳到旧详情）。 */
+function filterByGroup(id: number): void {
+  void router.push({ name: 'projectDocs', params: { projectId: props.projectId }, query: { group: String(id) } })
 }
 
 function toggle(id: number): void {
@@ -643,6 +654,14 @@ defineExpose({ reload: refresh })
             @keyup.enter="submitRename"
             @blur="submitRename"
           />
+          <!-- B19：文档分段的分组标题可点 = 按该分组过滤右侧列表（接口段仍只折展） -->
+          <span
+            v-else-if="props.section === 'docs'"
+            class="gn-name ellipsis gn-name--filter"
+            :title="row.group.title"
+            data-testid="docs.treeGroup"
+            @click.stop="filterByGroup(row.group.id)"
+          >{{ row.group.title }}</span>
           <span v-else class="gn-name ellipsis" :title="row.group.title">{{ row.group.title }}</span>
 
           <span v-if="renamingId !== row.group.id && row.group.id > 0" class="gn-actions">
