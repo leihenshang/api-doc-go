@@ -19,7 +19,7 @@ func TestOptimisticLock(t *testing.T) {
 
 	api := f.newAPI(t, "lock-api", "https://api/x", "")
 	// 模拟前端：保存前先 GET 一次，用返回的 update_time 作为期望值。
-	loaded, err := f.s.GetApi(ctx, api.ID)
+	loaded, err := f.s.GetApi(ctx, f.admin.ID, f.admin.Type, api.ID)
 	if err != nil {
 		t.Fatalf("GetApi: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestOptimisticLock(t *testing.T) {
 		t.Fatalf("冲突文案应提示已被他人修改，got %q", be.Msg)
 	}
 	// 冲突时不应写入。
-	after, err := f.s.GetApi(ctx, api.ID)
+	after, err := f.s.GetApi(ctx, f.admin.ID, f.admin.Type, api.ID)
 	if err != nil {
 		t.Fatalf("GetApi: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestOptimisticLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDoc: %v", err)
 	}
-	loadedDoc, err := f.s.GetDoc(ctx, doc.ID)
+	loadedDoc, err := f.s.GetDoc(ctx, f.admin.ID, f.admin.Type, doc.ID)
 	if err != nil {
 		t.Fatalf("GetDoc: %v", err)
 	}

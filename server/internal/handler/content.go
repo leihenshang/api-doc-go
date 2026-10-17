@@ -46,7 +46,8 @@ func (h *Handler) ListGroups(c *gin.Context) {
 	if t, err := strconv.Atoi(c.Query("type")); err == nil {
 		typ = int8(t)
 	}
-	res, err := h.svc.ListGroups(c.Request.Context(), idQuery(c, "project_id"), typ)
+	p := principal(c)
+	res, err := h.svc.ListGroups(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), typ)
 	if err != nil {
 		fail(c, err)
 		return
@@ -117,7 +118,8 @@ func (h *Handler) ListApis(c *gin.Context) {
 	if !bindQuery(c, &q) {
 		return
 	}
-	res, err := h.svc.ListApis(c.Request.Context(), q)
+	p := principal(c)
+	res, err := h.svc.ListApis(c.Request.Context(), p.UserID, p.Type, q)
 	if err != nil {
 		fail(c, err)
 		return
@@ -127,7 +129,8 @@ func (h *Handler) ListApis(c *gin.Context) {
 
 // GetApi 处理 GET /api/api/:id。
 func (h *Handler) GetApi(c *gin.Context) {
-	res, err := h.svc.GetApi(c.Request.Context(), idParam(c))
+	p := principal(c)
+	res, err := h.svc.GetApi(c.Request.Context(), p.UserID, p.Type, idParam(c))
 	if err != nil {
 		fail(c, err)
 		return
@@ -314,7 +317,8 @@ func (h *Handler) ListDocs(c *gin.Context) {
 	if c.Query("deleted") == "1" {
 		deleted = 1
 	}
-	res, err := h.svc.ListDocs(c.Request.Context(), idQuery(c, "project_id"), idQuery(c, "group_id"), c.Query("keyword"), deleted, q)
+	p := principal(c)
+	res, err := h.svc.ListDocs(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), idQuery(c, "group_id"), c.Query("keyword"), deleted, q)
 	if err != nil {
 		fail(c, err)
 		return
@@ -324,7 +328,8 @@ func (h *Handler) ListDocs(c *gin.Context) {
 
 // GetDoc 处理 GET /api/doc/:id。
 func (h *Handler) GetDoc(c *gin.Context) {
-	res, err := h.svc.GetDoc(c.Request.Context(), idParam(c))
+	p := principal(c)
+	res, err := h.svc.GetDoc(c.Request.Context(), p.UserID, p.Type, idParam(c))
 	if err != nil {
 		fail(c, err)
 		return
@@ -370,7 +375,8 @@ func (h *Handler) CreateFieldMapping(c *gin.Context) {
 
 // ListFieldMappings 处理 GET /api/field-mapping?project_id=。
 func (h *Handler) ListFieldMappings(c *gin.Context) {
-	res, err := h.svc.ListFieldMappings(c.Request.Context(), idQuery(c, "project_id"))
+	p := principal(c)
+	res, err := h.svc.ListFieldMappings(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"))
 	if err != nil {
 		fail(c, err)
 		return

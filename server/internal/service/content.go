@@ -82,9 +82,12 @@ func (s *Service) UpdateGroup(ctx context.Context, userID uint64, typ int8, req 
 	return g, nil
 }
 
-// ListGroups 列出分组（type<0 不过滤类型）。
-func (s *Service) ListGroups(ctx context.Context, projectID uint64, typ int8) ([]model.Group, error) {
-	return s.repo.ListGroups(ctx, projectID, typ)
+// ListGroups 列出分组（groupType<0 不过滤类型）。P0-1：需项目读权限。
+func (s *Service) ListGroups(ctx context.Context, userID uint64, userType int8, projectID uint64, groupType int8) ([]model.Group, error) {
+	if err := s.ensureProjectPermission(ctx, userID, userType, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
+	return s.repo.ListGroups(ctx, projectID, groupType)
 }
 
 // ListDocGroups 文档分组树（B19 / Web 展示）：返回「含文档的分组 + 其祖先链」，
@@ -200,13 +203,23 @@ func (s *Service) UpdateApi(ctx context.Context, userID uint64, typ int8, req dt
 	return updated, nil
 }
 
-// GetApi 接口详情。
-func (s *Service) GetApi(ctx context.Context, id uint64) (*model.Api, error) {
-	return s.repo.GetApi(ctx, id)
+// GetApi 接口详情。P0-1：需所属项目读权限（此前任意登录用户可按 id 枚举）。
+func (s *Service) GetApi(ctx context.Context, userID uint64, userType int8, id uint64) (*model.Api, error) {
+	a, err := s.repo.GetApi(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureProjectPermission(ctx, userID, userType, a.ProjectID, model.PermQuery); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
-// ListApis 分页查询接口。
-func (s *Service) ListApis(ctx context.Context, q dto.ApiListQuery) (page.Result[model.Api], error) {
+// ListApis 分页查询接口。P0-1：需项目读权限。
+func (s *Service) ListApis(ctx context.Context, userID uint64, userType int8, q dto.ApiListQuery) (page.Result[model.Api], error) {
+	if err := s.ensureProjectPermission(ctx, userID, userType, q.ProjectID, model.PermQuery); err != nil {
+		return page.Result[model.Api]{}, err
+	}
 	pq := page.Query{PageNum: q.PageNum, PageSize: q.PageSize}
 	pq.Normalize()
 	items, total, err := s.repo.ListApis(ctx, q.ProjectID, q.GroupID, q.Deleted, q.Keyword, pq)
@@ -395,10 +408,13 @@ func (s *Service) UpdateDoc(ctx context.Context, userID uint64, typ int8, req dt
 	return d, nil
 }
 
-// GetDoc 文档详情（浏览数 +1）。
-func (s *Service) GetDoc(ctx context.Context, id uint64) (*model.Doc, error) {
+// GetDoc 文档详情（浏览数 +1）。P0-1：需所属项目读权限。
+func (s *Service) GetDoc(ctx context.Context, userID uint64, userType int8, id uint64) (*model.Doc, error) {
 	d, err := s.repo.GetDoc(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureProjectPermission(ctx, userID, userType, d.ProjectID, model.PermQuery); err != nil {
 		return nil, err
 	}
 	_ = s.repo.IncrDocView(ctx, id)
@@ -406,8 +422,11 @@ func (s *Service) GetDoc(ctx context.Context, id uint64) (*model.Doc, error) {
 	return d, nil
 }
 
-// ListDocs 分页查询文档。deleted=1 查回收站。
-func (s *Service) ListDocs(ctx context.Context, projectID, groupID uint64, keyword string, deleted int8, q page.Query) (page.Result[model.Doc], error) {
+// ListDocs 分页查询文档。deleted=1 查回收站。P0-1：需项目读权限。
+func (s *Service) ListDocs(ctx context.Context, userID uint64, userType int8, projectID, groupID uint64, keyword string, deleted int8, q page.Query) (page.Result[model.Doc], error) {
+	if err := s.ensureProjectPermission(ctx, userID, userType, projectID, model.PermQuery); err != nil {
+		return page.Result[model.Doc]{}, err
+	}
 	q.Normalize()
 	items, total, err := s.repo.ListDocs(ctx, projectID, groupID, keyword, deleted, q)
 	if err != nil {
@@ -534,8 +553,11 @@ func (s *Service) CreateFieldMapping(ctx context.Context, userID uint64, typ int
 	return fm, nil
 }
 
-// ListFieldMappings 列出项目字段映射。
-func (s *Service) ListFieldMappings(ctx context.Context, projectID uint64) ([]model.FieldMapping, error) {
+// ListFieldMappings 列出项目字段映射。P0-1：需项目读权限。
+func (s *Service) ListFieldMappings(ctx context.Context, userID uint64, userType int8, projectID uint64) ([]model.FieldMapping, error) {
+	if err := s.ensureProjectPermission(ctx, userID, userType, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
 	return s.repo.ListFieldMappings(ctx, projectID)
 }
 
