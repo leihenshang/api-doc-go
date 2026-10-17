@@ -91,6 +91,20 @@ type resolvedVar struct {
 // ================= 环境 =================
 
 // CreateVariableEnv 新建环境；项目首个环境自动成为默认环境。
+// logVarChange 变量/环境的变更流水（P0-7）：Web 写路径此前完全不写 change_log，
+// 客户端增量拉取永远收不到这类变更。ext_uid 为空（非同步实体）时跳过。
+func (s *Service) logVarChange(ctx context.Context, projectID uint64, entityType string, id uint64, extUID, op string, actor uint64) {
+	if extUID == "" {
+		return
+	}
+	// 显式带 ctx 的 tx：AppendChange 首参是 *gorm.DB，传 nil 会用不带 ctx 的 r.db（P1-4）
+	cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), projectID, entityType, extUID, op, actor, "")
+	if err != nil || cid == 0 {
+		return
+	}
+	_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), entityType, id, cid)
+}
+
 func (s *Service) CreateVariableEnv(ctx context.Context, userID uint64, typ int8, req dto.VariableEnvReq) (*model.VariableEnv, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -124,6 +138,7 @@ func (s *Service) CreateVariableEnv(ctx context.Context, userID uint64, typ int8
 		return nil, err
 	}
 	s.recordOp(ctx, env.ProjectID, userID, env.ID, model.LogObjectVariableEnv, "create", "环境:"+env.Name)
+	s.logVarChange(ctx, env.ProjectID, model.SyncTypeVarEnv, env.ID, env.ExtUID, "upsert", userID)
 	return env, nil
 }
 
@@ -163,6 +178,7 @@ func (s *Service) UpdateVariableEnv(ctx context.Context, userID uint64, typ int8
 		return nil, err
 	}
 	s.recordOp(ctx, env.ProjectID, userID, env.ID, model.LogObjectVariableEnv, "update", "环境:"+env.Name)
+	s.logVarChange(ctx, env.ProjectID, model.SyncTypeVarEnv, env.ID, env.ExtUID, "upsert", userID)
 	return env, nil
 }
 
@@ -183,6 +199,7 @@ func (s *Service) SetDefaultVariableEnv(ctx context.Context, userID uint64, typ 
 		return err
 	}
 	s.recordOp(ctx, env.ProjectID, userID, env.ID, model.LogObjectVariableEnv, "update", "默认环境:"+env.Name)
+	s.logVarChange(ctx, env.ProjectID, model.SyncTypeVarEnv, env.ID, env.ExtUID, "upsert", userID)
 	return nil
 }
 
@@ -234,6 +251,7 @@ func (s *Service) DeleteVariableEnv(ctx context.Context, userID uint64, typ int8
 		return err
 	}
 	s.recordOp(ctx, env.ProjectID, userID, env.ID, model.LogObjectVariableEnv, "delete", "环境:"+env.Name)
+	s.logVarChange(ctx, env.ProjectID, model.SyncTypeVarEnv, env.ID, env.ExtUID, "delete", userID)
 	return nil
 }
 
@@ -252,6 +270,7 @@ func (s *Service) CreateVariable(ctx context.Context, userID uint64, typ int8, r
 		return nil, err
 	}
 	s.recordOp(ctx, v.ProjectID, userID, v.ID, model.LogObjectVariable, "create", "变量:"+v.Name)
+	s.logVarChange(ctx, v.ProjectID, model.SyncTypeVariable, v.ID, v.ExtUID, "upsert", userID)
 	view := maskVariable(*v)
 	return &view, nil
 }
@@ -324,6 +343,7 @@ func (s *Service) UpdateVariable(ctx context.Context, userID uint64, typ int8, r
 		return nil, err
 	}
 	s.recordOp(ctx, next.ProjectID, userID, next.ID, model.LogObjectVariable, "update", "变量:"+next.Name)
+	s.logVarChange(ctx, next.ProjectID, model.SyncTypeVariable, next.ID, next.ExtUID, "upsert", userID)
 	view := maskVariable(*next)
 	return &view, nil
 }
@@ -346,6 +366,7 @@ func (s *Service) DeleteVariable(ctx context.Context, userID uint64, typ int8, i
 		return err
 	}
 	s.recordOp(ctx, v.ProjectID, userID, v.ID, model.LogObjectVariable, "delete", "变量:"+v.Name)
+	s.logVarChange(ctx, v.ProjectID, model.SyncTypeVariable, v.ID, v.ExtUID, "delete", userID)
 	return nil
 }
 
