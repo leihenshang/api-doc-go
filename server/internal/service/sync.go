@@ -123,152 +123,231 @@ func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, proj
 }
 
 // SyncSnapshot 全量分页。
+//
+// P2-26：改为 **DB 侧分页**。原来是「6 张表全量读进内存 → 拼成一个 rows 切片 → 按 offset/limit 切」，
+// 每翻一页都要重扫全量（O(页数 × N)），大项目（上万条接口）翻十几页就明显卡。
+// 现在按固定类型顺序（group → api → doc → example → variable_env → variable，与客户端
+// typeRank 一致）逐类型「计数 + 只取交集那一段」，单页代价只与 limit 相关。
+//
+// 引用的 uid（parent_uid / group_uid / api_uid / env_uid）也只针对**本页**的行批量反查，
+// 不被页大小以外的数据量拖累。
 func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, projectID uint64, offset, limit int) (*SyncSnapshotResp, error) {
-	// 越权读防护：快照返回项目全量 group/api/doc/响应示例原文
+	// 越权读防护：快照返回项目全量 group/api/doc/response sample 原文
 	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
 		limit = 200
 	}
-	type row struct {
-		typ     string
-		uid     string
-		deleted bool
-		rev     int64
-		payload json.RawMessage
-	}
-	var rows []row
-
-	groups, err := s.repo.ListGroupsAll(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	// P2-26：先把 id → ext_uid 一次性建成 map，后面所有「父分组 / 所属分组 / 所属接口 /
-	// 所属环境」的反查都走 map。此前每行一次单列查询，200 行快照就是 200+ 次往返。
-	groupUID := make(map[uint64]string, len(groups))
-	for _, g := range groups {
-		if g.ExtUID != "" {
-			groupUID[g.ID] = g.ExtUID
-		}
-	}
-	for _, g := range groups {
-		if g.ExtUID == "" {
-			continue
-		}
-		p := SyncPayload{Title: g.Title, Priority: g.Priority, Deleted: g.IsDeleted == model.IsDeletedYes}
-		p.PID = groupUID[g.PID]
-		b, _ := json.Marshal(p)
-		rows = append(rows, row{model.SyncTypeGroup, g.ExtUID, p.Deleted, g.LastChangeID, b})
-	}
-	apis, err := s.repo.ListApisAll(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	apiUID := make(map[uint64]string, len(apis))
-	for _, a := range apis {
-		if a.ExtUID != "" {
-			apiUID[a.ID] = a.ExtUID
-		}
-	}
-	for _, a := range apis {
-		if a.ExtUID == "" {
-			continue
-		}
-		// 与增量路径（loadPayload）同口径；快照含软删行，需要补 Deleted 标记。
-		p := s.apiSyncPayloadWith(ctx, &a, groupUID)
-		p.Deleted = a.IsDeleted == model.IsDeletedYes
-		b, _ := json.Marshal(p)
-		rows = append(rows, row{model.SyncTypeAPI, a.ExtUID, p.Deleted, a.LastChangeID, b})
-	}
-	docs, err := s.repo.ListDocsAll(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, d := range docs {
-		if d.ExtUID == "" {
-			continue
-		}
-		p := SyncPayload{Title: d.Title, Content: d.Content, Icon: d.Icon, Deleted: d.IsDeleted == model.IsDeletedYes}
-		p.GroupUID = groupUID[d.GroupID]
-		b, _ := json.Marshal(p)
-		rows = append(rows, row{model.SyncTypeDoc, d.ExtUID, p.Deleted, d.LastChangeID, b})
-	}
-	examples, err := s.repo.ListApiReturnSamplesAll(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, ex := range examples {
-		if ex.ExtUID == "" {
-			continue
-		}
-		p := s.exampleSyncPayloadWith(&ex, apiUID)
-		p.Deleted = ex.IsDeleted == model.IsDeletedYes
-		b, _ := json.Marshal(p)
-		rows = append(rows, row{model.SyncTypeExample, ex.ExtUID, p.Deleted, ex.LastChangeID, b})
-	}
-	// 变量类：环境先于变量（拓扑序，变量按 env_uid 挂接）。
-	varEnvs, err := s.repo.ListVarEnvsAll(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	envUID := make(map[uint64]string, len(varEnvs))
-	for _, ev := range varEnvs {
-		if ev.ExtUID != "" {
-			envUID[ev.ID] = ev.ExtUID
-		}
-	}
-	for _, ev := range varEnvs {
-		if ev.ExtUID == "" {
-			continue
-		}
-		p := SyncPayload{Name: ev.Name, Deleted: ev.IsDeleted == model.IsDeletedYes}
-		b, _ := json.Marshal(p)
-		rows = append(rows, row{model.SyncTypeVarEnv, ev.ExtUID, p.Deleted, ev.LastChangeID, b})
-	}
-	vars, err := s.repo.ListVariablesAll(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, v := range vars {
-		if v.ExtUID == "" {
-			continue
-		}
-		p := s.varSyncPayloadWith(&v, envUID)
-		p.Deleted = v.IsDeleted == model.IsDeletedYes
-		b, _ := json.Marshal(p)
-		rows = append(rows, row{model.SyncTypeVariable, v.ExtUID, p.Deleted, v.LastChangeID, b})
-	}
-
 	if offset < 0 {
 		offset = 0
 	}
-	if offset >= len(rows) {
-		cur, cerr := s.repo.LatestChangeID(ctx, projectID)
-		if cerr != nil {
-			return nil, cerr // P2-5：游标取不到就报错，不要回落 0
+
+	// 1) 各类型计数（决定每类在全局序列里的区间）
+	counts := make([]int64, 6)
+	counter := []func() (int64, error){
+		func() (int64, error) { return s.repo.CountGroupsAll(ctx, projectID) },
+		func() (int64, error) { return s.repo.CountApisAll(ctx, projectID) },
+		func() (int64, error) { return s.repo.CountDocsAll(ctx, projectID) },
+		func() (int64, error) { return s.repo.CountApiReturnSamplesAll(ctx, projectID) },
+		func() (int64, error) { return s.repo.CountVarEnvsAll(ctx, projectID) },
+		func() (int64, error) { return s.repo.CountVariablesAll(ctx, projectID) },
+	}
+	var total int64
+	for i, fn := range counter {
+		n, err := fn()
+		if err != nil {
+			return nil, err
 		}
-		return &SyncSnapshotResp{Cursor: cur, Offset: offset}, nil
+		counts[i] = n
+		total += n
 	}
-	end := offset + limit
-	hasMore := end < len(rows)
-	if hasMore {
-		rows = rows[offset:end]
-	} else {
-		rows = rows[offset:]
+
+	// 2) 逐类型取与本页区间相交的那一段
+	loaded, err := s.loadSnapshotSlice(ctx, projectID, offset, limit, counts)
+	if err != nil {
+		return nil, err
 	}
-	items := make([]SyncItem, 0, len(rows))
-	for _, r := range rows {
-		items = append(items, SyncItem{
-			Type: r.typ, UID: r.uid, Op: model.SyncOpUpsert, Payload: r.payload,
-			ItemRev: r.rev, Deleted: r.deleted,
-		})
+	rows, err := s.snapshotRows(ctx, projectID, loaded)
+	if err != nil {
+		return nil, err
 	}
+
+	// 3) 游标（P2-5：取不到就报错，不回落 0）
 	cur, cerr := s.repo.LatestChangeID(ctx, projectID)
 	if cerr != nil {
-		return nil, cerr // P2-5
+		return nil, cerr
 	}
-	return &SyncSnapshotResp{Cursor: cur, Items: items, HasMore: hasMore, Offset: offset}, nil
+	return &SyncSnapshotResp{
+		Cursor:  cur,
+		Items:   rows,
+		HasMore: int64(offset)+int64(len(rows)) < total,
+		Offset:  offset,
+	}, nil
+}
+
+// snapshotSlice 本页要读的各类型区间。
+type snapshotSlice struct {
+	groups   []model.Group
+	apis     []model.Api
+	docs     []model.Doc
+	examples []model.ApiReturnSample
+	varEnvs  []model.VariableEnv
+	vars     []model.Variable
+}
+
+// loadSnapshotSlice 按类型顺序把 [offset, offset+limit) 映射到各表的 [局部起点, 条数) 并读取。
+func (s *Service) loadSnapshotSlice(ctx context.Context, projectID uint64, offset, limit int, counts []int64) (*snapshotSlice, error) {
+	out := &snapshotSlice{}
+	skip := int64(offset)  // 还需跳过的全局行数
+	remain := int64(limit) // 本页还剩多少条名字额
+	take := func(count int64) (int, int) {
+		// 返回该类型的 (局部 offset, 条数)
+		if remain <= 0 || count <= 0 {
+			return 0, 0
+		}
+		if skip >= count {
+			skip -= count
+			return 0, 0
+		}
+		local := int(skip)
+		skip = 0
+		n := count - int64(local)
+		if n > remain {
+			n = remain
+		}
+		remain -= n
+		return local, int(n)
+	}
+
+	if off, n := take(counts[0]); n > 0 {
+		v, err := s.repo.ListGroupsPage(ctx, projectID, off, n)
+		if err != nil {
+			return nil, err
+		}
+		out.groups = v
+	}
+	if off, n := take(counts[1]); n > 0 {
+		v, err := s.repo.ListApisPage(ctx, projectID, off, n)
+		if err != nil {
+			return nil, err
+		}
+		out.apis = v
+	}
+	if off, n := take(counts[2]); n > 0 {
+		v, err := s.repo.ListDocsPage(ctx, projectID, off, n)
+		if err != nil {
+			return nil, err
+		}
+		out.docs = v
+	}
+	if off, n := take(counts[3]); n > 0 {
+		v, err := s.repo.ListApiReturnSamplesPage(ctx, projectID, off, n)
+		if err != nil {
+			return nil, err
+		}
+		out.examples = v
+	}
+	if off, n := take(counts[4]); n > 0 {
+		v, err := s.repo.ListVarEnvsPage(ctx, projectID, off, n)
+		if err != nil {
+			return nil, err
+		}
+		out.varEnvs = v
+	}
+	if off, n := take(counts[5]); n > 0 {
+		v, err := s.repo.ListVariablesPage(ctx, projectID, off, n)
+		if err != nil {
+			return nil, err
+		}
+		out.vars = v
+	}
+	return out, nil
+}
+
+// snapshotRows 把本页各类型的行转成同步条目；引用的 uid 只针对本页批量反查。
+func (s *Service) snapshotRows(ctx context.Context, projectID uint64, sl *snapshotSlice) ([]SyncItem, error) {
+	// 收集本页需要反查的 id
+	groupIDs := make([]uint64, 0, len(sl.groups)+len(sl.apis)+len(sl.docs))
+	apiIDs := make([]uint64, 0, len(sl.examples))
+	envIDs := make([]uint64, 0, len(sl.vars))
+	for _, g := range sl.groups {
+		if g.PID > 0 {
+			groupIDs = append(groupIDs, g.PID)
+		}
+	}
+	for _, a := range sl.apis {
+		if a.GroupID > 0 {
+			groupIDs = append(groupIDs, a.GroupID)
+		}
+	}
+	for _, d := range sl.docs {
+		if d.GroupID > 0 {
+			groupIDs = append(groupIDs, d.GroupID)
+		}
+	}
+	for _, ex := range sl.examples {
+		if ex.ApiID > 0 {
+			apiIDs = append(apiIDs, ex.ApiID)
+		}
+	}
+	for _, v := range sl.vars {
+		if v.EnvID > 0 {
+			envIDs = append(envIDs, v.EnvID)
+		}
+	}
+	groupUID, err := s.repo.GroupExtUIDMap(ctx, groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	apiUID, err := s.repo.ApiExtUIDMap(ctx, apiIDs)
+	if err != nil {
+		return nil, err
+	}
+	envUID, err := s.repo.VarEnvExtUIDMap(ctx, envIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]SyncItem, 0, len(sl.groups)+len(sl.apis)+len(sl.docs)+len(sl.examples)+len(sl.varEnvs)+len(sl.vars))
+	appendItem := func(t string, uid string, rev int64, p SyncPayload) {
+		if uid == "" {
+			return // 没有 ext_uid 的条目无法参与同步配对
+		}
+		b, _ := json.Marshal(p)
+		items = append(items, SyncItem{Type: t, UID: uid, Op: model.SyncOpUpsert, ItemRev: rev, Payload: b, Deleted: p.Deleted})
+	}
+
+	for _, g := range sl.groups {
+		p := SyncPayload{Title: g.Title, Priority: g.Priority, Deleted: g.IsDeleted == model.IsDeletedYes}
+		p.PID = groupUID[g.PID]
+		appendItem(model.SyncTypeGroup, g.ExtUID, g.LastChangeID, p)
+	}
+	for _, a := range sl.apis {
+		p := s.apiSyncPayloadWith(ctx, &a, groupUID)
+		p.Deleted = a.IsDeleted == model.IsDeletedYes
+		appendItem(model.SyncTypeAPI, a.ExtUID, a.LastChangeID, p)
+	}
+	for _, d := range sl.docs {
+		p := SyncPayload{Title: d.Title, Content: d.Content, Icon: d.Icon, Deleted: d.IsDeleted == model.IsDeletedYes}
+		p.GroupUID = groupUID[d.GroupID]
+		appendItem(model.SyncTypeDoc, d.ExtUID, d.LastChangeID, p)
+	}
+	for _, ex := range sl.examples {
+		p := s.exampleSyncPayloadWith(&ex, apiUID)
+		p.Deleted = ex.IsDeleted == model.IsDeletedYes
+		appendItem(model.SyncTypeExample, ex.ExtUID, ex.LastChangeID, p)
+	}
+	for _, ev := range sl.varEnvs {
+		p := SyncPayload{Name: ev.Name, Deleted: ev.IsDeleted == model.IsDeletedYes}
+		appendItem(model.SyncTypeVarEnv, ev.ExtUID, ev.LastChangeID, p)
+	}
+	for _, v := range sl.vars {
+		p := s.varSyncPayloadWith(&v, envUID)
+		p.Deleted = v.IsDeleted == model.IsDeletedYes
+		appendItem(model.SyncTypeVariable, v.ExtUID, v.LastChangeID, p)
+	}
+	return items, nil
 }
 
 // loadPayload 把实体序列化为同步载荷。
