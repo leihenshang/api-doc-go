@@ -18,7 +18,7 @@ for arg in "$@"; do
     esac
 done
 
-echo "== 1/7 gofmt（列出未格式化文件，有输出即失败） =="
+echo "== gofmt（列出未格式化文件，有输出即失败） =="
 unformatted="$(cd "$ROOT/server" && gofmt -l cmd internal)"
 if [[ -n "$unformatted" ]]; then
     echo "$unformatted"
@@ -26,30 +26,33 @@ if [[ -n "$unformatted" ]]; then
     exit 1
 fi
 
-echo "== 2/7 go build =="
+echo "== 三仓 share 版本一致性（P2-2） =="
+bash "$ROOT/scripts/share-version.sh"
+
+echo "== go build =="
 (cd "$ROOT/server" && go build ./...)
 
-echo "== 3/7 go vet =="
+echo "== go vet =="
 (cd "$ROOT/server" && go vet ./...)
 
-echo "== 4/7 go test $RACE + 覆盖率门禁 =="
+echo "== go test $RACE + 覆盖率门禁 =="
 RACE_ARG=""
 if [[ -z "$RACE" ]]; then
     RACE_ARG="--no-race"
 fi
 bash "$ROOT/scripts/cover-check.sh" $RACE_ARG
 
-echo "== 5/7 前端类型检查 + ESLint =="
+echo "== 前端类型检查 + ESLint =="
 (cd "$ROOT/web" && npm run --silent type-check && npm run --silent lint)
 
-echo "== 6/7 前端单测（vitest） =="
+echo "== 前端单测（vitest） =="
 (cd "$ROOT/web" && npm run --silent test)
 
 if [[ "$SKIP_BUILD" == "0" ]]; then
-    echo "== 7/7 前端构建 =="
+    echo "== 前端构建 =="
     (cd "$ROOT/web" && npm run --silent build)
 else
-    echo "== 7/7 已跳过前端构建（--skip-build） =="
+    echo "== 已跳过前端构建（--skip-build） =="
 fi
 
 echo "全部校验通过 ✓"
