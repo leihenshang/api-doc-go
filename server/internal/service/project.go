@@ -26,12 +26,16 @@ func (s *Service) CreateProject(ctx context.Context, creatorID uint64, req dto.P
 		return nil, err
 	}
 	p := &model.Project{Title: req.Title, Description: req.Description, Version: req.Version, Type: req.Type}
-	if err := s.repo.CreateProject(ctx, p); err != nil {
-		// 并发同名由唯一索引兜底，保留原始错误供排查
-		return nil, wrapBiz(errcode.CodeFailed, err, "创建项目失败，请稍后重试")
-	}
-	if err := s.repo.AddMember(ctx, &model.UserProject{
-		UserID: creatorID, ProjectID: p.ID, IsLeader: 1, Permission: model.PermAll,
+	// P1-1：项目与创建者成员必须同生共死 —— 中途失败否则会留下「没有成员的项目」，
+	// 之后谁都进不去（创建者也不是成员）。
+	if err := s.repo.Transaction(ctx, func(tx *repository.Repository) error {
+		if err := tx.CreateProject(ctx, p); err != nil {
+			// 并发同名由唯一索引兜底，保留原始错误供排查
+			return wrapBiz(errcode.CodeFailed, err, "创建项目失败，请稍后重试")
+		}
+		return tx.AddMember(ctx, &model.UserProject{
+			UserID: creatorID, ProjectID: p.ID, IsLeader: 1, Permission: model.PermAll,
+		})
 	}); err != nil {
 		return nil, err
 	}
