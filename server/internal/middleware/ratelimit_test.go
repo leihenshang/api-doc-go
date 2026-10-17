@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"apidoc/internal/pkg/errcode"
 
@@ -104,5 +105,60 @@ func TestClientIP(t *testing.T) {
 	c.Request.Header.Set("X-Real-IP", "198.51.100.9")
 	if ip := ClientIP(c); ip != "198.51.100.9" {
 		t.Fatalf("应取 X-Real-IP，got %q", ip)
+	}
+}
+
+// TestRateLimiterBoundedEntries P1-11：X-Forwarded-For 是客户端可控的，
+// 大量伪造 IP 不能在窗口内把计数器 map 撑到无界。
+func TestRateLimiterBoundedEntries(t *testing.T) {
+	l := newRateLimiter(5)
+	l.maxEntries = 100
+	for i := 0; i < 10000; i++ {
+		l.allow("10.0." + strconv.Itoa(i/256) + "." + strconv.Itoa(i%256))
+	}
+	if got := len(l.hits); got > l.maxEntries+1 { // +1 = 溢出桶
+		t.Fatalf("计数器条目数应被上限约束，got %d（上限 %d）", got, l.maxEntries)
+	}
+	// 溢出桶也要真的限流：否则「换 IP」等于绕过限流。
+	blocked := false
+	for i := 0; i < 50; i++ {
+		if !l.allow("172.16.0." + strconv.Itoa(i)) {
+			blocked = true
+			break
+		}
+	}
+	if !blocked {
+		t.Fatal("达到条目上限后新 IP 必须落进溢出桶并受限")
+	}
+}
+
+// TestRateLimiterWindowReset 窗口过期后重新放行，且过期的键会被清理。
+func TestRateLimiterWindowReset(t *testing.T) {
+	l := newRateLimiter(2)
+	now := time.Now()
+	l.nowFunc = func() time.Time { return now }
+	if !l.allow("1.1.1.1") || !l.allow("1.1.1.1") {
+		t.Fatal("窗口内前两次应放行")
+	}
+	if l.allow("1.1.1.1") {
+		t.Fatal("窗口内第三次应被限流")
+	}
+	// 推进到下一窗口：应当重新放行，并顺带 GC 掉旧窗口
+	now = now.Add(2 * time.Minute)
+	if !l.allow("1.1.1.1") {
+		t.Fatal("新窗口应重新放行")
+	}
+	if got := len(l.hits); got != 1 {
+		t.Fatalf("过期窗口应被清理，got %d 条", got)
+	}
+}
+
+// TestRateLimiterDisabled limit<=0 时一律放行。
+func TestRateLimiterDisabled(t *testing.T) {
+	l := newRateLimiter(0)
+	for i := 0; i < 100; i++ {
+		if !l.allow("any") {
+			t.Fatal("limit<=0 应不限制")
+		}
 	}
 }

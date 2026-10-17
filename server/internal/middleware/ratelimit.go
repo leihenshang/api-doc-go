@@ -22,7 +22,18 @@ type rateLimiter struct {
 	limit   int
 	lastGC  time.Time
 	nowFunc func() time.Time
+	// maxEntries 键数量上限：X-Forwarded-For 是客户端可控的，来 100 万个不同 IP
+	// 就能在 1 分钟窗口内把 map 撑到 100 万条（P1-11 的内存放大型 DoS）。
+	// 到达上限后新 IP 全部折算到 overflowKey 这一条桶里——伪造源 IP 绕不过限流，
+	// 正常用户也不会因为别人刷而立刻被误伤。
+	maxEntries  int
+	overflowKey string
 }
+
+const (
+	defaultMaxRateEntries = 10000
+	overflowRateKey       = "__overflow__"
+)
 
 type window struct {
 	start time.Time
@@ -31,7 +42,10 @@ type window struct {
 
 // newRateLimiter 构造限流器；limit <= 0 表示不限制（中间件直接放行）。
 func newRateLimiter(limit int) *rateLimiter {
-	return &rateLimiter{hits: map[string]*window{}, limit: limit, nowFunc: time.Now}
+	return &rateLimiter{
+		hits: map[string]*window{}, limit: limit, nowFunc: time.Now,
+		maxEntries: defaultMaxRateEntries, overflowKey: overflowRateKey,
+	}
 }
 
 // allow 记录一次请求并返回是否放行。
@@ -51,6 +65,22 @@ func (l *rateLimiter) allow(key string) bool {
 			}
 		}
 		l.lastGC = now
+		// 全是新窗口时 GC 清不掉，这里再按上限硬裁一次（多删几条比无限涨好）。
+		if len(l.hits) > l.maxEntries {
+			for k := range l.hits {
+				if len(l.hits) <= l.maxEntries {
+					break
+				}
+				if k != key {
+					delete(l.hits, k)
+				}
+			}
+		}
+	}
+
+	// 键数量到顶：新 IP 折算进溢出桶，既不让内存无界增长，也不给「换 IP 绕过限流」留口子。
+	if _, exists := l.hits[key]; !exists && l.maxEntries > 0 && len(l.hits) >= l.maxEntries {
+		key = l.overflowKey
 	}
 
 	w, ok := l.hits[key]
