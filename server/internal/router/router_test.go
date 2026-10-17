@@ -217,3 +217,59 @@ func itoa(n uint64) string {
 	}
 	return string(buf[i:])
 }
+
+// TestVersionedPrefixAndLegacyCompat P2-27：/api/v1 是新的正式前缀（接口实体在 /item），
+// 历史路径 /api/... 必须继续可用（桌面端已发布版本还在用），两边指向同一套 handler。
+func TestVersionedPrefixAndLegacyCompat(t *testing.T) {
+	t.Parallel()
+	engine, svc := newTestEngine(t)
+	ctx := t.Context()
+	if _, err := svc.InitAdmin(ctx, "admin", "admin123"); err != nil {
+		t.Fatalf("InitAdmin: %v", err)
+	}
+	// v1 登录
+	out, code := do(t, engine, http.MethodPost, "/api/v1/user/login", "",
+		map[string]any{"name": "admin", "pwd": "admin123"})
+	token, _ := mustOK(t, out, code, "v1 登录").(map[string]any)["token"].(string)
+	if token == "" {
+		t.Fatal("v1 登录未返回 token")
+	}
+
+	// v1 建项目 / 分组 / 接口（接口实体走 /item）
+	out, code = do(t, engine, http.MethodPost, "/api/v1/project", token, map[string]any{"title": "v1 项目"})
+	projID := uint64(mustOK(t, out, code, "v1 建项目").(map[string]any)["id"].(float64))
+
+	out, code = do(t, engine, http.MethodPost, "/api/v1/group", token, map[string]any{
+		"project_id": projID, "title": "用户", "type": 1,
+	})
+	mustOK(t, out, code, "v1 建分组")
+
+	out, code = do(t, engine, http.MethodPost, "/api/v1/item", token, map[string]any{
+		"project_id": projID, "api_name": "列表", "http_method_type": "GET", "url": "/v1/user",
+	})
+	mustOK(t, out, code, "v1 建接口")
+
+	// v1 能列出来
+	out, code = do(t, engine, http.MethodGet, "/api/v1/item?project_id="+itoa(projID), token, nil)
+	v1List := mustOK(t, out, code, "v1 接口列表").(map[string]any)
+	if items, _ := v1List["items"].([]any); len(items) != 1 {
+		t.Fatalf("v1 列表应有 1 条，got %+v", v1List)
+	}
+
+	// 旧路径必须仍然可用：/api/api（历史双 api 段）与 /api/group
+	out, code = do(t, engine, http.MethodGet, "/api/api?project_id="+itoa(projID), token, nil)
+	legacy := mustOK(t, out, code, "历史 /api/api 列表").(map[string]any)
+	if items, _ := legacy["items"].([]any); len(items) != 1 {
+		t.Fatalf("历史路径应返回同一批数据，got %+v", legacy)
+	}
+	out, code = do(t, engine, http.MethodGet, "/api/group?project_id="+itoa(projID), token, nil)
+	mustOK(t, out, code, "历史 /api/group 列表")
+
+	// 未带 token 时两套前缀都必须 34，不能因为双挂载而漏掉鉴权
+	for _, p := range []string{"/api/v1/item?project_id=1", "/api/api?project_id=1"} {
+		out, _ = do(t, engine, http.MethodGet, p, "", nil)
+		if out.Code != errcode.CodeUnauthorized {
+			t.Fatalf("%s 未带 token 应返回 34，got %d", p, out.Code)
+		}
+	}
+}

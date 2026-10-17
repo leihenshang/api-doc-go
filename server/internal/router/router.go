@@ -25,30 +25,39 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	// 全局限流（每 IP 每分钟，0 = 关闭）：防止误用与暴力刷接口。
 	engine.Use(middleware.RateLimit(cfg.Security.RateLimitPerMin))
 
-	// 公共接口（无需登录）；登录/注册额外套一层更严格的限流（防爆破）。
-	authLimit := middleware.RateLimit(cfg.Security.AuthRateLimitPerMin)
-	engine.POST("/api/user/login", authLimit, h.Login)
-	engine.POST("/api/user/register", authLimit, h.Register)
-	// 查重供注册页未登录时调用。
-	engine.GET("/api/user/check-repeat", h.CheckRepeat)
-
 	// 上传目录静态服务：白名单扩展名 + 固定 Content-Type + nosniff（替代 engine.Static）。
 	engine.GET("/uploads/*path", h.ServeUpload)
-
-	// 免登录：只读分享数据（令牌校验 + 有效期）与 Mock 服务（前端联调用）。
-	engine.GET("/api/share/:token", h.SharePayload)
+	// Mock 服务（前端联调用，按项目 id 直接对外开放）。
 	engine.Any("/mock/:project_id/*path", h.Mock)
-	// 能力协商（客户端连接时校验协议兼容性）。
-	engine.GET("/api/meta", h.Meta)
 
-	// 受保护接口（JWT 或 PAT）。
-	auth := engine.Group("/api", middleware.AuthOrPAT(cfg.JWT.Secret, h.VerifyPAT))
-	registerRoutes(auth, h)
+	// 两套前缀同时挂载（P2-27）：
+	//   /api/v1/...  新代码与 Web 前端用，带版本号，未来破坏性升级有地方安放；
+	//   /api/...     历史路径，桌面端已发布版本仍在用，不能拆。
+	// v1 里「接口实体」的路径段是 /item（旧的是 /api/api，读起来像重复了一层）。
+	for _, m := range []struct{ prefix, entitySeg string }{
+		{"/api", "api"},     // 历史兼容
+		{"/api/v1", "item"}, // 版本化
+	} {
+		// 公共接口（无需登录）；登录/注册额外套一层更严格的限流（防爆破）。
+		authLimit := middleware.RateLimit(cfg.Security.AuthRateLimitPerMin)
+		engine.POST(m.prefix+"/user/login", authLimit, h.Login)
+		engine.POST(m.prefix+"/user/register", authLimit, h.Register)
+		// 查重供注册页未登录时调用。
+		engine.GET(m.prefix+"/user/check-repeat", h.CheckRepeat)
+		// 免登录：只读分享数据（令牌校验 + 有效期）。
+		engine.GET(m.prefix+"/share/:token", h.SharePayload)
+		// 能力协商（客户端连接时校验协议兼容性）。
+		engine.GET(m.prefix+"/meta", h.Meta)
+
+		// 受保护接口（JWT 或 PAT）。
+		auth := engine.Group(m.prefix, middleware.AuthOrPAT(cfg.JWT.Secret, h.VerifyPAT))
+		registerRoutes(auth, h, m.entitySeg)
+	}
 	return engine
 }
 
 // registerRoutes 注册需鉴权的路由。
-func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
+func registerRoutes(g *gin.RouterGroup, h *handler.Handler, entitySeg string) {
 	// 用户
 	{
 		u := g.Group("/user")
@@ -95,9 +104,9 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 	{
 		g.POST("/sort", h.SortNodes)
 	}
-	// 接口文档
+	// 接口文档（路径段随挂载前缀变化：历史 /api/api，v1 /api/v1/item）
 	{
-		a := g.Group("/api")
+		a := g.Group("/" + entitySeg)
 		a.POST("", h.CreateApi)
 		a.GET("", h.ListApis)
 		a.GET("/detail", h.GetApi)

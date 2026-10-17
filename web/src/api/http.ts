@@ -6,7 +6,8 @@ import { ErrCode } from '@/types/api'
 import axios, { type AxiosInstance } from 'axios'
 
 const http: AxiosInstance = axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+    // 统一走版本化前缀（P2-27）：新增破坏性接口时用 /api/v2，旧版继续跑 /api/v1。
+    baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
     timeout: 15000,
 })
 

@@ -32,21 +32,21 @@ export function deleteGroup(id: number): Promise<ApiResponse<null>> {
 
 // ---- 接口 ----
 export function createApi(payload: Record<string, unknown>): Promise<ApiResponse<ApiDoc>> {
-  return post<ApiDoc>('/api', payload)
+  return post<ApiDoc>('/item', payload)
 }
 export function listApis(params: { project_id: number; group_id?: number; deleted?: number; keyword?: string; page_num?: number; page_size?: number }): Promise<ApiResponse<Page<ApiDoc>>> {
-  return get<Page<ApiDoc>>('/api', params)
+  return get<Page<ApiDoc>>('/item', params)
 }
 export function getApi(id: number): Promise<ApiResponse<ApiDoc>> {
-  return get<ApiDoc>('/api/detail', { id })
+  return get<ApiDoc>('/item/detail', { id })
 }
 export function updateApi(
   payload: Record<string, unknown> & { id: number; expected_update_time?: string },
 ): Promise<ApiResponse<ApiDoc>> {
-  return put<ApiDoc>('/api', payload)
+  return put<ApiDoc>('/item', payload)
 }
 export function deleteApi(id: number): Promise<ApiResponse<null>> {
-  return del<null>('/api', { id })
+  return del<null>('/item', { id })
 }
 
 // ---- 接口响应示例（多示例） ----
@@ -62,13 +62,13 @@ export interface ApiReturnSample {
 export function saveApiSample(payload: {
   id?: number; api_id: number; name: string; sample_text?: string; status?: number; content_type?: string; seq?: number,
 }): Promise<ApiResponse<ApiReturnSample>> {
-  return post<ApiReturnSample>('/api/sample', payload)
+  return post<ApiReturnSample>('/item/sample', payload)
 }
 export function listApiSamples(apiId: number): Promise<ApiResponse<ApiReturnSample[]>> {
-  return get<ApiReturnSample[]>('/api/samples', { api_id: apiId })
+  return get<ApiReturnSample[]>('/item/samples', { api_id: apiId })
 }
 export function deleteApiSample(id: number): Promise<ApiResponse<null>> {
-  return del<null>('/api/sample', { id })
+  return del<null>('/item/sample', { id })
 }
 /** 导入结果：imported 成功条数、skipped 已存在跳过条数、failed 解析失败条数与明细。 */
 export interface ImportResult {
@@ -97,31 +97,31 @@ export interface RestoreResult {
 }
 
 export function restoreApi(id: number): Promise<ApiResponse<RestoreResult>> {
-  return post<RestoreResult>('/api/restore', { id })
+  return post<RestoreResult>('/item/restore', { id })
 }
 
 /** 回收站批量还原：服务端会把已删除的所属分组（含祖先链）一并恢复。 */
 export function restoreApisBatch(ids: number[]): Promise<ApiResponse<RestoreResult>> {
-  return post<RestoreResult>('/api/restore-batch', { ids })
+  return post<RestoreResult>('/item/restore-batch', { ids })
 }
 
 /** 回收站批量彻底删除（不可撤销）。 */
 export function purgeApisBatch(ids: number[]): Promise<ApiResponse<{ purged: number }>> {
-  return post<{ purged: number }>('/api/purge-batch', { ids })
+  return post<{ purged: number }>('/item/purge-batch', { ids })
 }
 export function exportOpenApi(projectId: number, groupId = 0): Promise<ApiResponse<Record<string, unknown>>> {
-  return get<Record<string, unknown>>('/api/export', { project_id: projectId, group_id: groupId })
+  return get<Record<string, unknown>>('/item/export', { project_id: projectId, group_id: groupId })
 }
 /** 导出 Postman Collection v2.1（分组 → 文件夹）。 */
 export function exportPostman(projectId: number, groupId = 0): Promise<ApiResponse<Record<string, unknown>>> {
-  return get<Record<string, unknown>>('/api/export-postman', { project_id: projectId, group_id: groupId })
+  return get<Record<string, unknown>>('/item/export-postman', { project_id: projectId, group_id: groupId })
 }
 /** 导入 Postman 集合（JSON 文本）。 */
 export function importPostman(projectId: number, doc: unknown, strategy = 'append'): Promise<ApiResponse<ImportResult>> {
   return post<ImportResult>(`/api/import-postman?project_id=${projectId}&strategy=${strategy}`, doc)
 }
 export function getCurl(id: number, envId = 0, resolve = false): Promise<ApiResponse<{ curl: string }>> {
-  return get<{ curl: string }>('/api/curl', { id, env_id: envId, resolve: resolve ? 1 : 0 })
+  return get<{ curl: string }>('/item/curl', { id, env_id: envId, resolve: resolve ? 1 : 0 })
 }
 /** 请求代码片段：lang = curl | fetch | axios | go | python；resolve=1 时由服务端用当前环境变量值替换 {{占位符}}。 */
 export function getCode(
@@ -130,7 +130,7 @@ export function getCode(
   envId = 0,
   resolve = false,
 ): Promise<ApiResponse<{ lang: string; code: string; resolved: boolean }>> {
-  return get<{ lang: string; code: string; resolved: boolean }>('/api/code', {
+  return get<{ lang: string; code: string; resolved: boolean }>('/item/code', {
     api_id: apiId,
     lang,
     env_id: envId,
