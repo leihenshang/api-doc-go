@@ -285,6 +285,7 @@ export default {
     hintCreateV: 'Click “New doc” at the top right',
   },
   docDetail: {
+    group: 'Group',
     loadFailed: 'Failed to load the document',
     icon: 'Icon',
     iconPlaceholder: 'emoji or image URL (default icon if empty)',

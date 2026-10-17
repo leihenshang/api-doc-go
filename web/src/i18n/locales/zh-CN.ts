@@ -286,6 +286,7 @@ export default {
     hintCreateV: '点击右上角「创建文档」',
   },
   docDetail: {
+    group: '分组',
     loadFailed: '文档加载失败',
     icon: '图标',
     iconPlaceholder: 'emoji 或图片 URL（留空用默认图标）',

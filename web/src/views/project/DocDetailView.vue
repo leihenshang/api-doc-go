@@ -42,8 +42,20 @@ const loading = ref(false)
 const saving = ref(false)
 const editing = ref(route.query.edit === '1')
 /** icon：文档图标（emoji 或上传后的图片 URL）。 */
-const form = reactive({ title: '', content: '', icon: '' })
+const form = reactive({ title: '', content: '', icon: '', group_id: 0 })
 const iconUploading = ref(false)
+
+/** B19：文档所属分组下拉（未分组 + 文档分组树里的分组）。 */
+const groupOptions = computed(() => [
+    { label: t('tree.ungrouped'), value: 0 },
+    ...project.docGroups.map((g) => ({ label: g.title, value: g.id })),
+])
+/** 查看态的分组名（找不到时回退「未分组」）。 */
+const groupLabel = computed(() => {
+    const id = doc.value?.group_id ?? 0
+    if (!id) return t('tree.ungrouped')
+    return project.docGroups.find((g) => g.id === id)?.title ?? t('tree.ungrouped')
+})
 
 /** 上传文档图标：复用图床接口 /file/upload，成功后回填图片 URL。 */
 async function onIconFile(list: UploadFileInfo[]): Promise<void> {
@@ -76,7 +88,10 @@ async function load(): Promise<void> {
             return
         }
         doc.value = res.data
-        Object.assign(form, { title: res.data.title, content: res.data.content, icon: res.data.icon ?? '' })
+        Object.assign(form, {
+            title: res.data.title, content: res.data.content,
+            icon: res.data.icon ?? '', group_id: res.data.group_id ?? 0,
+        })
     } finally {
         loading.value = false
     }
@@ -112,6 +127,8 @@ async function save(): Promise<void> {
             title: form.title.trim(),
             content: form.content,
             icon: form.icon.trim(),
+            // B19：UpdateDoc 是整体覆盖语义，必须带上 group_id，否则保存会把文档挪到未分组。
+            group_id: form.group_id,
             // 乐观锁：他人已保存时服务端会拒绝覆盖。
             expected_update_time: doc.value?.update_time ?? '',
         })
@@ -229,6 +246,10 @@ onMounted(() => {
                 <template v-if="editing">
                     <n-form label-placement="left" label-width="56">
                         <n-form-item :label="t('doc.titleField')"><n-input v-model:value="form.title" /></n-form-item>
+                        <n-form-item :label="t('docDetail.group')">
+                            <n-select v-model:value="form.group_id" :options="groupOptions" size="small"
+                                class="group-select" data-testid="doc.groupPicker" />
+                        </n-form-item>
                         <n-form-item :label="t('docDetail.icon')">
                             <div class="icon-row">
                                 <img v-if="isImageIcon(form.icon)" class="icon-preview-img" :src="form.icon" alt="" />
@@ -253,6 +274,8 @@ onMounted(() => {
                     </h1>
                     <p class="doc-meta">
                         {{ t('docDetail.author') }}:{{ doc ? nameOf(doc.user_id) : '—' }}
+                        <span class="sep">·</span>
+                        <span data-testid="doc.groupBadge">{{ groupLabel }}</span>
                         <span class="sep">·</span>{{ fmtTime(doc?.update_time) }}
                         <span class="sep">·</span>{{ t('docDetail.views', { n: doc?.view_count ?? 0 }) }}
                         <span class="sep">·</span>{{ t('docDetail.likes', { n: doc?.like_count ?? 0 }) }}
@@ -266,6 +289,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.group-select {
+    width: 240px;
+}
+
 .doc-card {
     max-width: 1080px;
 }
