@@ -29,7 +29,8 @@ func (h *Handler) CreateVariableEnv(c *gin.Context) {
 
 // ListVariableEnvs 处理 GET /api/variable-env?project_id=。
 func (h *Handler) ListVariableEnvs(c *gin.Context) {
-	res, err := h.svc.ListVariableEnvs(c.Request.Context(), idQuery(c, "project_id"))
+	p := principal(c)
+	res, err := h.svc.ListVariableEnvs(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"))
 	if err != nil {
 		fail(c, err)
 		return

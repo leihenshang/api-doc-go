@@ -241,7 +241,7 @@ func TestVariableEnvDeleteGuard(t *testing.T) {
 	if err := f.s.DeleteVariableEnv(f.ctx, f.admin.ID, f.admin.Type, f.dev.ID); err != nil {
 		t.Fatalf("DeleteVariableEnv after cleanup: %v", err)
 	}
-	envs, err := f.s.ListVariableEnvs(f.ctx, f.proj.ID)
+	envs, err := f.s.ListVariableEnvs(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID)
 	if err != nil {
 		t.Fatalf("ListVariableEnvs: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestVariableEnvDeleteGuard(t *testing.T) {
 	if err := f.s.DeleteVariableEnv(f.ctx, f.admin.ID, f.admin.Type, f.test.ID); err != nil {
 		t.Fatalf("删除唯一的默认环境应放行: %v", err)
 	}
-	envs, err = f.s.ListVariableEnvs(f.ctx, f.proj.ID)
+	envs, err = f.s.ListVariableEnvs(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID)
 	if err != nil {
 		t.Fatalf("ListVariableEnvs: %v", err)
 	}

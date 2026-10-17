@@ -142,10 +142,13 @@ func (s *Service) CreateVariableEnv(ctx context.Context, userID uint64, typ int8
 	return env, nil
 }
 
-// ListVariableEnvs 列出项目环境（默认环境优先）。
-func (s *Service) ListVariableEnvs(ctx context.Context, projectID uint64) ([]model.VariableEnv, error) {
+// ListVariableEnvs 列出项目环境（默认环境优先）。P0-1：需项目读权限。
+func (s *Service) ListVariableEnvs(ctx context.Context, userID uint64, typ int8, projectID uint64) ([]model.VariableEnv, error) {
 	if projectID == 0 {
 		return nil, newBiz(errcode.CodeParamError, "缺少 project_id")
+	}
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
 	}
 	return s.repo.ListVariableEnvs(ctx, projectID)
 }
@@ -277,6 +280,10 @@ func (s *Service) CreateVariable(ctx context.Context, userID uint64, typ int8, r
 
 // ListVariables 列出变量；withValue=true 且具备写权限时回明文（供编辑回显，敏感值也回明文并记日志）。
 func (s *Service) ListVariables(ctx context.Context, userID uint64, typ int8, q dto.VariableListQuery, withValue bool) ([]VarView, error) {
+	// P0-1：变量列表含名称/值/所属接口，非项目成员不得读取（此前只对「明文」做了权限判断）
+	if err := s.ensureProjectPermission(ctx, userID, typ, q.ProjectID, model.PermQuery); err != nil {
+		return nil, err
+	}
 	items, err := s.repo.ListVariables(ctx, repository.VariableFilter{
 		ProjectID: q.ProjectID, Scope: q.Scope, ApiID: q.ApiID, EnvID: q.EnvID, Keyword: q.Keyword,
 	})
