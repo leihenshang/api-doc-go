@@ -550,10 +550,15 @@ func (s *Service) SyncPush(ctx context.Context, userID uint64, typ int8, req *Sy
 			continue
 		}
 		res := s.applyOp(ctx, userID, req, op, writeDisabled)
-		_ = s.repo.SaveSyncOp(ctx, &model.SyncOp{
+		// P1-2：幂等记录写入失败不能吞 —— 记录没落库意味着重放时不会命中幂等，
+		// 同一 op 会被再次应用（重复导入/重复删除）。失败时把该条标为 rejected 并保留原因。
+		if err := s.repo.SaveSyncOp(ctx, &model.SyncOp{
 			OpID: op.OpID, ProjectID: req.ProjectID,
 			Status: res.Status, ItemRev: res.ItemRev, Reason: res.Reason,
-		})
+		}); err != nil && res.Status == "ok" {
+			res.Status = "rejected"
+			res.Reason = "idempotency record failed"
+		}
 		out = append(out, res)
 	}
 	cur, _ := s.repo.LatestChangeID(ctx, req.ProjectID)
@@ -665,9 +670,9 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(nil, req.ProjectID, model.SyncTypeGroup, op.UID, model.SyncOpUpsert, userID, device)
+		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeGroup, op.UID, model.SyncOpUpsert, userID, device)
 		if err == nil {
-			_ = s.repo.SetLastChange(nil, model.SyncTypeGroup, e.ID, cid)
+			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeGroup, e.ID, cid)
 			e.LastChangeID = cid
 		}
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
@@ -701,9 +706,9 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(nil, req.ProjectID, model.SyncTypeAPI, op.UID, model.SyncOpUpsert, userID, device)
+		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeAPI, op.UID, model.SyncOpUpsert, userID, device)
 		if err == nil {
-			_ = s.repo.SetLastChange(nil, model.SyncTypeAPI, e.ID, cid)
+			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeAPI, e.ID, cid)
 			e.LastChangeID = cid
 		}
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
@@ -736,9 +741,9 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(nil, req.ProjectID, model.SyncTypeDoc, op.UID, model.SyncOpUpsert, userID, device)
+		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeDoc, op.UID, model.SyncOpUpsert, userID, device)
 		if err == nil {
-			_ = s.repo.SetLastChange(nil, model.SyncTypeDoc, e.ID, cid)
+			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeDoc, e.ID, cid)
 			e.LastChangeID = cid
 		}
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
@@ -771,9 +776,9 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(nil, req.ProjectID, model.SyncTypeExample, op.UID, model.SyncOpUpsert, userID, device)
+		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeExample, op.UID, model.SyncOpUpsert, userID, device)
 		if err == nil {
-			_ = s.repo.SetLastChange(nil, model.SyncTypeExample, e.ID, cid)
+			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeExample, e.ID, cid)
 			e.LastChangeID = cid
 		}
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
@@ -798,9 +803,9 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(nil, req.ProjectID, model.SyncTypeVarEnv, op.UID, model.SyncOpUpsert, userID, device)
+		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeVarEnv, op.UID, model.SyncOpUpsert, userID, device)
 		if err == nil {
-			_ = s.repo.SetLastChange(nil, model.SyncTypeVarEnv, e.ID, cid)
+			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeVarEnv, e.ID, cid)
 			e.LastChangeID = cid
 		}
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
@@ -840,9 +845,9 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.repo.AppendChange(nil, req.ProjectID, model.SyncTypeVariable, op.UID, model.SyncOpUpsert, userID, device)
+		cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, model.SyncTypeVariable, op.UID, model.SyncOpUpsert, userID, device)
 		if err == nil {
-			_ = s.repo.SetLastChange(nil, model.SyncTypeVariable, e.ID, cid)
+			_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), model.SyncTypeVariable, e.ID, cid)
 			e.LastChangeID = cid
 		}
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: e.LastChangeID}
@@ -914,9 +919,9 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 	default:
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 	}
-	cid, err := s.repo.AppendChange(nil, req.ProjectID, op.Type, op.UID, model.SyncOpDelete, userID, device)
+	cid, err := s.repo.AppendChange(s.repo.DB().WithContext(ctx), req.ProjectID, op.Type, op.UID, model.SyncOpDelete, userID, device)
 	if err == nil {
-		_ = s.repo.SetLastChange(nil, op.Type, id, cid)
+		_ = s.repo.SetLastChange(s.repo.DB().WithContext(ctx), op.Type, id, cid)
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 	}
 	return SyncOpOut{OpID: op.OpID, Status: "ok"}

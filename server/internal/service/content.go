@@ -17,16 +17,17 @@ import (
 // ---- 分组 ----
 
 // recordChange 在 Web 写路径落变更流水（S3：覆盖 Web 与 sync 两个入口）。
+// P1-4：变更流水属审计数据，请求取消也应尽量落库，故用独立 context（不用请求 ctx）。
 // ext_uid 为空时自动生成，保证客户端能按 uid 配对。
 func (s *Service) recordChange(entityType, extUID string, projectID uint64, id uint64, op string, actor uint64) {
 	if extUID == "" {
 		return
 	}
-	cid, err := s.repo.AppendChange(nil, projectID, entityType, extUID, op, actor, "web")
+	cid, err := s.repo.AppendChange(s.repo.DB().WithContext(context.Background()), projectID, entityType, extUID, op, actor, "web")
 	if err != nil {
 		return
 	}
-	_ = s.repo.SetLastChange(nil, entityType, id, cid)
+	_ = s.repo.SetLastChange(s.repo.DB().WithContext(context.Background()), entityType, id, cid)
 }
 
 // ensureExtUID 条目缺 uid 时补一个（Web 新建也分配，便于后续同步）。
