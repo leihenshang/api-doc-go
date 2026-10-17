@@ -29,9 +29,9 @@ func IsSupportedLang(lang string) bool {
 // UserInfo 对应用户表 user_info。凭证改为 JWT，故不再存 token 字段。
 type UserInfo struct {
 	BaseModel
-	Name          string     `gorm:"column:name;size:100;not null;uniqueIndex:uk_name_email" json:"name"`
+	Name          string     `gorm:"column:name;size:100;not null;uniqueIndex:uk_name_email_active,where:is_deleted = 0" json:"name"`
 	Pwd           string     `gorm:"column:pwd;size:255;not null" json:"-"`
-	Email         string     `gorm:"column:email;size:100;uniqueIndex:uk_name_email" json:"email"`
+	Email         string     `gorm:"column:email;size:100;uniqueIndex:uk_name_email_active,where:is_deleted = 0" json:"email"`
 	Type          int8       `gorm:"column:type;not null;default:1" json:"type"`
 	State         int8       `gorm:"column:state;not null;default:1" json:"state"`
 	MobileNumber  string     `gorm:"column:mobile_number;size:11" json:"mobile_number"`

@@ -1,4 +1,4 @@
--- 0011_api_return_sample：接口多响应示例表，承载客户端保存的命名响应示例，支持同步。
+-- 0012_api_return_sample：接口多响应示例表，承载客户端保存的命名响应示例，支持同步。
 CREATE TABLE api_return_sample (
     id BIGSERIAL PRIMARY KEY,
     project_id BIGINT NOT NULL DEFAULT 0,

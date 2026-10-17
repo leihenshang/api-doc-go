@@ -1,4 +1,4 @@
--- 0012 回滚：移除客户端富字段列。
+-- 0013 回滚：移除客户端富字段列。
 ALTER TABLE "api" DROP COLUMN IF EXISTS "http_request_body_type";
 ALTER TABLE "api" DROP COLUMN IF EXISTS "http_request_body";
 ALTER TABLE "api" DROP COLUMN IF EXISTS "http_request_body_form";

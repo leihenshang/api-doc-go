@@ -1,4 +1,4 @@
--- 0013_var_sync_identity：variable / variable_env 加同步身份列（ext_uid / last_change_id），
+-- 0014_var_sync_identity：variable / variable_env 加同步身份列（ext_uid / last_change_id），
 -- 用于变量类同步（S16）；secret 变量值只同步客户端密文（enc:v1: 前缀），服务端只存不解析。
 -- 等价 SQLite 版 migrations/sqlite/0014_var_sync_identity.up.sql。
 ALTER TABLE "variable" ADD COLUMN "ext_uid" VARCHAR(64) NOT NULL DEFAULT '';
