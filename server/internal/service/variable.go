@@ -98,7 +98,7 @@ func (s *Service) logVarChange(ctx context.Context, projectID uint64, entityType
 		return
 	}
 	// 流水与 last_change_id 同事务写入（B-12/B-15），失败不回滚已落库的变量。
-	_, _ = s.appendChangeTx(ctx, entityType, extUID, projectID, id, op, actor, "")
+	_, _ = s.appendChangeTx(ctx, nil, entityType, extUID, projectID, id, op, actor, "")
 }
 
 func (s *Service) CreateVariableEnv(ctx context.Context, userID uint64, typ int8, req dto.VariableEnvReq) (*model.VariableEnv, error) {

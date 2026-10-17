@@ -16,7 +16,7 @@ func TestAppendChangeTxRollsBackOnSetLastChangeError(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
 
-	if _, err := s.appendChangeTx(ctx, "unknown_entity", "uid-rollback", 1, 1, model.SyncOpUpsert, 1, "test"); err == nil {
+	if _, err := s.appendChangeTx(ctx, nil, "unknown_entity", "uid-rollback", 1, 1, model.SyncOpUpsert, 1, "test"); err == nil {
 		t.Fatal("未知实体类型应让 SetLastChange 报错")
 	}
 

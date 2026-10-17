@@ -527,24 +527,48 @@ func (s *Service) SyncPush(ctx context.Context, userID uint64, typ int8, req *Sy
 			})
 			continue
 		}
-		res := s.applyOp(ctx, userID, req, op, writeDisabled)
-		// P1-2：幂等记录写入失败不能吞 —— 记录没落库意味着重放时不会命中幂等，
-		// 同一 op 会被再次应用（重复导入/重复删除）。失败时把该条标为 rejected 并保留原因。
-		if err := s.repo.SaveSyncOp(ctx, &model.SyncOp{
-			OpID: op.OpID, ProjectID: req.ProjectID,
-			Status: res.Status, ItemRev: res.ItemRev, Reason: res.Reason,
-		}); err != nil && res.Status == "ok" {
-			res.Status = "rejected"
-			res.Reason = "idempotency record failed"
-		}
-		out = append(out, res)
+		out = append(out, s.execOp(ctx, userID, req, op, writeDisabled))
 	}
 	cur, _ := s.repo.LatestChangeID(ctx, req.ProjectID)
 	return &SyncPushResp{Results: out, Cursor: cur}, nil
 }
 
+// errOpRollback 只用于在事务回调里请求回滚：业务结果已经写进 res，不需要真的返回错误。
+var errOpRollback = errors.New("sync: op rejected, rollback")
+
+// execOp 在**单个事务**内应用一条 op：实体写入 + 变更流水 + 修订号 + 幂等记录。
+//
+// P1-1：此前这三步各自独立提交。第 2 步失败会留下「数据已改但没有流水」的条目
+// （客户端永远拉不到），第 3 步失败会留下「没有幂等记录」的条目（重放时被再执行一遍）。
+// 现在任一步失败整条 op 回滚，客户端拿到 rejected 后重试是安全的。
+//
+// 业务性拒绝（conflict / rejected / readonly）同样回滚：它们已经写了一半的实体必须撤销，
+// 只有 ok 与 conflict 需要留下幂等记录（conflict 的重复推送应稳定返回 conflict，而不是重算）。
+func (s *Service) execOp(ctx context.Context, userID uint64, req *SyncPushReq, op SyncOpIn, writeDisabled bool) SyncOpOut {
+	var res SyncOpOut
+	err := s.repo.Transaction(ctx, func(tx *repository.Repository) error {
+		res = s.applyOp(ctx, tx, userID, req, op, writeDisabled)
+		if res.Status != "ok" && res.Status != "conflict" {
+			return errOpRollback
+		}
+		if err := tx.SaveSyncOp(ctx, &model.SyncOp{
+			OpID: op.OpID, ProjectID: req.ProjectID,
+			Status: res.Status, ItemRev: res.ItemRev, Reason: res.Reason,
+		}); err != nil {
+			res = SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "idempotency record failed"}
+			return errOpRollback
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errOpRollback) {
+		// 事务本身失败（提交出错、锁超时等）：不能谎报成功，让客户端重试。
+		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "transaction failed"}
+	}
+	return res
+}
+
 // applyOp 处理单条 push。
-func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, op SyncOpIn, writeDisabled bool) SyncOpOut {
+func (s *Service) applyOp(ctx context.Context, r *repository.Repository, userID uint64, req *SyncPushReq, op SyncOpIn, writeDisabled bool) SyncOpOut {
 	if writeDisabled {
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "readonly"}
 	}
@@ -563,7 +587,7 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 	var exists bool
 	switch op.Type {
 	case model.SyncTypeGroup:
-		e, lerr := s.repo.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -572,7 +596,7 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeAPI:
-		e, lerr := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindApiByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -581,7 +605,7 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeDoc:
-		e, lerr := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindDocByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -590,7 +614,7 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeExample:
-		e, lerr := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -599,7 +623,7 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeVarEnv:
-		e, lerr := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -608,7 +632,7 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 			exists, curRev = true, e.LastChangeID
 		}
 	case model.SyncTypeVariable:
-		e, lerr := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -625,9 +649,9 @@ func (s *Service) applyOp(ctx context.Context, userID uint64, req *SyncPushReq, 
 	}
 
 	if op.Op == model.SyncOpDelete {
-		return s.applyDelete(ctx, userID, req, op)
+		return s.applyDelete(ctx, r, userID, req, op)
 	}
-	return s.applyUpsert(ctx, userID, req, op)
+	return s.applyUpsert(ctx, r, userID, req, op)
 }
 
 // lookupRejected 查询实体出错时返回 rejected（P1-3）：
@@ -639,7 +663,7 @@ func lookupRejected(op SyncOpIn, err error) (SyncOpOut, bool) {
 	return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "lookup failed"}, true
 }
 
-func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushReq, op SyncOpIn) SyncOpOut {
+func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, userID uint64, req *SyncPushReq, op SyncOpIn) SyncOpOut {
 	var p SyncPayload
 	if len(op.Payload) > 0 {
 		// P0-3：解析失败必须拒收（rejected），不能用零值覆盖存量数据——
@@ -655,7 +679,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 
 	switch op.Type {
 	case model.SyncTypeGroup:
-		e, lerr := s.repo.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -667,7 +691,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		e.Title = p.Title
 		e.Priority = p.Priority
 		if p.PID != "" {
-			if pg, _ := s.repo.FindGroupByExtUID(ctx, req.ProjectID, p.PID); pg != nil {
+			if pg, _ := r.FindGroupByExtUID(ctx, req.ProjectID, p.PID); pg != nil {
 				e.PID = pg.ID
 			} else {
 				return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "parent_missing"}
@@ -677,15 +701,15 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		}
 		var err error
 		if e.ID == 0 {
-			err = s.repo.CreateGroup(ctx, e)
+			err = r.CreateGroup(ctx, e)
 		} else {
 			e.IsDeleted = model.IsDeletedNo
-			err = s.repo.UpdateGroup(ctx, e)
+			err = r.UpdateGroup(ctx, e)
 		}
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.appendChangeTx(ctx, model.SyncTypeGroup, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		cid, err := s.appendChangeTx(ctx, r, model.SyncTypeGroup, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
@@ -693,7 +717,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeAPI:
-		e, lerr := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindApiByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -706,7 +730,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		e.HttpMethodType = p.Method
 		e.URL = p.URL
 		if p.GroupUID != "" {
-			if g, _ := s.repo.FindGroupByExtUID(ctx, req.ProjectID, p.GroupUID); g != nil {
+			if g, _ := r.FindGroupByExtUID(ctx, req.ProjectID, p.GroupUID); g != nil {
 				e.GroupID = g.ID
 			} else {
 				return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "parent_missing"}
@@ -717,15 +741,15 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		applyApiExtra(e, p.Extra)
 		var err error
 		if e.ID == 0 {
-			err = s.repo.CreateApi(ctx, e)
+			err = r.CreateApi(ctx, e)
 		} else {
 			e.IsDeleted = model.IsDeletedNo
-			err = s.repo.UpdateApi(ctx, e)
+			err = r.UpdateApi(ctx, e)
 		}
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.appendChangeTx(ctx, model.SyncTypeAPI, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		cid, err := s.appendChangeTx(ctx, r, model.SyncTypeAPI, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
@@ -733,7 +757,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeDoc:
-		e, lerr := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindDocByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -746,7 +770,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		e.Content = p.Content
 		e.Icon = p.Icon
 		if p.GroupUID != "" {
-			if g, _ := s.repo.FindGroupByExtUID(ctx, req.ProjectID, p.GroupUID); g != nil {
+			if g, _ := r.FindGroupByExtUID(ctx, req.ProjectID, p.GroupUID); g != nil {
 				e.GroupID = g.ID
 			} else {
 				return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "parent_missing"}
@@ -756,15 +780,15 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		}
 		var err error
 		if e.ID == 0 {
-			err = s.repo.CreateDoc(ctx, e)
+			err = r.CreateDoc(ctx, e)
 		} else {
 			e.IsDeleted = model.IsDeletedNo
-			err = s.repo.UpdateDoc(ctx, e)
+			err = r.UpdateDoc(ctx, e)
 		}
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.appendChangeTx(ctx, model.SyncTypeDoc, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		cid, err := s.appendChangeTx(ctx, r, model.SyncTypeDoc, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
@@ -772,7 +796,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeExample:
-		e, lerr := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -787,7 +811,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		e.ContentType = p.ContentType
 		e.Seq = p.Seq
 		if p.ApiUID != "" {
-			if a, _ := s.repo.FindApiByExtUID(ctx, req.ProjectID, p.ApiUID); a != nil {
+			if a, _ := r.FindApiByExtUID(ctx, req.ProjectID, p.ApiUID); a != nil {
 				e.ApiID = a.ID
 			} else {
 				return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "parent_missing"}
@@ -795,15 +819,15 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		}
 		var err error
 		if e.ID == 0 {
-			err = s.repo.CreateApiReturnSample(ctx, e)
+			err = r.CreateApiReturnSample(ctx, e)
 		} else {
 			e.IsDeleted = model.IsDeletedNo
-			err = s.repo.UpdateApiReturnSample(ctx, e)
+			err = r.UpdateApiReturnSample(ctx, e)
 		}
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.appendChangeTx(ctx, model.SyncTypeExample, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		cid, err := s.appendChangeTx(ctx, r, model.SyncTypeExample, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
@@ -812,7 +836,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 
 	case model.SyncTypeVarEnv:
 		// 环境：Name 复用载荷字段；仅建/改同步身份与名称，颜色/描述等 Web 侧属性不覆盖。
-		e, lerr := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -826,15 +850,15 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		}
 		var err error
 		if e.ID == 0 {
-			err = s.repo.CreateVariableEnv(ctx, e)
+			err = r.CreateVariableEnv(ctx, e)
 		} else {
 			e.IsDeleted = model.IsDeletedNo
-			err = s.repo.UpdateVariableEnv(ctx, e)
+			err = r.UpdateVariableEnv(ctx, e)
 		}
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.appendChangeTx(ctx, model.SyncTypeVarEnv, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		cid, err := s.appendChangeTx(ctx, r, model.SyncTypeVarEnv, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
@@ -843,7 +867,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 
 	case model.SyncTypeVariable:
 		// 变量：项目级、挂到 env_uid 对应环境；Value 原样存（secret 为 enc:v1: 密文，服务端不解析）。
-		e, lerr := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -864,7 +888,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		}
 		e.EnvID = 0
 		if p.EnvUID != "" {
-			env, _ := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, p.EnvUID)
+			env, _ := r.FindVarEnvByExtUID(ctx, req.ProjectID, p.EnvUID)
 			if env == nil {
 				return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "parent_missing"}
 			}
@@ -872,15 +896,15 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 		}
 		var err error
 		if e.ID == 0 {
-			err = s.repo.CreateVariable(ctx, e)
+			err = r.CreateVariable(ctx, e)
 		} else {
 			e.IsDeleted = model.IsDeletedNo
-			err = s.repo.UpdateVariable(ctx, e)
+			err = r.UpdateVariable(ctx, e)
 		}
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
-		cid, err := s.appendChangeTx(ctx, model.SyncTypeVariable, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		cid, err := s.appendChangeTx(ctx, r, model.SyncTypeVariable, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
 		if err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
@@ -890,7 +914,7 @@ func (s *Service) applyUpsert(ctx context.Context, userID uint64, req *SyncPushR
 	return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 }
 
-func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushReq, op SyncOpIn) SyncOpOut {
+func (s *Service) applyDelete(ctx context.Context, r *repository.Repository, userID uint64, req *SyncPushReq, op SyncOpIn) SyncOpOut {
 	device := req.DeviceID
 	if req.DeviceName != "" {
 		device = req.DeviceName
@@ -898,7 +922,7 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 	var id uint64
 	switch op.Type {
 	case model.SyncTypeGroup:
-		e, lerr := s.repo.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -907,11 +931,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
 		id = e.ID
-		if err := s.repo.DeleteGroup(ctx, id); err != nil {
+		if err := r.DeleteGroup(ctx, id); err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeAPI:
-		e, lerr := s.repo.FindApiByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindApiByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -920,11 +944,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
 		id = e.ID
-		if err := s.repo.DeleteApi(ctx, id); err != nil {
+		if err := r.DeleteApi(ctx, id); err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeDoc:
-		e, lerr := s.repo.FindDocByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindDocByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -933,11 +957,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
 		id = e.ID
-		if err := s.repo.DeleteDoc(ctx, id); err != nil {
+		if err := r.DeleteDoc(ctx, id); err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeExample:
-		e, lerr := s.repo.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindApiReturnSampleByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -946,11 +970,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
 		id = e.ID
-		if err := s.repo.DeleteApiReturnSample(ctx, id); err != nil {
+		if err := r.DeleteApiReturnSample(ctx, id); err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeVarEnv:
-		e, lerr := s.repo.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindVarEnvByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -959,11 +983,11 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
 		id = e.ID
-		if err := s.repo.DeleteVariableEnv(ctx, id); err != nil {
+		if err := r.DeleteVariableEnv(ctx, id); err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	case model.SyncTypeVariable:
-		e, lerr := s.repo.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
+		e, lerr := r.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
@@ -972,13 +996,13 @@ func (s *Service) applyDelete(ctx context.Context, userID uint64, req *SyncPushR
 			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
 		}
 		id = e.ID
-		if err := s.repo.DeleteVariable(ctx, id); err != nil {
+		if err := r.DeleteVariable(ctx, id); err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	default:
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 	}
-	cid, err := s.appendChangeTx(ctx, op.Type, op.UID, req.ProjectID, id, model.SyncOpDelete, userID, device)
+	cid, err := s.appendChangeTx(ctx, r, op.Type, op.UID, req.ProjectID, id, model.SyncOpDelete, userID, device)
 	if err != nil {
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 	}

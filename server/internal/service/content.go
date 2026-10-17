@@ -21,17 +21,29 @@ import (
 // 会把其实已经更新的条目误判成冲突（B-12 / B-15）。
 // ctx 经 context.WithoutCancel 脱钩：审计数据不因请求取消而丢，但保留请求内的取值
 // （裸 context.Background() 会把这些上下文一并丢掉）。
-func (s *Service) appendChangeTx(ctx context.Context, entityType, extUID string, projectID, id uint64, op string, actor uint64, device string) (int64, error) {
+//
+// r 为调用方已开启的事务句柄时直接复用，**不再嵌套开事务**：SQLite 是单写者，
+// 事务里再开事务会自我阻塞；只有 r 为 nil 时才由本函数自己开一个。
+func (s *Service) appendChangeTx(ctx context.Context, r *repository.Repository, entityType, extUID string, projectID, id uint64, op string, actor uint64, device string) (int64, error) {
 	ctx = context.WithoutCancel(ctx)
+	write := func(tx *repository.Repository) (int64, error) {
+		cid, err := tx.AppendChange(nil, projectID, entityType, extUID, op, actor, device)
+		if err != nil {
+			return 0, err
+		}
+		if err := tx.SetLastChange(nil, entityType, id, cid); err != nil {
+			return 0, err
+		}
+		return cid, nil
+	}
+	if r != nil {
+		return write(r)
+	}
 	var cid int64
-	// 走仓储层的 Transaction 而不是自己开 gorm 事务：service 不该持有 *gorm.DB。
-	// 事务内拿到的 Repository 的 db 已是 tx，故 AppendChange/SetLastChange 传 nil 即可。
 	err := s.repo.Transaction(ctx, func(tx *repository.Repository) error {
 		var e error
-		if cid, e = tx.AppendChange(nil, projectID, entityType, extUID, op, actor, device); e != nil {
-			return e
-		}
-		return tx.SetLastChange(nil, entityType, id, cid)
+		cid, e = write(tx)
+		return e
 	})
 	return cid, err
 }
@@ -44,7 +56,7 @@ func (s *Service) recordChange(entityType, extUID string, projectID uint64, id u
 	if extUID == "" {
 		return
 	}
-	_, _ = s.appendChangeTx(context.Background(), entityType, extUID, projectID, id, op, actor, "web")
+	_, _ = s.appendChangeTx(context.Background(), nil, entityType, extUID, projectID, id, op, actor, "web")
 }
 
 // ensureExtUID 条目缺 uid 时补一个（Web 新建也分配，便于后续同步）。
