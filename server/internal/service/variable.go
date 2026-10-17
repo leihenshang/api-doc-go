@@ -131,6 +131,8 @@ func (s *Service) CreateVariableEnv(ctx context.Context, userID uint64, typ int8
 		Color:       strings.TrimSpace(req.Color),
 		Priority:    req.Priority,
 	}
+	// P0-7 深层原因：Web 新建也要分配 ext_uid，否则变更流水与客户端同步都拿不到身份
+	env.ExtUID = ensureExtUID("")
 	if n == 0 {
 		env.IsDefault = model.VarEnvDefault
 	}
@@ -495,6 +497,8 @@ func (s *Service) normalizeVariable(ctx context.Context, req dto.VariableReq, ex
 		Priority:    req.Priority,
 		Enabled:     model.VarEnabled,
 	}
+	// P0-7 深层原因：Web 新建变量必须有 ext_uid，否则 logVarChange 直接跳过（客户端收不到）
+	v.ExtUID = ensureExtUID("")
 	if req.Enabled != nil {
 		v.Enabled = *req.Enabled
 	}
