@@ -74,11 +74,22 @@ func (s *Service) GetUser(ctx context.Context, id uint64) (*model.UserInfo, erro
 }
 
 // ListUsers 分页查询用户。
-func (s *Service) ListUsers(ctx context.Context, q page.Query, keyword string) (page.Result[model.UserInfo], error) {
+// ListUsers 用户列表。所有登录用户可读——备忘清单指派、成员选择、作者名回显都需要
+// 把 user_id 映射成名字；但邮箱 / 手机号 / 最近登录信息属个人信息，只对管理员可见，
+// 否则任意普通账号都能拉走整张用户表。
+func (s *Service) ListUsers(ctx context.Context, operator model.UserInfo, q page.Query, keyword string) (page.Result[model.UserInfo], error) {
 	q.Normalize()
 	items, total, err := s.repo.ListUsers(ctx, q, keyword)
 	if err != nil {
 		return page.Result[model.UserInfo]{}, err
+	}
+	if !isAdmin(operator.Type) {
+		for i := range items {
+			items[i].Email = ""
+			items[i].MobileNumber = ""
+			items[i].LastLoginIP = ""
+			items[i].LastLoginTime = nil
+		}
 	}
 	return page.NewResult(items, total, q), nil
 }
@@ -88,7 +99,7 @@ func (s *Service) CheckRepeat(ctx context.Context, keyword string) (bool, error)
 	return s.repo.UserTaken(ctx, keyword, keyword, keyword, 0)
 }
 
-// UpdateUser 更新资料；仅管理员可改 type/state。
+// UpdateUser 更新资料；仅管理员可改 type/state，且角色变更另受 ensureAccountChangeAllowed 约束。
 func (s *Service) UpdateUser(ctx context.Context, operator model.UserInfo, targetID uint64, req dto.UserUpdateReq) (*model.UserInfo, error) {
 	u, err := s.repo.UserByID(ctx, targetID)
 	if err != nil {
@@ -96,6 +107,10 @@ func (s *Service) UpdateUser(ctx context.Context, operator model.UserInfo, targe
 	}
 	if operator.ID != targetID && !isAdmin(operator.Type) {
 		return nil, newBiz(errcode.CodeForbidden, "无权修改他人资料")
+	}
+	// 越权判定必须放在赋值之前：一旦先写进 u 再校验，失败路径也会把改动带出去。
+	if err := ensureAccountChangeAllowed(operator, u, req); err != nil {
+		return nil, err
 	}
 	if req.NickName != "" {
 		u.NickName = req.NickName
@@ -125,6 +140,42 @@ func (s *Service) UpdateUser(ctx context.Context, operator model.UserInfo, targe
 		return nil, err
 	}
 	return u, nil
+}
+
+// ensureAccountChangeAllowed 校验角色 / 状态变更的越权边界（W-05）。
+// 只比较「是否真的变」：前端保存资料时会把当前 state/type 原值一起回传，
+// 若按 `> 0` 判断，普通用户改自己昵称也会被误拦。
+//
+// 三条边界：
+//  1. 非管理员不得改任何人的角色或状态；
+//  2. 管理员不得动超管账号（否则可停用超管），也不得调整角色——角色只有超管能给，
+//     否则「管理员把自己或他人提成超管」就是一条提权链；
+//  3. 超管不能改自己的角色（唯一超管一旦自降，系统再无人可管）。
+func ensureAccountChangeAllowed(operator model.UserInfo, target *model.UserInfo, req dto.UserUpdateReq) error {
+	wantType := req.Type > 0 && req.Type != target.Type
+	wantState := req.State > 0 && req.State != target.State
+	if !wantType && !wantState {
+		return nil
+	}
+	if !isAdmin(operator.Type) {
+		return newBiz(errcode.CodeForbidden, "无权修改角色或状态")
+	}
+	if target.Type == model.UserTypeSuperuser && operator.Type != model.UserTypeSuperuser {
+		return newBiz(errcode.CodeForbidden, "无权修改超级管理员账号")
+	}
+	if !wantType {
+		return nil
+	}
+	if operator.Type != model.UserTypeSuperuser {
+		return newBiz(errcode.CodeForbidden, "仅超级管理员可调整角色")
+	}
+	if operator.ID == target.ID {
+		return newBiz(errcode.CodeParamError, "不能修改自己的角色")
+	}
+	if req.Type < model.UserTypeNormal || req.Type > model.UserTypeSuperuser {
+		return newBiz(errcode.CodeParamError, "角色取值非法")
+	}
+	return nil
 }
 
 // UpdatePwd 修改本人密码。

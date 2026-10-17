@@ -54,7 +54,9 @@ func (h *Handler) Me(c *gin.Context) {
 func (h *Handler) ListUsers(c *gin.Context) {
 	var q page.Query
 	_ = c.ShouldBindQuery(&q)
-	items, err := h.svc.ListUsers(c.Request.Context(), q, c.Query("keyword"))
+	p := principal(c)
+	operator := model.UserInfo{BaseModel: model.BaseModel{ID: p.UserID}, Type: p.Type}
+	items, err := h.svc.ListUsers(c.Request.Context(), operator, q, c.Query("keyword"))
 	if err != nil {
 		fail(c, err)
 		return
