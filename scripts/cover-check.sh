@@ -39,6 +39,9 @@ internal/pkg/crypto 70
 internal/pkg/fileutil 80
 internal/pkg/jwt 75
 internal/pkg/password 90
+internal/pkg/errcode 90
+internal/pkg/page 90
+internal/pkg/response 90
 EOF
 )
 
