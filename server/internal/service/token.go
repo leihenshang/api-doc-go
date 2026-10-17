@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -36,7 +37,20 @@ type CreateTokenResp struct {
 	Info  TokenResp `json:"info"`
 }
 
-func hashToken(raw string) string {
+// tokenDigest 令牌摘要 = HMAC-SHA256(服务端密钥, 令牌明文)。
+//
+// 用 HMAC 而不是裸 sha256（P1-12）：PAT 本身是 256 位随机串，裸 sha256 已不可逆，
+// 但加上服务端密钥后「脱库」不再等于「可离线比对」——密钥在配置文件/环境变量里，
+// 不随数据库一起泄露。摘要只做等值查找，不参与任何需要可逆的场景。
+func (s *Service) tokenDigest(raw string) string {
+	m := hmac.New(sha256.New, []byte(s.cfg.JWT.Secret))
+	m.Write([]byte(raw))
+	return hex.EncodeToString(m.Sum(nil))
+}
+
+// legacyTokenDigest 旧版纯 sha256 摘要，仅用于兼容已有令牌：
+// 命中后由 VerifyToken 就地升级为 tokenDigest，无需让用户重建令牌。
+func legacyTokenDigest(raw string) string {
 	h := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(h[:])
 }
@@ -58,7 +72,7 @@ func (s *Service) CreateToken(ctx context.Context, userID uint64, req *CreateTok
 	e := &model.UserToken{
 		UserID:      userID,
 		Name:        req.Name,
-		TokenHash:   hashToken(raw),
+		TokenHash:   s.tokenDigest(raw),
 		TokenCipher: cipher,
 		Scopes:      req.Scopes,
 	}
@@ -117,9 +131,18 @@ func (s *Service) RevealToken(ctx context.Context, userID, id uint64) (string, e
 // 除令牌本身的吊销/过期外，还校验用户存在且状态正常 —— 此前被禁用用户的 PAT 仍可用，
 // 且 PAT 一律被降级为普通用户（管理员持 PAT 会丢失管理权限）。
 func (s *Service) VerifyToken(ctx context.Context, raw string) (uint64, int8, error) {
-	e, err := s.repo.GetUserTokenByHash(ctx, hashToken(raw))
-	if err != nil || e == nil {
+	if raw == "" {
 		return 0, 0, errors.New("令牌无效")
+	}
+	e, err := s.repo.GetUserTokenByHash(ctx, s.tokenDigest(raw))
+	if err != nil || e == nil {
+		// 兼容旧记录（裸 sha256）：命中即就地 upgrade，用户无感。
+		legacy, lerr := s.repo.GetUserTokenByHash(ctx, legacyTokenDigest(raw))
+		if lerr != nil || legacy == nil {
+			return 0, 0, errors.New("令牌无效")
+		}
+		_ = s.repo.UpdateUserTokenHash(ctx, legacy.ID, s.tokenDigest(raw))
+		e = legacy
 	}
 	if e.Revoked == 1 {
 		return 0, 0, errors.New("令牌已吊销")

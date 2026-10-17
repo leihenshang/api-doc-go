@@ -239,6 +239,12 @@ func (r *Repository) GetUserTokenByHash(ctx context.Context, hash string) (*mode
 	return &e, nil
 }
 
+// UpdateUserTokenHash 改写令牌摘要（旧纯 sha256 记录升级为 HMAC 时用）。
+func (r *Repository) UpdateUserTokenHash(ctx context.Context, id uint64, hash string) error {
+	return r.db.WithContext(ctx).Model(&model.UserToken{}).Where("id = ?", id).
+		Update("token_hash", hash).Error
+}
+
 // TouchUserToken 更新最后使用时间。
 func (r *Repository) TouchUserToken(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Model(&model.UserToken{}).Where("id = ?", id).
