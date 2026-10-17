@@ -30,6 +30,17 @@ func (h *Handler) CreateGroup(c *gin.Context) {
 }
 
 // ListGroups 处理 GET /api/group?project_id=&type=。
+// ListDocGroups 文档分组树 GET /api/doc/groups?project_id=（B19）。
+func (h *Handler) ListDocGroups(c *gin.Context) {
+	p := principal(c)
+	res, ungrouped, err := h.svc.ListDocGroups(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"groups": res, "ungrouped": ungrouped})
+}
+
 func (h *Handler) ListGroups(c *gin.Context) {
 	typ := int8(-1)
 	if t, err := strconv.Atoi(c.Query("type")); err == nil {

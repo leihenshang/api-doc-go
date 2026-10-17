@@ -87,6 +87,59 @@ func (s *Service) ListGroups(ctx context.Context, projectID uint64, typ int8) ([
 	return s.repo.ListGroups(ctx, projectID, typ)
 }
 
+// ListDocGroups 文档分组树（B19 / Web 展示）：返回「含文档的分组 + 其祖先链」，
+// 每项带 doc_count；不再按 type 过滤（客户端文档可与接口共用分组）。
+func (s *Service) ListDocGroups(ctx context.Context, userID uint64, typ int8, projectID uint64) ([]dto.DocGroupItem, int64, error) {
+	if projectID == 0 {
+		return nil, 0, newBiz(errcode.CodeParamError, "缺少 project_id")
+	}
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, 0, err
+	}
+	counts, ungrouped, err := s.repo.DocGroupCounts(ctx, projectID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(counts) == 0 {
+		return nil, ungrouped, nil
+	}
+	groups, err := s.repo.ListGroups(ctx, projectID, -1)
+	if err != nil {
+		return nil, 0, err
+	}
+	// 需要展示的分组 = 有文档的分组 + 它们的祖先（否则树会断链）
+	keep := make(map[uint64]bool, len(counts))
+	byID := make(map[uint64]model.Group, len(groups))
+	for _, g := range groups {
+		byID[g.ID] = g
+	}
+	for id := range counts {
+		cur := id
+		for cur != 0 {
+			if keep[cur] {
+				break
+			}
+			keep[cur] = true
+			parent, ok := byID[cur]
+			if !ok || parent.PID == cur {
+				break
+			}
+			cur = parent.PID
+		}
+	}
+	out := make([]dto.DocGroupItem, 0, len(keep))
+	for _, g := range groups {
+		if !keep[g.ID] {
+			continue
+		}
+		out = append(out, dto.DocGroupItem{
+			ID: g.ID, PID: g.PID, Title: g.Title, Type: g.Type,
+			Priority: g.Priority, DocCount: counts[g.ID],
+		})
+	}
+	return out, ungrouped, nil
+}
+
 // DeleteGroup 删除分组。
 func (s *Service) DeleteGroup(ctx context.Context, userID uint64, typ int8, id uint64) error {
 	g, err := s.repo.GetGroup(ctx, id)

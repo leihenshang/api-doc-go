@@ -119,6 +119,7 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler) {
 		d := g.Group("/doc")
 		d.POST("", h.CreateDoc)
 		d.GET("", h.ListDocs)
+		d.GET("/groups", h.ListDocGroups)
 		d.GET("/detail", h.GetDoc)
 		d.PUT("", h.UpdateDoc)
 		d.DELETE("", h.DeleteDoc)

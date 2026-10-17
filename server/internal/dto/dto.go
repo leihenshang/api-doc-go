@@ -207,6 +207,17 @@ type SortReq struct {
 
 // ---- 文档 ----
 
+// DocGroupItem 文档分组树的一项（B19）：含该分组下的文档数。
+// 数据源不再按 type 过滤（文档可与接口共用分组），只保留「有文档」的分组及其祖先。
+type DocGroupItem struct {
+	ID       uint64 `json:"id"`
+	PID      uint64 `json:"p_id"`
+	Title    string `json:"title"`
+	Type     int8   `json:"type"`
+	Priority int    `json:"priority"`
+	DocCount int64  `json:"doc_count"`
+}
+
 // DocCreateReq 创建文档。
 type DocCreateReq struct {
 	ProjectID uint64 `json:"project_id" binding:"required"`

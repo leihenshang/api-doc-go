@@ -30,6 +30,32 @@ func (r *Repository) UpdateGroupSort(ctx context.Context, id, pid uint64, priori
 	return gmUpdateSort[model.Group](ctx, r.db, id, pid, "p_id", priority)
 }
 
+// DocGroupCounts 各分组下的文档数 + 未分组文档数（B19 Web 展示用）。
+// 返回 map[groupID]count；未分组计数放在返回值第二项（group_id = 0）。
+func (r *Repository) DocGroupCounts(ctx context.Context, projectID uint64) (map[uint64]int64, int64, error) {
+	type row struct {
+		GroupID uint64
+		N       int64
+	}
+	var rows []row
+	if err := r.active(ctx).Model(&model.Doc{}).
+		Select("group_id, COUNT(*) AS n").
+		Where("project_id = ? AND is_deleted = 0", projectID).
+		Group("group_id").Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	counts := make(map[uint64]int64, len(rows))
+	var ungrouped int64
+	for _, x := range rows {
+		if x.GroupID == 0 {
+			ungrouped = x.N
+			continue
+		}
+		counts[x.GroupID] = x.N
+	}
+	return counts, ungrouped, nil
+}
+
 // ListGroups 返回某项目某类型的分组（按优先级、id 排序）。
 func (r *Repository) ListGroups(ctx context.Context, projectID uint64, typ int8) ([]model.Group, error) {
 	var items []model.Group
