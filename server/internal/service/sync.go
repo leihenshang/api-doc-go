@@ -511,11 +511,8 @@ func (s *Service) SyncPush(ctx context.Context, userID uint64, typ int8, req *Sy
 	if err != nil {
 		return nil, err
 	}
-	// 权限位（§4.2）：push 与 Web 写路径同口径，须为项目成员且具备修改权限（管理员放行）。
-	// 堵住此前「任意持有效令牌者可向任意 project_id 推送」的欠账。
-	if err := s.ensureProjectPermission(ctx, userID, typ, req.ProjectID, model.PermUpdate); err != nil {
-		return nil, err
-	}
+	// 注：权限位已在函数开头校验过（update 位，含删除时的 delete 位），此处不再重复调用——
+	// 同一请求里连做两次相同的权限查询只是多一次 DB 往返（P2-3）。
 	writeDisabled := proj != nil && proj.ClientWriteEnabled != nil && !*proj.ClientWriteEnabled
 
 	out := make([]SyncOpOut, 0, len(req.Ops))
