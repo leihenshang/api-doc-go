@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"apidoc/internal/pkg/errcode"
@@ -64,5 +65,31 @@ func TestFail(t *testing.T) {
 	}
 	if body.Data != nil {
 		t.Fatalf("失败响应 data 应为 null，got %#v", body.Data)
+	}
+}
+
+// TestEnvelopeCodeHeader P2-7：HTTP 状态码保持 200（既有契约），但业务码同时写进
+// `X-Api-Code` 头，监控/网关不必解析 body 就能统计失败率。
+func TestEnvelopeCodeHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	OK(c, nil)
+	if got := w.Header().Get("X-Api-Code"); got != strconv.Itoa(errcode.CodeSuccess) {
+		t.Fatalf("成功响应头 X-Api-Code 应为 %d，got %q", errcode.CodeSuccess, got)
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("HTTP 状态仍必须是 200，got %d", w.Code)
+	}
+
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	Fail(c, errcode.CodeForbidden, "")
+	if got := w.Header().Get("X-Api-Code"); got != strconv.Itoa(errcode.CodeForbidden) {
+		t.Fatalf("失败响应头 X-Api-Code 应为 %d，got %q", errcode.CodeForbidden, got)
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("失败时 HTTP 状态仍必须是 200（前端按 body.code 分支），got %d", w.Code)
 	}
 }
