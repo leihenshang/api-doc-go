@@ -27,3 +27,4 @@ go.work.sum
 .doc
 
 server/config/config.yaml
+/.tmp
