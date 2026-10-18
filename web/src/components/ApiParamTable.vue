@@ -162,7 +162,7 @@ function applyJson(): void {
     <div v-if="!rows.length && !editable" class="pt-empty">
       <span class="meta">{{ t('param.empty', { title: cfg.title }) }}</span>
       <n-button text size="tiny" type="primary" data-testid="param.emptyEdit" @click="emit('edit')">
-        {{ t('common.edit') }}
+        ＋ {{ t('param.addRow') }}
       </n-button>
     </div>
 

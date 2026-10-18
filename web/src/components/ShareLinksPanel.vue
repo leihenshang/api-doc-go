@@ -7,7 +7,7 @@ import { ErrCode } from '@/types/api'
 import type { ShareLink } from '@/types/entities'
 import { fmtTime } from '@/utils/format'
 import {
-    NButton, NCard, NEmpty, NForm, NFormItem, NInput, NInputNumber, NModal, NSpin, NTable,
+    NButton, NCard, NForm, NFormItem, NInput, NInputNumber, NModal, NSpin, NTable,
     useDialog, useMessage,
 } from 'naive-ui'
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -113,7 +113,11 @@ onMounted(load)
             拿到链接的人<b>无需登录</b>即可查看本项目的接口与文档（只读）；令牌可随时失效，也可设置有效期。
         </p>
         <n-spin :show="loading">
-            <n-empty v-if="!rows.length && !loading" size="small" description="尚未生成分享链接" />
+            <div v-if="!rows.length && !loading" class="share-empty">
+                <span class="meta">尚未生成分享链接</span>
+                <n-button v-if="canManage" text type="primary" size="small" data-testid="share.emptyCreate"
+                    @click="show = true">生成一条</n-button>
+            </div>
             <n-table v-else :single-line="false" size="small">
                 <thead>
                     <tr>
@@ -162,6 +166,17 @@ onMounted(load)
 </template>
 
 <style scoped>
+/* 空态压成一行：n-empty 自带大段留白，这里只有一个可选项，不值得占 150px（UI-06）。 */
+.share-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 0;
+    border: 1px dashed var(--app-border);
+    border-radius: 4px;
+}
+
 .share-tip {
     margin: 0 0 12px;
 }

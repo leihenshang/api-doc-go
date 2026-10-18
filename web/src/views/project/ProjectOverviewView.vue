@@ -471,10 +471,14 @@ onMounted(() => {
                                 {{ m.nick_name || m.name }}
                                 <span v-if="m.user_id === (userStore.userInfo?.id ?? 0)" class="meta">（我）</span>
                             </div>
-                            <div class="m-role">
-                                {{ m.is_leader === 1 ? '负责人' : m.permission === 15 ? '成员（读写）' : '成员（只读）' }}
+                            <!-- 角色与账号合并一行：三行堆叠让 260px 的卡片显得很空（UI-07） -->
+                            <div class="m-sub ellipsis">
+                                <span class="m-role">
+                                    {{ m.is_leader === 1 ? '负责人' : m.permission === 15 ? '成员（读写）' : '成员（只读）' }}
+                                </span>
+                                <span class="m-sep">·</span>
+                                <span class="m-mail">{{ m.name }}</span>
                             </div>
-                            <div class="m-mail ellipsis">{{ m.name }}</div>
                         </div>
                         <n-dropdown v-if="canManage" trigger="click" :options="memberMenu(m)"
                             @select="onMemberAction($event, m)">
@@ -752,7 +756,7 @@ onMounted(() => {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px;
+    padding: 10px 12px;
     border: 1px solid var(--app-border);
     border-radius: 4px;
 }
@@ -772,14 +776,26 @@ onMounted(() => {
     font-weight: 500;
 }
 
-.m-role {
+.m-sub {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: 12px;
     color: var(--app-muted);
 }
 
+.m-role {
+    white-space: nowrap;
+}
+
+.m-sep {
+    opacity: 0.5;
+}
+
 .m-mail {
-    font-size: 12px;
-    color: var(--app-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .more {

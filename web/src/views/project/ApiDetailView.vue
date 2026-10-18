@@ -1388,6 +1388,9 @@ function exportApi(key: string): void {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* 阅读限宽：1440 宽窗口下正文行宽接近 1100px，长 URL / 长描述读起来很累（UI-11）。
+     表格类（参数表）在 960 内仍够用，窄屏自动退化。 */
+  max-width: 960px;
 }
 
 /* 段间分隔：除首段外都加一条上分隔线 */
