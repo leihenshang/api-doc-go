@@ -29,6 +29,9 @@ fi
 echo "== 三仓 share 版本一致性（P2-2） =="
 bash "$ROOT/scripts/share-version.sh"
 
+echo "== 静默吞错棘轮（P2-4） =="
+bash "$ROOT/scripts/silent-error.sh"
+
 echo "== go build =="
 (cd "$ROOT/server" && go build ./...)
 

@@ -70,6 +70,7 @@ func New(repo *repository.Repository, cfg *config.Config) *Service {
 
 // recordOp 尽力写操作日志，失败不影响主流程。
 func (s *Service) recordOp(ctx context.Context, projectID, userID, objectID uint64, typ int8, action, content string) {
+	// 操作日志是旁路审计：写失败不能让一次已成功的业务操作变成失败（否则用户会重复提交）。
 	_ = s.repo.CreateLog(ctx, &model.OperationLog{
 		ProjectID: projectID, UserID: userID, ObjectID: objectID, Type: typ, Action: action, Content: content,
 	})

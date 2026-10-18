@@ -141,6 +141,7 @@ func (s *Service) VerifyToken(ctx context.Context, raw string) (uint64, int8, er
 		if lerr != nil || legacy == nil {
 			return 0, 0, errors.New("令牌无效")
 		}
+		// 就地升级旧摘要：失败不影响本次校验（令牌本身已通过），下次再进来会重试升级。
 		_ = s.repo.UpdateUserTokenHash(ctx, legacy.ID, s.tokenDigest(raw))
 		e = legacy
 	}
