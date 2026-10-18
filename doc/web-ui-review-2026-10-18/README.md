@@ -110,8 +110,8 @@ PORT=4178 node doc/web-ui-review-2026-10-18/serve-dist.mjs dist-r6
 
 - **UI-04（P1，已修）信息条 4 列却放了 5 项**，第 5 项（API 接口数）掉到第二行只占 1/4 宽、没有右边框，看起来像表格破了。→ 改 5 列 + `<1180px` 退 3 列。
 - **UI-05（P1，已修）标题用主题色**（22px / 600 / `#18a058`）：与"可点击链接"同色，语义上像链接。→ 标题改正文色，主题绿只留给动作。截图 `screenshots/16-overview-title.png`。
-- **UI-06（P2）分享链接空态占 150px 高**，中间只有一个灰图标 + 一行说明，右侧"生成分享链接"按钮与空态不在同一视觉区域。
-- **UI-07（P2）成员卡片信息稀**：头像 + 名字 + 「负责人」+ 账号三行，卡片 200px 宽却只有 3 行文本，右侧 `⋮` 与卡片高度不匹配。
+- **UI-06（P2，已修）分享链接空态占 150px 高** → 换成一行虚线框 + 「生成一条」按钮（`screenshots/18-overview-members.png`）。
+- **UI-07（P2，已修）成员卡片信息稀**：三行（名字 / 角色 / 账号）压成两行（名字 / 「负责人 · admin」），padding 12→10。
 
 ### 3.3 接口列表 / 详情
 
@@ -119,8 +119,8 @@ PORT=4178 node doc/web-ui-review-2026-10-18/serve-dist.mjs dist-r6
 
 - **UI-08（P1，已修）三个"暂无"空区块各占 100px**，新建接口时首屏大半是空白且**没有下手的地方**。→ 空态压到一行高（padding 18→10），框内加「编辑」按钮（`ApiParamTable` 新增 `edit` 事件，只切编辑态、不直接塞空行）。
 - **UI-09（已核实非缺陷）**：`JsonBlock` 本身就会 `JSON.parse` + 两空格美化；早先截图里的"单行"是样本数据被双重转义成字符串导致解析失败（`P0-2` 的连带现象）。P0-2 修好后样例已正常多行展示（见 `14-api-detail-imported.png`）。
-- **UI-10（P2）右上角 4 个灰色小方块**（操作按钮占位）没有图标/文字，鼠标悬停才知道是什么。
-- **UI-11（P2）内容区无最大宽度**：1440px 下正文行宽接近 1100px，长 URL / 长 JSON 阅读成本高。建议正文区 `max-width: 960px` 居中（表格类可例外）。
+- **UI-10（已核实非缺陷）**：那 4 个灰方块是右侧「悬浮大纲」的段落格子（收起态），自带 `title` 与点击跳段，悬停会展开成段落列表，不是无标签按钮。
+- **UI-11（P2，已修）内容区无最大宽度**：`.req-sec` 加 `max-width: 960px`，长 URL 与长描述不再横跨 1100px（`screenshots/19-api-detail-narrow.png`）。
 - **UI-12（P2）左侧树重名接口无区分**（导入后出现两个「获取用户详情」），只能靠路径 hover 区分。
 
 ### 3.4 变量 / 备忘 / 用户 / 属性
@@ -150,10 +150,13 @@ PORT=4178 node doc/web-ui-review-2026-10-18/serve-dist.mjs dist-r6
 | **P0-2** | OpenAPI 导入补齐 params/header/return_sample/return_params/description | `service/extra.go` + 回归测试 |
 | UI-01 | 项目列表加「＋ 新增项目」磁贴 | `ProjectListView.vue` |
 | UI-05 | 概况页标题改正文色 | `ProjectOverviewView.vue` |
-| UI-08 | 参数表空态压高 + 「编辑」入口 | `ApiParamTable.vue`、`ApiDetailView.vue` |
+| UI-08 | 参数表空态压高 + 「＋ 添加一行」入口 | `ApiParamTable.vue`、`ApiDetailView.vue` |
+| UI-06 | 分享链接空态压成一行 + 「生成一条」 | `ShareLinksPanel.vue` |
+| UI-07 | 成员卡片三行压两行 | `ProjectOverviewView.vue` |
+| UI-11 | 接口详情正文限宽 960px | `ApiDetailView.vue` |
 
-**未做**：UI-02（tab 与 H1 重复）、UI-06（分享空态过高）、UI-07（成员卡片信息稀）、UI-10（响应区图标按钮无标签）、
-UI-11（内容区无最大宽度）、UI-12（树里同名接口无区分）、UI-13/14（变量页提示与空态引导）、UI-15（登录页提示）。
+**未做**：UI-02（tab 与 H1 重复，属信息架构取舍）、UI-12（树里同名接口无区分）、
+UI-13/14（变量页提示文案与空态引导）、UI-15（登录页默认账号提示——涉及安全策略，不宜默认展示）。
 
 ---
 
