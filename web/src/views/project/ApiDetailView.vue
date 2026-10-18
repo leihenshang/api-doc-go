@@ -846,11 +846,13 @@ function exportApi(key: string): void {
       <!-- 垂直排列的各段内容 -->
       <div ref="bodyRef" class="req-body" @scroll="onBodyScroll">
         <section class="req-sec" data-sec="headers">
-          <api-param-table v-model="headerRows" kind="header" :editable="editing" :project-id="projectId" :api-id="apiId" />
+          <api-param-table v-model="headerRows" kind="header" :editable="editing" :project-id="projectId" :api-id="apiId"
+            @edit="editing = true" />
         </section>
 
         <section class="req-sec" data-sec="params">
-          <api-param-table v-model="reqParams" kind="request" :editable="editing" :project-id="projectId" :api-id="apiId" />
+          <api-param-table v-model="reqParams" kind="request" :editable="editing" :project-id="projectId" :api-id="apiId"
+            @edit="editing = true" />
         </section>
 
         <section v-if="hasBody || editing" class="req-sec" data-sec="body">
@@ -975,6 +977,7 @@ function exportApi(key: string): void {
             :project-id="projectId"
             :api-id="apiId"
             @json-applied="onSampleJson"
+            @edit="editing = true"
           />
           <div v-if="editing" class="ext-row">
             <span class="ext-lb">{{ t('detail.retContentType') }}</span>

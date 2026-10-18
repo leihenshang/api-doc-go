@@ -39,7 +39,11 @@ const props = withDefaults(
 )
 
 const rows = defineModel<ApiParam[]>({ required: true })
-const emit = defineEmits<{ (e: 'json-applied', text: string): void }>()
+const emit = defineEmits<{
+    (e: 'json-applied', text: string): void
+    /** 空态里的「编辑」：只请求父级切到编辑态，不直接改数据（避免用户只是看一眼被塞了空行）。 */
+    (e: 'edit'): void
+}>()
 
 const message = useMessage()
 const { t } = useI18n()
@@ -155,7 +159,12 @@ function applyJson(): void {
       </div>
     </div>
 
-    <p v-if="!rows.length && !editable" class="pt-empty meta">{{ t('param.empty', { title: cfg.title }) }}</p>
+    <div v-if="!rows.length && !editable" class="pt-empty">
+      <span class="meta">{{ t('param.empty', { title: cfg.title }) }}</span>
+      <n-button text size="tiny" type="primary" data-testid="param.emptyEdit" @click="emit('edit')">
+        {{ t('common.edit') }}
+      </n-button>
+    </div>
 
     <div v-else class="pt-wrap">
       <table class="pt-table">
@@ -341,9 +350,13 @@ function applyJson(): void {
 }
 
 .pt-empty {
+  /* 空态压到一行高：三个「暂无」区块各占 100px 时，新建接口的首屏几乎是空白（UI-08）。 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   margin: 0;
-  padding: 18px 0;
-  text-align: center;
+  padding: 10px 0;
   border: 1px dashed var(--app-border);
   border-radius: 4px;
 }

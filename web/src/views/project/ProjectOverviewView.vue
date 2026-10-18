@@ -662,7 +662,8 @@ onMounted(() => {
     margin: 0;
     font-size: 22px;
     font-weight: 600;
-    color: var(--app-accent);
+    /* 标题用正文色：主题绿是「可点击/可操作」的信号，标题用同色会让人以为能点（UI-05）。 */
+    color: var(--app-text);
 }
 
 .desc {

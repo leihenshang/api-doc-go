@@ -6,8 +6,9 @@ import { useProjectStore } from '@/stores/project'
 import { ErrCode } from '@/types/api'
 import type { Project } from '@/types/entities'
 import { fmtTime } from '@/utils/format'
+import { AddOutline } from '@vicons/ionicons5'
 import {
-    NButton, NEmpty, NForm, NFormItem, NInput, NModal, NSpin, NSwitch, useDialog, useMessage,
+    NButton, NEmpty, NForm, NFormItem, NIcon, NInput, NModal, NSpin, NSwitch, useDialog, useMessage,
 } from 'naive-ui'
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -152,6 +153,11 @@ onMounted(load)
             </div>
           </div>
         </div>
+        <!-- 新建磁贴：项目少时右侧会留大片空白，这里给一个可直接点的出口（UI-01） -->
+        <button class="pcard pcard--new" type="button" data-testid="project.newTile" @click="openCreate">
+          <n-icon :component="AddOutline" :size="20" />
+          <span>{{ t('project.create') }}</span>
+        </button>
       </div>
       <table-pager :total="total" :page-num="pageNum" :page-size="pageSize" @update:page-num="page" />
     </n-spin>
@@ -204,6 +210,24 @@ onMounted(load)
   border: 1px solid var(--app-border);
   border-radius: 6px;
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.pcard--new {
+  /* 与普通卡片同尺寸的虚线磁贴：居中 + 主题色，hover 时边框变实。 */
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 132px;
+  border-style: dashed;
+  background: transparent;
+  color: var(--app-accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pcard--new:hover {
+  border-style: solid;
+  background: var(--app-accent-tint);
 }
 
 .pcard:hover {
