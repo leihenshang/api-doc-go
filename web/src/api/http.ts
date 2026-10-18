@@ -1,9 +1,25 @@
 // 统一 HTTP 客户端：注入凭证、集中处理业务码。页面不裸调 axios（见开发规范 §4.3）。
-import router from '@/router'
 import { useUserStore } from '@/stores/user'
 import type { ApiResponse } from '@/types/api'
 import { ErrCode } from '@/types/api'
 import axios, { type AxiosInstance } from 'axios'
+
+/**
+ * 未登录（业务码 34）时的跳转动作，由 main.ts 注入。
+ *
+ * 这里**不能**静态 `import router`：router 会动态 import 各页面，页面又 import 本文件，
+ * 形成「router → 视图 → http → router」的环。生产构建下首次导航会对这个环里的 chunk
+ * 发起 import()，而该 chunk 的依赖又在等 router 求值完成 → 模块图死锁，
+ * 表现就是「带登录态的刷新/深链接进受保护页永远白屏，且没有任何报错」（P0-1）。
+ * 改成注入后，http 不再依赖 router，环断开。
+ */
+type UnauthorizedHandler = () => void
+let unauthorizedHandler: UnauthorizedHandler = () => {}
+
+/** 注册未登录跳转（main.ts 在装配完 router 后调用一次）。 */
+export function setUnauthorizedHandler(fn: UnauthorizedHandler): void {
+    unauthorizedHandler = fn
+}
 
 const http: AxiosInstance = axios.create({
     // 统一走版本化前缀（P2-27）：新增破坏性接口时用 /api/v2，旧版继续跑 /api/v1。
@@ -26,7 +42,7 @@ http.interceptors.response.use(
         const body = response.data as ApiResponse
         if (body && body.code === ErrCode.Unauthorized) {
             useUserStore().clear()
-            void router.push('/login')
+            unauthorizedHandler()
         }
         return response
     },

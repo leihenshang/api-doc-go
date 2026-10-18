@@ -2,6 +2,7 @@
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import App from './App.vue'
+import { setUnauthorizedHandler } from './api/http'
 import { i18n } from './i18n'
 import router from './router'
 import './styles/app.css'
@@ -16,7 +17,12 @@ app.config.errorHandler = (err, _inst, info) => {
 
 app.use(createPinia()).use(router).use(i18n)
 
-// 注意：不要在 router.isReady() 之后才 mount —— 实测首次导航在「带登录态刷新受保护页」时
-// 会一直 pending，isReady 永不 resolve，反而从「渲染空」变成「连 app 都不挂载」。
-// 白屏的根因仍在首次导航本身（见 doc/web-ui-review-2026-10-18/README.md 的 P0-1）。
+// 注入「未登录跳登录页」：http 不再静态依赖 router（见 api/http.ts 的说明），
+// 否则 router → 视图 → http → router 成环，首次导航会死锁成白屏。
+setUnauthorizedHandler(() => {
+    void router.push('/login')
+})
+
+// 直接 mount：不要在 router.isReady() 之后才挂载——首次导航若被卡住，isReady 永不 resolve，
+// 会从「渲染空」退化成「连 app 都不挂载」，更难判断（P0-1 排查时踩过）。
 app.mount('#app')

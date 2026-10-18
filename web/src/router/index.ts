@@ -1,5 +1,6 @@
 // 路由与全局守卫。受保护页用 meta.requiresAuth（见开发规范 §4.3）。
 // 项目内页面按「一屏一事」拆为独立路由，由 AppLayout 依据 meta 渲染侧导航与面包屑。
+import AppLayout from '@/views/AppLayout.vue'
 import { useUserStore } from '@/stores/user'
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
@@ -19,7 +20,10 @@ const routes: RouteRecordRaw[] = [
     { path: '/register', name: 'register', component: () => import('@/views/RegisterView.vue') },
     {
         path: '/',
-        component: () => import('@/views/AppLayout.vue'),
+        // AppLayout 必须是**静态** import：它是所有受保护页的外壳，动态 import 会让
+        // AppLayout chunk 反过来静态依赖入口 chunk（含 router），首次导航在入口 chunk 求值期间
+        // 触发 import → 模块图死锁 → 带登录态刷新/深链接进受保护页永远白屏（P0-1）。
+        component: AppLayout,
         meta: { requiresAuth: true },
         children: [
             { path: '', redirect: { name: 'projects' } },
