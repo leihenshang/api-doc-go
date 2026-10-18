@@ -14,3 +14,4 @@ dist/
 # dev server 控制产物
 .dev.log
 .dev.pid
+dist-*/

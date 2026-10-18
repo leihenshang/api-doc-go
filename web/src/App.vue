@@ -14,10 +14,12 @@ const naiveDateLocale = computed(() => (isEnglish.value ? dateEnUS : dateZhCN));
 /** 主题微调：主色沿用绿色系（与旧版高亮一致），收紧圆角与卡片内边距。 */
 const themeOverrides: GlobalThemeOverrides = {
   common: {
-    primaryColor: '#18a058',
-    primaryColorHover: '#36ad6a',
-    primaryColorPressed: '#0c7a43',
-    primaryColorSuppl: '#18a058',
+    // 可交互主色：白字必须 ≥4.5:1。#18a058 上白字只有 3.38:1（不达 AA），
+    // 按钮/选中态统一用加深一档的 #0f7a41（白字 5.41:1，hover 4.92:1，pressed 6.61:1）。
+    primaryColor: '#0f7a41',
+    primaryColorHover: '#12814a',
+    primaryColorPressed: '#0c6b39',
+    primaryColorSuppl: '#0f7a41',
     borderRadius: '4px',
     borderRadiusSmall: '3px',
   },

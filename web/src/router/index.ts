@@ -78,6 +78,11 @@ const router = createRouter({
     routes,
 })
 
+// 导航失败（守卫抛错、组件加载失败）默认是静默的，会表现为「URL 变了但页面空白」。
+router.onError((err, to) => {
+  console.error('[router]', to?.fullPath ?? '', err)
+})
+
 router.beforeEach((to) => {
     const user = useUserStore()
     const needsAuth = to.matched.some((r) => r.meta.requiresAuth)

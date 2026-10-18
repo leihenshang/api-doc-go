@@ -680,8 +680,17 @@ onMounted(() => {
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    /* 信息条有 5 项（ID/类型/版本/创建时间/接口数）：按 4 列排会让第 5 项掉到第二行、
+       只占 1/4 宽且没有右边框，看起来像"表格破了"（web-ui-review UI-02）。 */
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     border: 1px solid var(--app-border);
+}
+
+/* 窄屏（<1180px）退化为 3 列，避免每格过窄把值折成两行。 */
+@media (max-width: 1180px) {
+    .info {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
 .info li {
