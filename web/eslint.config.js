@@ -7,7 +7,7 @@ import tseslint from 'typescript-eslint'
 export default tseslint.config(
     {
         // 构建产物与第三方目录不检查
-        ignores: ['dist/**', 'node_modules/**', 'public/**', '*.min.js'],
+        ignores: ['dist/**', 'dist-*/**', 'node_modules/**', 'public/**', '*.min.js'],
     },
     ...tseslint.configs.recommended,
     ...pluginVue.configs['flat/recommended'],
