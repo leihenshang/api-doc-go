@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"sort"
 	"strings"
 
 	shopenapi "github.com/leihenshang/api-doc-go-share/openapi"
@@ -151,6 +153,9 @@ func (s *Service) ImportOpenAPI(ctx context.Context, userID uint64, typ int8, pr
 				HttpMethodType: method, URL: op.Path, ProtocolType: "http",
 				Source: SourceOpenAPI,
 			}
+			// 参数 / 请求头 / 响应样例此前完全没写：导入只落名称、方法、URL，
+			// 用户看到「导入成功」但打开接口三栏全空（UI 走查 P0-2）。
+			applyOperationToApi(a, op)
 			if err := tx.CreateApi(ctx, a); err != nil {
 				return err
 			}
@@ -227,4 +232,102 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(buf[i:])
+}
+
+// applyOperationToApi 把 OpenAPI 的 operation 映射到接口记录的文本列。
+//
+// 列格式必须与 Web 端 / 客户端既有约定一致（改这里要同步 utils/api-params.ts）：
+//   - http_request_header：apiHeaderRow[] -> [{name,value,description}]
+//   - http_request_params / http_return_params：apiParamRow[] -> [{fieldName,type,required,description,example}]
+//   - http_return_sample：成功响应的 JSON 原文
+//
+// OpenAPI 的 path / query / cookie 参数统一落到「请求参数」（前端只有一张参数表），
+// header 参数单独落到「请求头部」；返回参数没有 schema 时按 success example 的顶层字段推导，
+// 至少让用户看到字段骨架而不是三个「暂无」。
+func applyOperationToApi(a *model.Api, op shopenapi.Operation) {
+	a.Description = op.Description
+
+	var headers []apiHeaderRow
+	var params []apiParamRow
+	for _, p := range op.Params {
+		if strings.EqualFold(p.In, "header") {
+			headers = append(headers, apiHeaderRow{Name: p.Name, Value: p.Example, Description: p.Description})
+			continue
+		}
+		params = append(params, apiParamRow{
+			FieldName: p.Name, Required: p.Required, Example: p.Example, Description: p.Description,
+		})
+	}
+	if len(headers) > 0 {
+		if b, err := json.Marshal(headers); err == nil {
+			a.HttpRequestHeader = string(b)
+		}
+	}
+	if len(params) > 0 {
+		if b, err := json.Marshal(params); err == nil {
+			a.HttpRequestParams = string(b)
+		}
+	}
+
+	// 成功样例：取第一个 2xx 且有 example 的响应（按状态码取最小，保证多次导入结果一致）。
+	var success *shopenapi.Response
+	for i := range op.Responses {
+		r := &op.Responses[i]
+		if !strings.HasPrefix(r.Code, "2") || r.ExampleJSON == "" {
+			continue
+		}
+		if success == nil || r.Code < success.Code {
+			success = r
+		}
+	}
+	if success == nil {
+		return
+	}
+	a.HttpReturnSample = success.ExampleJSON
+	if rows := inferReturnParams(success.ExampleJSON); len(rows) > 0 {
+		if b, err := json.Marshal(rows); err == nil {
+			a.HttpReturnParams = string(b)
+			a.HttpReturnType = "object"
+		}
+	}
+}
+
+// inferReturnParams 从响应样例的顶层字段推导返回参数表。
+//
+// 只取一层：嵌套对象/数组保留类型、example 给原文，够用且不会把表格撑爆。
+// 字段顺序按名称排序——map 遍历无序，不排序会让同一份 spec 两次导入得到不同的表。
+func inferReturnParams(exampleJSON string) []apiParamRow {
+	var root map[string]any
+	if json.Unmarshal([]byte(exampleJSON), &root) != nil {
+		return nil
+	}
+	names := make([]string, 0, len(root))
+	for k := range root {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	out := make([]apiParamRow, 0, len(names))
+	for _, k := range names {
+		out = append(out, apiParamRow{
+			FieldName: k,
+			Type:      jsonTypeName(root[k]),
+			Example:   jsonExampleOrRaw(root[k]),
+		})
+	}
+	return out
+}
+
+// jsonExampleOrRaw 与 bruno 的 jsonExample 同口径，额外把对象/数组按 JSON 文本回填，
+// 否则嵌套字段的示例会是空串（前端那一列就白放着）。
+func jsonExampleOrRaw(v any) string {
+	switch v.(type) {
+	case map[string]any, []any:
+		if b, err := json.Marshal(v); err == nil {
+			return string(b)
+		}
+		return ""
+	default:
+		return jsonExample(v)
+	}
 }
