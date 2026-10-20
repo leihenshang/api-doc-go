@@ -112,9 +112,12 @@ func (s *Service) SummarizeVariables(ctx context.Context, projectID, envID uint6
 }
 
 // resolveTable 返回该接口在当前环境下同名**最高优先级**的变量（保留原文，含敏感值）。
-// 仅供服务端渲染 cURL / 代码片段使用；对外接口仍走 ResolveVariables 的脱敏视图。
+// 审核 C-1：includeSecret 控制是否把明文 secret（is_secret=1）装进渲染表——
+//   - code.go（cURL/代码片段）传 true：调用前已有 canRevealValues 门禁 + resolve=1 写审计；
+//   - mock 路径传 false：免鉴权端点不得泄出明文机密，占位符保持原样。
+//
 // 客户端加密的 secret（enc:v1: 前缀）一律跳过——服务端不解析密文，占位符保持原样。
-func (s *Service) resolveTable(ctx context.Context, projectID, apiID, envID uint64) (map[string]model.Variable, error) {
+func (s *Service) resolveTable(ctx context.Context, projectID, apiID, envID uint64, includeSecret bool) (map[string]model.Variable, error) {
 	vars, err := s.repo.VariablesForResolve(ctx, projectID, apiID)
 	if err != nil {
 		return nil, err
@@ -123,6 +126,9 @@ func (s *Service) resolveTable(ctx context.Context, projectID, apiID, envID uint
 	for _, v := range vars {
 		if isEncryptedValue(v.Value) {
 			continue
+		}
+		if !includeSecret && v.IsSecret == 1 {
+			continue // 免鉴权/低权限路径：明文 secret 不参与渲染
 		}
 		rank, ok := varRank(v, envID)
 		if !ok {

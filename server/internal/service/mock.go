@@ -55,7 +55,9 @@ func (s *Service) mockBody(ctx context.Context, a *model.Api) (*MockResult, erro
 			Body:        `{"code":200,"msg":"该接口未配置响应样例","data":null}`,
 		}, nil
 	}
-	if table, err := s.resolveTable(ctx, a.ProjectID, a.ID, 0); err == nil && len(table) > 0 {
+	// 审核 C-1：/mock 是免鉴权端点，渲染样本时排除明文 secret 变量（占位符保留原样），
+	// 否则任意攻击者枚举 project_id 即可收割各项目以明文存储的 token/口令。
+	if table, err := s.resolveTable(ctx, a.ProjectID, a.ID, 0, false); err == nil && len(table) > 0 {
 		sample = renderVars(sample, table)
 	}
 	if json.Valid([]byte(sample)) {

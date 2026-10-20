@@ -69,11 +69,13 @@ func TestMockResponse(t *testing.T) {
 	if _, err := f.s.CreateApi(ctx, f.admin.ID, f.admin.Type, dto.ApiCreateReq{
 		ProjectID: f.proj.ID, ApiName: "mock-api", HttpMethodType: "GET",
 		URL:              "https://api.example.com/mock/users?id=1",
-		HttpReturnSample: json.RawMessage(`{"code":200,"data":{"env":"{{mockenv}}"}}`),
+		HttpReturnSample: json.RawMessage(`{"code":200,"data":{"env":"{{mockenv}}","tok":"{{mocksecret}}"}}`),
 	}); err != nil {
 		t.Fatalf("CreateApi: %v", err)
 	}
 	f.newVar(t, dto.VariableReq{Scope: model.VarScopeProject, ProjectID: f.proj.ID, Name: "mockenv", Value: strPtr("mock-dev")})
+	// 审核 C-1 回归：/mock 免鉴权，明文 secret 变量不得参与渲染（占位符保留原样）。
+	f.newVar(t, dto.VariableReq{Scope: model.VarScopeProject, ProjectID: f.proj.ID, Name: "mocksecret", Value: strPtr("s3cr3t-token"), IsSecret: 1})
 
 	res, err := f.s.MockResponse(ctx, f.proj.ID, "GET", "/mock/users")
 	if err != nil {
@@ -81,6 +83,9 @@ func TestMockResponse(t *testing.T) {
 	}
 	if res.Status != 200 || !strings.Contains(res.Body, "mock-dev") {
 		t.Fatalf("应命中样例并渲染变量，got %d %s", res.Status, res.Body)
+	}
+	if strings.Contains(res.Body, "s3cr3t-token") || !strings.Contains(res.Body, "{{mocksecret}}") {
+		t.Fatalf("secret 变量不得在免鉴权 /mock 泄出明文，got %s", res.Body)
 	}
 
 	// 方法不同 → 兜底返回同路径接口。

@@ -49,7 +49,7 @@ func (s *Service) CodeSnippet(ctx context.Context, userID uint64, typ int8, apiI
 	// resolve=false 时用空表渲染 → 占位符原样保留。
 	table := map[string]model.Variable{}
 	if resolve {
-		table, err = s.resolveTable(ctx, a.ProjectID, a.ID, envID)
+		table, err = s.resolveTable(ctx, a.ProjectID, a.ID, envID, true)
 		if err != nil {
 			return "", err
 		}

@@ -318,8 +318,8 @@ func TestSyncVariableRoundTrip(t *testing.T) {
 		t.Fatalf("回传载荷不符: %s", raw)
 	}
 
-	// 解析表跳过密文：{{token}} 不会被服务端渲染替换
-	table, err := f.s.resolveTable(ctx, f.proj.ID, 0, ev.ID)
+	// 解析表跳过密文：{{token}} 不会被服务端渲染替换（true = 保留历史含明文 secret 的语义）
+	table, err := f.s.resolveTable(ctx, f.proj.ID, 0, ev.ID, true)
 	if err != nil {
 		t.Fatalf("resolveTable: %v", err)
 	}
