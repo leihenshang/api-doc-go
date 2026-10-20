@@ -65,7 +65,8 @@ func (h *Handler) SetDefaultVariableEnv(c *gin.Context) {
 
 // VariableEnvRefs 处理 GET /api/variable-env/references?id=（删除前预检）。
 func (h *Handler) VariableEnvRefs(c *gin.Context) {
-	res, err := h.svc.VariableEnvRefs(c.Request.Context(), idParam(c))
+	p := principal(c)
+	res, err := h.svc.VariableEnvRefs(c.Request.Context(), p.UserID, p.Type, idParam(c))
 	if err != nil {
 		fail(c, err)
 		return
@@ -141,7 +142,8 @@ func (h *Handler) DeleteVariable(c *gin.Context) {
 
 // ResolveVariables 处理 GET /api/variable/resolve?project_id=&api_id=&env_id=。
 func (h *Handler) ResolveVariables(c *gin.Context) {
-	res, err := h.svc.ResolveVariables(c.Request.Context(),
+	p := principal(c)
+	res, err := h.svc.ResolveVariables(c.Request.Context(), p.UserID, p.Type,
 		idQuery(c, "project_id"), idQuery(c, "api_id"), idQuery(c, "env_id"))
 	if err != nil {
 		fail(c, err)
@@ -161,7 +163,8 @@ func (h *Handler) SummarizeVariables(c *gin.Context) {
 		response.Fail(c, errcode.CodeParamError, "api_ids 需为逗号分隔的接口 id")
 		return
 	}
-	res, err := h.svc.SummarizeVariables(c.Request.Context(), q.ProjectID, q.EnvID, ids)
+	p := principal(c)
+	res, err := h.svc.SummarizeVariables(c.Request.Context(), p.UserID, p.Type, q.ProjectID, q.EnvID, ids)
 	if err != nil {
 		fail(c, err)
 		return

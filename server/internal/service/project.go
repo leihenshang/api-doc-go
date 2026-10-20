@@ -84,8 +84,15 @@ func (s *Service) ensureTitleFree(ctx context.Context, title string, excludeID u
 }
 
 // GetProject 取项目详情。
-func (s *Service) GetProject(ctx context.Context, id uint64) (*model.Project, error) {
-	return s.repo.ProjectByID(ctx, id)
+func (s *Service) GetProject(ctx context.Context, userID uint64, typ int8, id uint64) (*model.Project, error) {
+	p, err := s.repo.ProjectByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureProjectPermission(ctx, userID, typ, p.ID, model.PermQuery); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // ListProjects 列出项目；管理员看全部，普通用户看自己参与的。
@@ -132,7 +139,10 @@ func (s *Service) AddMember(ctx context.Context, operatorID uint64, typ int8, re
 }
 
 // ListMembers 列出项目成员。
-func (s *Service) ListMembers(ctx context.Context, projectID uint64) ([]MemberView, error) {
+func (s *Service) ListMembers(ctx context.Context, userID uint64, typ int8, projectID uint64) ([]MemberView, error) {
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
 	members, err := s.repo.ListMembers(ctx, projectID)
 	if err != nil {
 		return nil, err

@@ -12,7 +12,8 @@ import (
 
 // ExportPostman 处理 GET /api/api/export-postman?project_id=&group_id=，返回 Postman Collection v2.1 JSON。
 func (h *Handler) ExportPostman(c *gin.Context) {
-	res, err := h.svc.ExportPostman(c.Request.Context(), idQuery(c, "project_id"), idQuery(c, "group_id"))
+	p := principal(c)
+	res, err := h.svc.ExportPostman(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), idQuery(c, "group_id"))
 	if err != nil {
 		fail(c, err)
 		return

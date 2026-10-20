@@ -14,10 +14,14 @@ import (
 )
 
 // ResolveVariables 解析接口可见变量表：同名只保留最高优先级的一条，敏感值掩码。
-func (s *Service) ResolveVariables(ctx context.Context, projectID, apiID, envID uint64) ([]ResolveItem, error) {
+func (s *Service) ResolveVariables(ctx context.Context, userID uint64, typ int8, projectID, apiID, envID uint64) ([]ResolveItem, error) {
 	if projectID == 0 {
 		return nil, newBiz(errcode.CodeParamError, "缺少 project_id")
 	}
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
+
 	vars, err := s.repo.VariablesForResolve(ctx, projectID, apiID)
 	if err != nil {
 		return nil, err
@@ -47,7 +51,10 @@ func (s *Service) ResolveVariables(ctx context.Context, projectID, apiID, envID 
 
 // SummarizeVariables 批量统计接口的变量使用情况（接口列表徽标）。
 // defined = 该接口的请求变量名；undefined = 接口文本中引用但四层都未命中的变量名。
-func (s *Service) SummarizeVariables(ctx context.Context, projectID, envID uint64, apiIDs []uint64) (map[uint64]VarSummary, error) {
+func (s *Service) SummarizeVariables(ctx context.Context, userID uint64, typ int8, projectID, envID uint64, apiIDs []uint64) (map[uint64]VarSummary, error) {
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
 	out := map[uint64]VarSummary{}
 	if projectID == 0 {
 		return nil, newBiz(errcode.CodeParamError, "缺少 project_id")

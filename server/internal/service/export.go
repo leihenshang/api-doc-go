@@ -14,7 +14,11 @@ import (
 // OpenAPIExport 将项目（可选限定分组）下的接口生成标准 OpenAPI 3.0 文档（可 JSON 序列化）。
 // 与导入（ImportOpenAPI）互逆：summary=接口名、tags=分组名、parameters=请求参数、
 // responses.200.content 取响应样例。
-func (s *Service) OpenAPIExport(ctx context.Context, projectID, groupID uint64) (map[string]any, error) {
+func (s *Service) OpenAPIExport(ctx context.Context, userID uint64, typ int8, projectID, groupID uint64) (map[string]any, error) {
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
+
 	q := page.Query{PageNum: 1, PageSize: 200}
 	q.Normalize()
 	apis, _, err := s.repo.ListApis(ctx, projectID, groupID, 0, "", q)

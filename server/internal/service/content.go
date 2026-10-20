@@ -694,8 +694,12 @@ func (s *Service) PurgeDocs(ctx context.Context, userID uint64, typ int8, ids []
 }
 
 // LikeDoc 点赞。
-func (s *Service) LikeDoc(ctx context.Context, id uint64) error {
-	if _, err := s.repo.GetDoc(ctx, id); err != nil {
+func (s *Service) LikeDoc(ctx context.Context, userID uint64, typ int8, id uint64) error {
+	d, err := s.repo.GetDoc(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureProjectPermission(ctx, userID, typ, d.ProjectID, model.PermQuery); err != nil {
 		return err
 	}
 	return s.repo.IncrDocLike(ctx, id)

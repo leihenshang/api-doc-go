@@ -38,7 +38,8 @@ func (h *Handler) ListProjects(c *gin.Context) {
 
 // GetProject 处理 GET /api/project/:id。
 func (h *Handler) GetProject(c *gin.Context) {
-	res, err := h.svc.GetProject(c.Request.Context(), idParam(c))
+	p := principal(c)
+	res, err := h.svc.GetProject(c.Request.Context(), p.UserID, p.Type, idParam(c))
 	if err != nil {
 		fail(c, err)
 		return
@@ -87,7 +88,8 @@ func (h *Handler) AddMember(c *gin.Context) {
 
 // ListMembers 处理 GET /api/project/members。
 func (h *Handler) ListMembers(c *gin.Context) {
-	res, err := h.svc.ListMembers(c.Request.Context(), idOrFallback(c, "project_id"))
+	p := principal(c)
+	res, err := h.svc.ListMembers(c.Request.Context(), p.UserID, p.Type, idOrFallback(c, "project_id"))
 	if err != nil {
 		fail(c, err)
 		return

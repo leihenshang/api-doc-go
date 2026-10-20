@@ -113,7 +113,7 @@ func TestVariableResolvePrecedence(t *testing.T) {
 	f.newVar(t, dto.VariableReq{Scope: model.VarScopeProject, ProjectID: f.proj.ID, EnvID: f.test.ID, Name: "host", Value: strPtr("test-host")})
 
 	// dev 环境：token 取请求级，host 回落通用。
-	items, err := f.s.ResolveVariables(f.ctx, f.proj.ID, api.ID, f.dev.ID)
+	items, err := f.s.ResolveVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, api.ID, f.dev.ID)
 	if err != nil {
 		t.Fatalf("ResolveVariables: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestVariableResolvePrecedence(t *testing.T) {
 	if err := f.s.DeleteVariable(f.ctx, f.admin.ID, f.admin.Type, reqVar.ID); err != nil {
 		t.Fatalf("DeleteVariable: %v", err)
 	}
-	items, err = f.s.ResolveVariables(f.ctx, f.proj.ID, api.ID, f.dev.ID)
+	items, err = f.s.ResolveVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, api.ID, f.dev.ID)
 	if err != nil {
 		t.Fatalf("ResolveVariables: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestVariableResolvePrecedence(t *testing.T) {
 	}
 
 	// test 环境：token 回落到通用，host 取 test，dev 专属值不参与。
-	items, err = f.s.ResolveVariables(f.ctx, f.proj.ID, api.ID, f.test.ID)
+	items, err = f.s.ResolveVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, api.ID, f.test.ID)
 	if err != nil {
 		t.Fatalf("ResolveVariables: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestVariableSecretMasking(t *testing.T) {
 		t.Fatalf("列表应回掩码且标记有值，got %+v", views)
 	}
 
-	items, err := f.s.ResolveVariables(f.ctx, f.proj.ID, api.ID, f.dev.ID)
+	items, err := f.s.ResolveVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, api.ID, f.dev.ID)
 	if err != nil {
 		t.Fatalf("ResolveVariables: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestVariableEnvDeleteGuard(t *testing.T) {
 		t.Fatalf("被引用的环境应拒绝删除并列出变量名，got %v", err)
 	}
 
-	refs, err := f.s.VariableEnvRefs(f.ctx, f.dev.ID)
+	refs, err := f.s.VariableEnvRefs(f.ctx, f.admin.ID, f.admin.Type, f.dev.ID)
 	if err != nil {
 		t.Fatalf("VariableEnvRefs: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestVariableSummaryMatchesResolve(t *testing.T) {
 	f.newVar(t, dto.VariableReq{Scope: model.VarScopeProject, ProjectID: f.proj.ID, EnvID: f.dev.ID, Name: "host", Value: strPtr("https://dev")})
 	f.newVar(t, dto.VariableReq{Scope: model.VarScopeGlobal, Name: "keyword", Value: strPtr("tzq")})
 
-	sum, err := f.s.SummarizeVariables(f.ctx, f.proj.ID, f.dev.ID, []uint64{api.ID})
+	sum, err := f.s.SummarizeVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, f.dev.ID, []uint64{api.ID})
 	if err != nil {
 		t.Fatalf("SummarizeVariables: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestVariableSummaryMatchesResolve(t *testing.T) {
 	}
 
 	// 与解析口径一致：定义的变量都在解析表里，未定义的不在。
-	items, err := f.s.ResolveVariables(f.ctx, f.proj.ID, api.ID, f.dev.ID)
+	items, err := f.s.ResolveVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, api.ID, f.dev.ID)
 	if err != nil {
 		t.Fatalf("ResolveVariables: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestVariableSummaryMatchesResolve(t *testing.T) {
 	}
 
 	// 切到 test 环境：host 绑定在 dev 上 → 变为未定义。
-	sum, err = f.s.SummarizeVariables(f.ctx, f.proj.ID, f.test.ID, []uint64{api.ID})
+	sum, err = f.s.SummarizeVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, f.test.ID, []uint64{api.ID})
 	if err != nil {
 		t.Fatalf("SummarizeVariables test env: %v", err)
 	}
@@ -408,14 +408,14 @@ func TestVariableSummaryMatchesResolve(t *testing.T) {
 	}
 
 	// api_ids 为空 / 超上限时的参数校验。
-	if _, err := f.s.SummarizeVariables(f.ctx, f.proj.ID, f.dev.ID, nil); err == nil {
+	if _, err := f.s.SummarizeVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, f.dev.ID, nil); err == nil {
 		t.Fatal("空 api_ids 应报参数错误")
 	}
 	tooMany := make([]uint64, maxSummaryApiIDs+1)
 	for i := range tooMany {
 		tooMany[i] = uint64(i + 1)
 	}
-	if _, err := f.s.SummarizeVariables(f.ctx, f.proj.ID, f.dev.ID, tooMany); err == nil {
+	if _, err := f.s.SummarizeVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, f.dev.ID, tooMany); err == nil {
 		t.Fatal("超过上限的 api_ids 应报参数错误")
 	}
 }
@@ -423,7 +423,7 @@ func TestVariableSummaryMatchesResolve(t *testing.T) {
 // mustResolve 解析失败直接终止测试。
 func mustResolve(t *testing.T, f *varFixture, apiID, envID uint64) []ResolveItem {
 	t.Helper()
-	items, err := f.s.ResolveVariables(f.ctx, f.proj.ID, apiID, envID)
+	items, err := f.s.ResolveVariables(f.ctx, f.admin.ID, f.admin.Type, f.proj.ID, apiID, envID)
 	if err != nil {
 		t.Fatalf("ResolveVariables: %v", err)
 	}

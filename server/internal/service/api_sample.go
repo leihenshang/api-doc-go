@@ -52,7 +52,14 @@ func (s *Service) SaveApiSample(ctx context.Context, userID uint64, typ int8, re
 }
 
 // ListApiSamples 列出某接口的全部响应示例（按 seq 升序）。
-func (s *Service) ListApiSamples(ctx context.Context, apiID uint64) ([]model.ApiReturnSample, error) {
+func (s *Service) ListApiSamples(ctx context.Context, userID uint64, typ int8, apiID uint64) ([]model.ApiReturnSample, error) {
+	a, err := s.repo.GetApi(ctx, apiID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureProjectPermission(ctx, userID, typ, a.ProjectID, model.PermQuery); err != nil {
+		return nil, err
+	}
 	return s.repo.ListApiReturnSamples(ctx, apiID)
 }
 

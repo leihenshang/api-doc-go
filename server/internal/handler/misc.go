@@ -74,7 +74,8 @@ func (h *Handler) ListBugs(c *gin.Context) {
 	if v, err := strconv.Atoi(c.Query("status")); err == nil {
 		status = int8(v)
 	}
-	res, err := h.svc.ListBugs(c.Request.Context(), idQuery(c, "project_id"), status, q)
+	p := principal(c)
+	res, err := h.svc.ListBugs(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), status, q)
 	if err != nil {
 		fail(c, err)
 		return
@@ -84,7 +85,8 @@ func (h *Handler) ListBugs(c *gin.Context) {
 
 // GetBug 处理 GET /api/bug/:id。
 func (h *Handler) GetBug(c *gin.Context) {
-	res, err := h.svc.GetBug(c.Request.Context(), idParam(c))
+	p := principal(c)
+	res, err := h.svc.GetBug(c.Request.Context(), p.UserID, p.Type, idParam(c))
 	if err != nil {
 		fail(c, err)
 		return
@@ -94,7 +96,8 @@ func (h *Handler) GetBug(c *gin.Context) {
 
 // ListBugAssign 处理 GET /api/bug/assign。
 func (h *Handler) ListBugAssign(c *gin.Context) {
-	res, err := h.svc.ListBugAssign(c.Request.Context(), idOrFallback(c, "bug_id"))
+	p := principal(c)
+	res, err := h.svc.ListBugAssign(c.Request.Context(), p.UserID, p.Type, idOrFallback(c, "bug_id"))
 	if err != nil {
 		fail(c, err)
 		return
@@ -201,7 +204,8 @@ func (h *Handler) ListLogs(c *gin.Context) {
 	if v, err := strconv.Atoi(c.Query("type")); err == nil {
 		typ = int8(v)
 	}
-	res, err := h.svc.ListLogs(c.Request.Context(), idQuery(c, "project_id"), idQuery(c, "object_id"), typ, q)
+	p := principal(c)
+	res, err := h.svc.ListLogs(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), idQuery(c, "object_id"), typ, q)
 	if err != nil {
 		fail(c, err)
 		return

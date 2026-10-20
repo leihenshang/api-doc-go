@@ -115,11 +115,15 @@ func (s *Service) SetDefaultVariableEnv(ctx context.Context, userID uint64, typ 
 }
 
 // VariableEnvRefs 返回引用某环境的资源明细（删除前预检）。
-func (s *Service) VariableEnvRefs(ctx context.Context, id uint64) (*EnvRefs, error) {
+func (s *Service) VariableEnvRefs(ctx context.Context, userID uint64, typ int8, id uint64) (*EnvRefs, error) {
 	env, err := s.repo.GetVariableEnv(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	if err := s.ensureProjectPermission(ctx, userID, typ, env.ProjectID, model.PermQuery); err != nil {
+		return nil, err
+	}
+
 	vars, err := s.repo.VariablesByEnv(ctx, id)
 	if err != nil {
 		return nil, err

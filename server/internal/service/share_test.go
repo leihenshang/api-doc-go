@@ -124,7 +124,7 @@ func TestPostmanRoundTrip(t *testing.T) {
 		t.Fatalf("CreateApi: %v", err)
 	}
 
-	col, err := f.s.ExportPostman(ctx, f.proj.ID, 0)
+	col, err := f.s.ExportPostman(ctx, f.admin.ID, f.admin.Type, f.proj.ID, 0)
 	if err != nil {
 		t.Fatalf("ExportPostman: %v", err)
 	}

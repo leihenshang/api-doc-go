@@ -212,11 +212,12 @@ func (h *Handler) SaveApiSample(c *gin.Context) {
 
 // ListApiSamples 处理 GET /api/api/samples。
 func (h *Handler) ListApiSamples(c *gin.Context) {
+	p := principal(c)
 	var q dto.ApiSampleListQuery
 	if !bindQuery(c, &q) {
 		return
 	}
-	res, err := h.svc.ListApiSamples(c.Request.Context(), q.ApiID)
+	res, err := h.svc.ListApiSamples(c.Request.Context(), p.UserID, p.Type, q.ApiID)
 	if err != nil {
 		fail(c, err)
 		return
@@ -271,7 +272,8 @@ func (h *Handler) ImportBruno(c *gin.Context) {
 
 // ExportOpenAPI 处理 GET /api/api/export?project_id=&group_id=，导出标准 OpenAPI(JSON)。
 func (h *Handler) ExportOpenAPI(c *gin.Context) {
-	doc, err := h.svc.OpenAPIExport(c.Request.Context(), idQuery(c, "project_id"), idQuery(c, "group_id"))
+	p := principal(c)
+	doc, err := h.svc.OpenAPIExport(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), idQuery(c, "group_id"))
 	if err != nil {
 		fail(c, err)
 		return
@@ -439,7 +441,8 @@ func (h *Handler) PurgeDocs(c *gin.Context) {
 
 // LikeDoc 处理 POST /api/doc/:id/like。
 func (h *Handler) LikeDoc(c *gin.Context) {
-	if err := h.svc.LikeDoc(c.Request.Context(), idParam(c)); err != nil {
+	p := principal(c)
+	if err := h.svc.LikeDoc(c.Request.Context(), p.UserID, p.Type, idParam(c)); err != nil {
 		fail(c, err)
 		return
 	}

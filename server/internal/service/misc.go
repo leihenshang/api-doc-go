@@ -82,12 +82,22 @@ func (s *Service) AssignBug(ctx context.Context, userID uint64, typ int8, req dt
 }
 
 // GetBug 缺陷详情。
-func (s *Service) GetBug(ctx context.Context, id uint64) (*model.Bug, error) {
-	return s.repo.GetBug(ctx, id)
+func (s *Service) GetBug(ctx context.Context, userID uint64, typ int8, id uint64) (*model.Bug, error) {
+	b, err := s.repo.GetBug(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureProjectPermission(ctx, userID, typ, b.ProjectID, model.PermQuery); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // ListBugs 分页查询缺陷。
-func (s *Service) ListBugs(ctx context.Context, projectID uint64, status int8, q page.Query) (page.Result[model.Bug], error) {
+func (s *Service) ListBugs(ctx context.Context, userID uint64, typ int8, projectID uint64, status int8, q page.Query) (page.Result[model.Bug], error) {
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return page.Result[model.Bug]{}, err
+	}
 	q.Normalize()
 	items, total, err := s.repo.ListBugs(ctx, projectID, status, q)
 	if err != nil {
@@ -97,7 +107,14 @@ func (s *Service) ListBugs(ctx context.Context, projectID uint64, status int8, q
 }
 
 // ListBugAssign 指派记录。
-func (s *Service) ListBugAssign(ctx context.Context, bugID uint64) ([]model.BugAssign, error) {
+func (s *Service) ListBugAssign(ctx context.Context, userID uint64, typ int8, bugID uint64) ([]model.BugAssign, error) {
+	b, err := s.repo.GetBug(ctx, bugID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureProjectPermission(ctx, userID, typ, b.ProjectID, model.PermQuery); err != nil {
+		return nil, err
+	}
 	return s.repo.ListBugAssign(ctx, bugID)
 }
 
@@ -200,7 +217,10 @@ func (s *Service) MarkNotificationRead(ctx context.Context, receiver, id uint64)
 // ---- 操作日志 ----
 
 // ListLogs 分页查询操作日志。
-func (s *Service) ListLogs(ctx context.Context, projectID, objectID uint64, typ int8, q page.Query) (page.Result[model.OperationLog], error) {
+func (s *Service) ListLogs(ctx context.Context, userID uint64, userType int8, projectID, objectID uint64, typ int8, q page.Query) (page.Result[model.OperationLog], error) {
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return page.Result[model.OperationLog]{}, err
+	}
 	q.Normalize()
 	items, total, err := s.repo.ListLogs(ctx, projectID, objectID, typ, q)
 	if err != nil {

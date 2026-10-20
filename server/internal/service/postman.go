@@ -18,7 +18,11 @@ import (
 // ---- 导出 ----
 
 // ExportPostman 导出 Postman Collection；groupID > 0 时只导出该分组及其子分组。
-func (s *Service) ExportPostman(ctx context.Context, projectID, groupID uint64) (map[string]any, error) {
+func (s *Service) ExportPostman(ctx context.Context, userID uint64, typ int8, projectID, groupID uint64) (map[string]any, error) {
+	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
+		return nil, err
+	}
+
 	p, err := s.repo.ProjectByID(ctx, projectID)
 	if err != nil {
 		return nil, err
