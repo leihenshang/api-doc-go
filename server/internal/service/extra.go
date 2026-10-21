@@ -153,6 +153,8 @@ func (s *Service) ImportOpenAPI(ctx context.Context, userID uint64, typ int8, pr
 				HttpMethodType: method, URL: op.Path, ProtocolType: "http",
 				Source: SourceOpenAPI,
 			}
+			// 审核 H-8：导入的接口必须有 ext_uid，否则同步 appendItem 会直接丢弃（客户端永远拉不到）
+			a.ExtUID = ensureExtUID("")
 			// 参数 / 请求头 / 响应样例此前完全没写：导入只落名称、方法、URL，
 			// 用户看到「导入成功」但打开接口三栏全空（UI 走查 P0-2）。
 			applyOperationToApi(a, op)

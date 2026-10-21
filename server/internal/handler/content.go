@@ -2,6 +2,7 @@ package handler
 
 import (
 	"io"
+	"net/http"
 	"strconv"
 
 	"apidoc/internal/dto"
@@ -239,8 +240,13 @@ func (h *Handler) DeleteApiSample(c *gin.Context) {
 	response.OK(c, nil)
 }
 
+// maxImportBodyBytes 导入请求体上限（审核 H-6）：io.ReadAll / bindJSON 前用
+// http.MaxBytesReader 限制，避免并发大 POST 把进程 OOM。
+const maxImportBodyBytes = 32 << 20 // 32MB
+
 // ImportOpenAPI 处理 POST /api/api/import，body 为标准 OpenAPI(JSON)。
 func (h *Handler) ImportOpenAPI(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImportBodyBytes)
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil || len(body) == 0 {
 		response.Fail(c, errcode.CodeParamError, "请求体为空")
@@ -257,6 +263,7 @@ func (h *Handler) ImportOpenAPI(c *gin.Context) {
 
 // ImportBruno 处理 POST /api/api/import-bruno，body 为 Bruno 集合目录内的文本文件（相对路径 + 内容）。
 func (h *Handler) ImportBruno(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImportBodyBytes)
 	var req dto.BrunoImportReq
 	if !bindJSON(c, &req) {
 		return

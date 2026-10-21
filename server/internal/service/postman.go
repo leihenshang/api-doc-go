@@ -151,8 +151,11 @@ func (s *Service) ImportPostman(ctx context.Context, userID uint64, typ int8, pr
 		}
 		ensure := s.postmanGroupEnsurer(sc, projectID, &groups)
 
-		var walk func(items []shpostman.Item, parent uint64) error
-		walk = func(items []shpostman.Item, parent uint64) error {
+		var walk func(items []shpostman.Item, parent uint64, depth int) error
+		walk = func(items []shpostman.Item, parent uint64, depth int) error {
+			if depth > maxImportDepth {
+				return newBiz(errcode.CodeParamError, "文件夹嵌套过深（最多 %d 层）", maxImportDepth)
+			}
 			for _, it := range items {
 				if it.Folder {
 					name := strings.TrimSpace(it.Name)
@@ -163,7 +166,7 @@ func (s *Service) ImportPostman(ctx context.Context, userID uint64, typ int8, pr
 					if err != nil {
 						return err
 					}
-					if err := walk(it.Items, gid); err != nil {
+					if err := walk(it.Items, gid, depth+1); err != nil {
 						return err
 					}
 					continue
@@ -193,7 +196,7 @@ func (s *Service) ImportPostman(ctx context.Context, userID uint64, typ int8, pr
 			}
 			return nil
 		}
-		return walk(col.Items, 0)
+		return walk(col.Items, 0, 0)
 	})
 	if err != nil {
 		return res, err
@@ -237,6 +240,8 @@ func buildPostmanApi(projectID, groupID uint64, item shpostman.Item) (*model.Api
 		ProtocolType:   "http",
 		Source:         SourcePostman,
 	}
+	// 审核 H-8：导入的接口必须有 ext_uid，否则同步永远拉不到
+	a.ExtUID = ensureExtUID("")
 	if a.ApiName == "" {
 		a.ApiName = method + " " + raw
 	}

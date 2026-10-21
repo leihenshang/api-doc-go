@@ -125,15 +125,22 @@ func splitBrunoFiles(files []dto.BrunoFile) (map[string]string, []dto.BrunoFile,
 	return gids, reqs, nil
 }
 
+// maxImportDepth 导入时的目录/文件夹嵌套上限（审核 H-5）：递归深度由请求体控制，
+// 无上限时 Go 栈溢出是 fatal error（gin.Recovery 捕获不到）→ 整个进程崩。
+const maxImportDepth = 32
+
 // brunoGroupEnsurer 返回「目录 -> 分组 id」的惰性建组器：父目录先建，同名同级分组复用。
 func (s *Service) brunoGroupEnsurer(sc importScope, projectID uint64, groups *[]model.Group, folderYAML map[string]string) func(dir string) (uint64, error) {
 	gidByDir := map[string]uint64{".": 0, "": 0}
-	var ensure func(dir string) (uint64, error)
-	ensure = func(dir string) (uint64, error) {
+	var ensureAt func(dir string, depth int) (uint64, error)
+	ensureAt = func(dir string, depth int) (uint64, error) {
+		if depth > maxImportDepth {
+			return 0, newBiz(errcode.CodeParamError, "目录层级过深（最多 %d 层）", maxImportDepth)
+		}
 		if gid, ok := gidByDir[dir]; ok {
 			return gid, nil
 		}
-		parent, err := ensure(path.Dir(dir))
+		parent, err := ensureAt(path.Dir(dir), depth+1)
 		if err != nil {
 			return 0, err
 		}
@@ -157,7 +164,7 @@ func (s *Service) brunoGroupEnsurer(sc importScope, projectID uint64, groups *[]
 		gidByDir[dir] = g.ID
 		return g.ID, nil
 	}
-	return ensure
+	return func(dir string) (uint64, error) { return ensureAt(dir, 0) }
 }
 
 // buildBrunoApi 把请求文件转为接口记录：方法/路径/说明 + 请求头 + 查询参数与 JSON 请求体展平。
@@ -172,6 +179,8 @@ func (s *Service) buildBrunoApi(projectID, groupID uint64, req *collection.Reque
 		Description:    req.Docs,
 		Source:         SourceBruno,
 	}
+	// 审核 H-8：导入的接口必须有 ext_uid，否则同步 appendItem 会直接丢弃（客户端永远拉不到）
+	a.ExtUID = ensureExtUID("")
 	if a.ApiName == "" {
 		a.ApiName = a.HttpMethodType + " " + a.URL
 	}

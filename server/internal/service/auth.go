@@ -73,6 +73,20 @@ func (s *Service) GetUser(ctx context.Context, id uint64) (*model.UserInfo, erro
 	return s.repo.UserByID(ctx, id)
 }
 
+// LoadPrincipal 按用户 ID 回源刷新当前权限主体（审核 H-1）。
+// JWT 里的 Type 是签发时刻的快照：管理员禁用/降权后存量令牌仍会放行，因此鉴权中间件
+// 每请求用它校一次账号状态并取最新类型（数据库为唯一真源）。账号不存在/已禁用 → 拒绝。
+func (s *Service) LoadPrincipal(ctx context.Context, userID uint64) (int8, error) {
+	u, err := s.repo.UserByID(ctx, userID)
+	if err != nil {
+		return 0, newBiz(errcode.CodeUnauthorized, "登录状态已失效")
+	}
+	if u.State == model.UserStateDisabled {
+		return 0, newBiz(errcode.CodeForbidden, "账号已禁用")
+	}
+	return u.Type, nil
+}
+
 // ListUsers 分页查询用户。
 // ListUsers 用户列表。所有登录用户可读——备忘清单指派、成员选择、作者名回显都需要
 // 把 user_id 映射成名字；但邮箱 / 手机号 / 最近登录信息属个人信息，只对管理员可见，

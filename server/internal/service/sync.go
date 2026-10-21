@@ -64,15 +64,36 @@ func (s *Service) SyncState(ctx context.Context, userID uint64, typ int8, projec
 	return &SyncStateResp{Cursor: cur, OldestAvailable: old}, nil
 }
 
+// clampChangeLimit 增量拉取的 limit 收敛（审核 H-2）：与 repository 的上界保持一致（1000）。
+func clampChangeLimit(limit int) int {
+	switch {
+	case limit <= 0:
+		return 200
+	case limit > 1000:
+		return 1000
+	default:
+		return limit
+	}
+}
+
+// clampSnapshotLimit 快照分页的 limit 收敛（审核 H-3）：上限 500，默认 200。
+func clampSnapshotLimit(limit int) int {
+	if limit <= 0 || limit > 500 {
+		return 200
+	}
+	return limit
+}
+
 // SyncChanges 增量拉取。
 func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, projectID uint64, since int64, limit int) (*SyncChangesResp, error) {
 	// 越权读防护：变更流含全量接口定义（URL/请求头/请求体/响应样例）
 	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
 		return nil, err
 	}
-	if limit <= 0 {
-		limit = 200
-	}
+	// 审核 H-2：limit 必须在入口收敛，且与 repository 同一上界（1000）。
+	// 否则 repo 静默把 >1000 改成 200，而 hasMore 仍按原 limit 判定 → 客户端拿到
+	// 「cursor=最新、HasMore=false」却没收到中间数千条变更（无告警的数据丢失）。
+	limit = clampChangeLimit(limit)
 	old, err := s.repo.OldestChangeID(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -133,9 +154,8 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 	if err := s.ensureProjectPermission(ctx, userID, typ, projectID, model.PermQuery); err != nil {
 		return nil, err
 	}
-	if limit <= 0 {
-		limit = 200
-	}
+	// 审核 H-3：快照分页同样收敛上界，避免 ?limit=1000000 把整表读进内存（内存放大 DoS）。
+	limit = clampSnapshotLimit(limit)
 	if offset < 0 {
 		offset = 0
 	}

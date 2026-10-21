@@ -31,6 +31,13 @@ func Auth(secret string) gin.HandlerFunc {
 // AuthOrPAT 先试 JWT，失败再试 PAT（`pat_` 前缀，S7）。
 // verifyPAT 返回用户 ID 与其真实类型（不再一律降级为普通用户）；为 nil 时与 Auth 等价。
 func AuthOrPAT(secret string, verifyPAT func(raw string) (uint64, int8, error)) gin.HandlerFunc {
+	return AuthOrPATWithRefresh(secret, verifyPAT, nil)
+}
+
+// AuthOrPATWithRefresh 在 JWT 路径上额外用 refresh 回源刷活主体（审核 H-1）：
+// 管理员禁用/降权后，已签发 JWT 在过期前仍会拥有旧权限；refresh 按 claims.UserID
+// 查库拿「当前类型、是否可用」，禁用即拒、降权立即生效。refresh 为 nil 时退化为旧行为。
+func AuthOrPATWithRefresh(secret string, verifyPAT func(raw string) (uint64, int8, error), refresh func(c *gin.Context, userID uint64) (int8, bool)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tok := bearer(c.GetHeader("Authorization"))
 		if tok == "" {
@@ -40,7 +47,17 @@ func AuthOrPAT(secret string, verifyPAT func(raw string) (uint64, int8, error)) 
 			}
 		}
 		if claims, err := jwt.Parse(tok, secret); err == nil {
-			c.Set(CtxPrincipal, Principal{UserID: claims.UserID, Type: claims.Type})
+			typ := claims.Type
+			if refresh != nil {
+				t, ok := refresh(c, claims.UserID)
+				if !ok {
+					response.Fail(c, errcode.CodeUnauthorized, "")
+					c.Abort()
+					return
+				}
+				typ = t
+			}
+			c.Set(CtxPrincipal, Principal{UserID: claims.UserID, Type: typ})
 			c.Next()
 			return
 		}

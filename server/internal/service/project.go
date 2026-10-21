@@ -163,13 +163,19 @@ func (s *Service) SetLeader(ctx context.Context, operatorID uint64, typ int8, re
 	if err := s.ensureManage(ctx, operatorID, typ, req.ProjectID); err != nil {
 		return err
 	}
-	m, err := s.repo.Member(ctx, req.UserID, req.ProjectID)
-	if err != nil {
-		return newBiz(errcode.CodeParamError, "该用户不是项目成员")
-	}
-	m.IsLeader = 1
-	m.Permission = model.PermAll
-	return s.repo.SaveMember(ctx, m)
+	// 审核 H-7：先清掉旧负责人，再设新负责人（同事务），避免每次转让都累积一个「隐形超管」。
+	return s.repo.Transaction(ctx, func(tx *repository.Repository) error {
+		m, err := tx.Member(ctx, req.UserID, req.ProjectID)
+		if err != nil {
+			return newBiz(errcode.CodeParamError, "该用户不是项目成员")
+		}
+		if err := tx.ClearLeaders(ctx, req.ProjectID); err != nil {
+			return err
+		}
+		m.IsLeader = 1
+		m.Permission = model.PermAll
+		return tx.SaveMember(ctx, m)
+	})
 }
 
 // SetPermission 设置成员权限位。

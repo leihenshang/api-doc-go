@@ -218,6 +218,12 @@ func (h *Handler) ListLogs(c *gin.Context) {
 // UploadImg 处理 POST /api/file/upload（multipart 字段 file）。
 // 加固：大小上限 → 扩展名白名单 → 文件头嗅探（防改名绕过）→ 随机文件名（防枚举）。
 func (h *Handler) UploadImg(c *gin.Context) {
+	// 审核 H-6：先把整个 multipart 请求体限到单文件上限（+1MB 头余量）。
+	// 否则 FormFile 会在大小检查之前就把大文件落满临时目录，MaxMB 根本不起作用。
+	if maxMB := h.cfg.Upload.MaxMB; maxMB > 0 {
+		capBytes := int64(maxMB)*1024*1024 + (1 << 20)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, capBytes)
+	}
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		response.Fail(c, errcode.CodeParamError, "缺少文件")

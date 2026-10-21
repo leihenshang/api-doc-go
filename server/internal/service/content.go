@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -101,6 +102,12 @@ func (s *Service) UpdateGroup(ctx context.Context, userID uint64, typ int8, req 
 	}
 	if req.Title != "" {
 		g.Title = req.Title
+	}
+	// 审核 H-4：更新父级前先做环检测（以前只写不查，能直接把 p_id 造成环，后续排序永久卡死）。
+	if cyclic, err := s.groupMoveCyclic(ctx, g.ID, req.PID); err != nil {
+		return nil, err
+	} else if cyclic {
+		return nil, newBiz(errcode.CodeParamError, "不能把分组移动到其自身或其子分组下")
 	}
 	g.PID = req.PID
 	g.Priority = req.Priority
@@ -768,14 +775,29 @@ func (s *Service) sortGroup(ctx context.Context, projectID uint64, it dto.SortIt
 }
 
 // groupMoveCyclic 判断把 id 挂到 parentID 下是否成环（parentID 为 id 自身或其后代）。
+//
+// 审核 H-4：以前无访问集合也无深度上限，库里一旦已有环就永久循环、每轮一条 SQL；
+// 且把数据库错误也当成「父级不存在」。现在：visited 防重复节点、深度上限保守拒绝、
+// 仅 ErrNotFound 视为到达根，其余错误向上传播。
 func (s *Service) groupMoveCyclic(ctx context.Context, id, parentID uint64) (bool, error) {
+	visited := make(map[uint64]struct{}, 16)
 	for pid := parentID; pid > 0; {
 		if pid == id {
 			return true, nil
 		}
+		if _, seen := visited[pid]; seen {
+			return true, nil // 链上已有环：保守判定为成环
+		}
+		visited[pid] = struct{}{}
+		if len(visited) > 64 {
+			return true, nil // 异常深链：保守拒绝，避免打库
+		}
 		g, err := s.repo.GetGroup(ctx, pid)
 		if err != nil {
-			return false, nil // 父级不存在，视为无环
+			if errors.Is(err, repository.ErrNotFound) {
+				return false, nil // 父级已到根（不存在）：无环
+			}
+			return false, err // 数据库错误必须上报，不能静默当成无环
 		}
 		pid = g.PID
 	}

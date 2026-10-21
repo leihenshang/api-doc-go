@@ -180,6 +180,9 @@ func (s *Service) UpdateVariable(ctx context.Context, userID uint64, typ int8, r
 	}
 	next.ID = old.ID
 	next.BaseModel = old.BaseModel
+	// 审核 H-9：ext_uid 是同步身份，更新时必须沿用旧值（normalizeVariable 面向新建恒生成新 uid，
+	// 不恢复就会让每次编辑都变成 delete+create，客户端冲突检测与本地历史全部失效）。
+	next.ExtUID = ensureExtUID(old.ExtUID)
 	if req.Value == nil {
 		next.Value = old.Value
 	}

@@ -3,6 +3,7 @@ package handler
 
 import (
 	"io"
+	"net/http"
 
 	"apidoc/internal/pkg/errcode"
 	"apidoc/internal/pkg/response"
@@ -23,6 +24,7 @@ func (h *Handler) ExportPostman(c *gin.Context) {
 
 // ImportPostman 处理 POST /api/api/import-postman?project_id=&strategy=，请求体为 Postman 集合 JSON。
 func (h *Handler) ImportPostman(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImportBodyBytes)
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil || len(body) == 0 {
 		response.Fail(c, errcode.CodeParamError, "请求体为空")

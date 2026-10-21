@@ -49,8 +49,8 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		// 能力协商（客户端连接时校验协议兼容性）。
 		engine.GET(m.prefix+"/meta", h.Meta)
 
-		// 受保护接口（JWT 或 PAT）。
-		auth := engine.Group(m.prefix, middleware.AuthOrPAT(cfg.JWT.Secret, h.VerifyPAT))
+		// 受保护接口（JWT 或 PAT）。JWT 路径回源刷新主体：禁用/降权后存量令牌立即失效（审核 H-1）。
+		auth := engine.Group(m.prefix, middleware.AuthOrPATWithRefresh(cfg.JWT.Secret, h.VerifyPAT, h.LoadPrincipal))
 		registerRoutes(auth, h, m.entitySeg)
 	}
 	return engine

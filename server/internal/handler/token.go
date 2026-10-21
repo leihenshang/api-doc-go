@@ -71,3 +71,13 @@ func (h *Handler) RevealToken(c *gin.Context) {
 func (h *Handler) VerifyPAT(raw string) (uint64, int8, error) {
 	return h.svc.VerifyToken(context.Background(), raw)
 }
+
+// LoadPrincipal 供鉴权中间件回调（审核 H-1）：按 JWT 里的用户 ID 回源校验账号状态并取最新类型。
+// 返回 ok=false 表示账号不存在或已禁用 → 中间件直接拒绝（存量令牌立即失效）。
+func (h *Handler) LoadPrincipal(c *gin.Context, userID uint64) (int8, bool) {
+	typ, err := h.svc.LoadPrincipal(c.Request.Context(), userID)
+	if err != nil {
+		return 0, false
+	}
+	return typ, true
+}

@@ -372,12 +372,14 @@ type MessageSendReq struct {
 // ---- 接口导入（Bruno） ----
 
 // BrunoFile 集合内的单个文本文件：相对集合根目录的路径 + 内容。
+// Path 加上限（审核 H-5）：目录层级/长度由请求体控制，过深的目录会递归爆栈。
 type BrunoFile struct {
-	Path    string `json:"path" binding:"required"`
+	Path    string `json:"path" binding:"required,max=1024"`
 	Content string `json:"content"`
 }
 
 // BrunoImportReq Bruno 集合导入入参：前端把集合目录内的 yml 文件整体上传。
+// 文件数上限（审核 H-5）：避免超大请求长时间占用事务与内存。
 type BrunoImportReq struct {
-	Files []BrunoFile `json:"files" binding:"required,min=1,dive"`
+	Files []BrunoFile `json:"files" binding:"required,min=1,max=2000,dive"`
 }

@@ -13,17 +13,22 @@ import (
 )
 
 // countProjectRows 统计某张表里属于该项目的行数（含软删，快照要带上 Deleted 标记）。
+//
+// 审核 H-8：快照只输出 ext_uid 非空的行（appendItem 会丢掉空 uid），计数必须同口径，
+// 否则 total 偏大 → HasMore 恒 true、offset 前进却拿不到新行，客户端分页会原地打转。
 func countProjectRows[T any](ctx context.Context, db *gorm.DB, projectID uint64) (int64, error) {
 	var n int64
-	err := db.WithContext(ctx).Model(new(T)).Where("project_id = ?", projectID).Count(&n).Error
+	err := db.WithContext(ctx).Model(new(T)).
+		Where("project_id = ? AND ext_uid <> ''", projectID).
+		Count(&n).Error
 	return n, err
 }
 
-// listProjectRowsPage 按 id 稳定排序取一页。
+// listProjectRowsPage 按 id 稳定排序取一页（只取可参与同步的行，与计数同口径）。
 func listProjectRowsPage[T any](ctx context.Context, db *gorm.DB, projectID uint64, offset, limit int) ([]T, error) {
 	var out []T
 	err := db.WithContext(ctx).
-		Where("project_id = ?", projectID).
+		Where("project_id = ? AND ext_uid <> ''", projectID).
 		Order("id").
 		Offset(offset).
 		Limit(limit).

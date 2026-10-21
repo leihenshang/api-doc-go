@@ -213,6 +213,14 @@ func (r *Repository) SaveMember(ctx context.Context, m *model.UserProject) error
 	return r.tx(ctx).Save(m).Error
 }
 
+// ClearLeaders 把项目内所有负责人标记清掉（审核 H-7）：设置新负责人前先清零，
+// 否则旧负责人会永久保留 IsLeader=1（ensureManage/ensureProjectPermission 视其为全权限）。
+func (r *Repository) ClearLeaders(ctx context.Context, projectID uint64) error {
+	return r.tx(ctx).Model(&model.UserProject{}).
+		Where("project_id = ? AND is_leader = 1", projectID).
+		Update("is_leader", 0).Error
+}
+
 // wrapNotFound 将 gorm 未找到错误归一为 ErrNotFound。
 func wrapNotFound(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
