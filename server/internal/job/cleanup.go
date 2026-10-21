@@ -36,7 +36,7 @@ func StartCleanup(ctx context.Context, db *gorm.DB, retentionDays int, interval 
 	}()
 }
 
-// cleanup 硬删除超期 operation_log（日志无软删除语义，直接 DELETE）。
+// cleanup 物理删除超期 operation_log；并清掉软删超期的变量/环境/响应示例（审核 H-10）。
 func cleanup(db *gorm.DB, retentionDays int) {
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
 	res := db.Exec("DELETE FROM operation_log WHERE create_time < ?", cutoff)
@@ -46,6 +46,29 @@ func cleanup(db *gorm.DB, retentionDays int) {
 	}
 	if res.RowsAffected > 0 {
 		log.Printf("cleanup: removed %d operation logs older than %s", res.RowsAffected, cutoff.Format("2006-01-02"))
+	}
+	purgeSoftDeleted(db, cutoff)
+}
+
+// purgeSoftDeleted 物理清理软删超过保留期的实体（审核 H-10：变量/环境/响应示例改软删后，
+// 由本任务负责最终物理回收，避免 tombstone 永久堆积）。
+func purgeSoftDeleted(db *gorm.DB, cutoff time.Time) {
+	repo := repository.New(db, nil)
+	ctx := context.Background()
+	if n, err := repo.PurgeDeletedVariables(ctx, cutoff); err != nil {
+		log.Printf("cleanup: purge variables: %v", err)
+	} else if n > 0 {
+		log.Printf("cleanup: purged %d soft-deleted variables", n)
+	}
+	if n, err := repo.PurgeDeletedVariableEnvs(ctx, cutoff); err != nil {
+		log.Printf("cleanup: purge variable envs: %v", err)
+	} else if n > 0 {
+		log.Printf("cleanup: purged %d soft-deleted variable envs", n)
+	}
+	if n, err := repo.PurgeDeletedApiReturnSamples(ctx, cutoff); err != nil {
+		log.Printf("cleanup: purge api samples: %v", err)
+	} else if n > 0 {
+		log.Printf("cleanup: purged %d soft-deleted api samples", n)
 	}
 }
 

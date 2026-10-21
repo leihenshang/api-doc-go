@@ -330,11 +330,11 @@ func TestSyncVariableRoundTrip(t *testing.T) {
 		t.Fatalf("密文变量占位符应原样保留，got %q", out)
 	}
 
-	// delete：change_log 记 tombstone；实体与 DeleteApi 同口径直接删除、行不再可见
+	// delete：change_log 记 tombstone；实体软删（行保留，IsDeleted=1，客户端可感知删除）
 	pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-var-del", model.SyncOpDelete, model.SyncTypeVariable, varUID, SyncPayload{})
 	v2, err := f.s.repo.FindVariableByExtUID(ctx, f.proj.ID, varUID)
-	if err != nil || v2 != nil {
-		t.Fatalf("变量删除后应不可见: %v %+v", err, v2)
+	if err != nil || v2 == nil || v2.IsDeleted != model.IsDeletedYes {
+		t.Fatalf("变量删除后应为软删墓碑: %v %+v", err, v2)
 	}
 }
 
@@ -392,13 +392,13 @@ func TestSyncExampleRoundTrip(t *testing.T) {
 		t.Fatal("快照中未找到示例")
 	}
 
-	// 删除传播
+	// 删除传播：软删为墓碑（行保留，IsDeleted=1）
 	if out := pushOp(t, f.s, f.admin.ID, f.proj.ID, "op-ex-2", model.SyncOpDelete, model.SyncTypeExample, uid, SyncPayload{}); out.Status != "ok" {
 		t.Fatalf("example delete 应成功: %+v", out)
 	}
 	gone, err := f.s.repo.FindApiReturnSampleByExtUID(ctx, f.proj.ID, uid)
-	if err != nil || gone != nil {
-		t.Fatalf("删除后不应再查到示例: %v %v", gone, err)
+	if err != nil || gone == nil || gone.IsDeleted != model.IsDeletedYes {
+		t.Fatalf("删除后应为软删墓碑: %v %+v", err, gone)
 	}
 
 	// 缺宿主的示例被拒绝

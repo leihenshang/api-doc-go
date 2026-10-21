@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"apidoc/internal/model"
 
@@ -20,9 +21,17 @@ func (r *Repository) UpdateApiReturnSample(ctx context.Context, v *model.ApiRetu
 	return gmSave(ctx, r.db, v)
 }
 
-// DeleteApiReturnSample 物理删除一条响应示例。
+// DeleteApiReturnSample 软删除一条响应示例（审核 H-10：保留 tombstone，同步可感知删除）。
 func (r *Repository) DeleteApiReturnSample(ctx context.Context, id uint64) error {
-	return gmHardDelete[model.ApiReturnSample](ctx, r.db, id)
+	return gmSoftDelete[model.ApiReturnSample](ctx, r.db, id)
+}
+
+// PurgeDeletedApiReturnSamples 物理清理软删超过截止时间的响应示例（审核 H-10，job/cleanup 调用）。
+func (r *Repository) PurgeDeletedApiReturnSamples(ctx context.Context, before time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where("is_deleted = 1 AND update_time < ?", before).
+		Delete(&model.ApiReturnSample{})
+	return res.RowsAffected, res.Error
 }
 
 // ListApiReturnSamples 取某接口的全部响应示例（按 seq 升序、id 升序）。
@@ -33,9 +42,9 @@ func (r *Repository) ListApiReturnSamples(ctx context.Context, apiID uint64) ([]
 	return out, err
 }
 
-// GetApiReturnSample 按主键取示例（含软删）。
+// GetApiReturnSample 按主键取未删除的示例（业务读写用；同步/回收站走含软删的查询）。
 func (r *Repository) GetApiReturnSample(ctx context.Context, id uint64) (*model.ApiReturnSample, error) {
-	return gmGet[model.ApiReturnSample](ctx, r.db, id)
+	return getActive[model.ApiReturnSample](ctx, r.db, id)
 }
 
 // FindApiReturnSampleByExtUID 按客户端 uid 查示例（同步用，含软删）。

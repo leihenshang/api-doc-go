@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"apidoc/internal/model"
 )
@@ -12,13 +13,22 @@ func (r *Repository) CreateVariableEnv(ctx context.Context, v *model.VariableEnv
 	return gmCreate(ctx, r.db, v)
 }
 func (r *Repository) GetVariableEnv(ctx context.Context, id uint64) (*model.VariableEnv, error) {
-	return gmGet[model.VariableEnv](ctx, r.db, id)
+	return getActive[model.VariableEnv](ctx, r.db, id)
 }
 func (r *Repository) UpdateVariableEnv(ctx context.Context, v *model.VariableEnv) error {
 	return gmSave(ctx, r.db, v)
 }
 func (r *Repository) DeleteVariableEnv(ctx context.Context, id uint64) error {
-	return gmHardDelete[model.VariableEnv](ctx, r.db, id)
+	// 审核 H-10：环境改软删除（tombstone），否则同步无法区分「已删除」与「不属于本项目」。
+	return gmSoftDelete[model.VariableEnv](ctx, r.db, id)
+}
+
+// PurgeDeletedVariableEnvs 物理清理软删超过截止时间的环境（审核 H-10，job/cleanup 调用）。
+func (r *Repository) PurgeDeletedVariableEnvs(ctx context.Context, before time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where("is_deleted = 1 AND update_time < ?", before).
+		Delete(&model.VariableEnv{})
+	return res.RowsAffected, res.Error
 }
 
 // ListVariableEnvs 返回项目下的环境，默认环境优先，其次按 priority/id。
@@ -60,13 +70,22 @@ func (r *Repository) CreateVariable(ctx context.Context, v *model.Variable) erro
 	return gmCreate(ctx, r.db, v)
 }
 func (r *Repository) GetVariable(ctx context.Context, id uint64) (*model.Variable, error) {
-	return gmGet[model.Variable](ctx, r.db, id)
+	return getActive[model.Variable](ctx, r.db, id)
 }
 func (r *Repository) UpdateVariable(ctx context.Context, v *model.Variable) error {
 	return gmSave(ctx, r.db, v)
 }
 func (r *Repository) DeleteVariable(ctx context.Context, id uint64) error {
-	return gmHardDelete[model.Variable](ctx, r.db, id)
+	// 审核 H-10：变量改软删除（tombstone），快照/变更流会带上 Deleted 标记。
+	return gmSoftDelete[model.Variable](ctx, r.db, id)
+}
+
+// PurgeDeletedVariables 物理清理软删超过截止时间的变量（审核 H-10，job/cleanup 调用）。
+func (r *Repository) PurgeDeletedVariables(ctx context.Context, before time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where("is_deleted = 1 AND update_time < ?", before).
+		Delete(&model.Variable{})
+	return res.RowsAffected, res.Error
 }
 
 // VariableFilter 变量列表筛选（零值表示不筛选；EnvID 为指针以便区分「不限」与「通用(0)」）。

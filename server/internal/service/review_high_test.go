@@ -4,11 +4,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"apidoc/internal/dto"
 	"apidoc/internal/model"
+	"apidoc/internal/repository"
 )
 
 // H-1：禁用账号的存量登录态在回源刷新时被拒；正常账号返回当前类型。
@@ -175,6 +178,105 @@ func TestUpdateVariableKeepsExtUID(t *testing.T) {
 	}
 	if after.ExtUID != before.ExtUID {
 		t.Fatalf("更新后 ext_uid 应不变：%q → %q", before.ExtUID, after.ExtUID)
+	}
+}
+
+// H-10：变量/环境/响应示例改软删——业务读不到、快照带 tombstone、到期可物理清理。
+func TestSoftDeleteAndPurge(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestService(t)
+	admin, _ := s.InitAdmin(ctx, "admin", "admin123")
+	proj, err := s.CreateProject(ctx, admin.ID, dto.ProjectCreateReq{Title: "soft"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// 变量：删除后业务读不到，但快照仍有 Deleted 墓碑。
+	val := "v"
+	v, err := s.CreateVariable(ctx, admin.ID, admin.Type, dto.VariableReq{
+		Scope: model.VarScopeProject, ProjectID: proj.ID, Name: "k", Value: &val,
+	})
+	if err != nil {
+		t.Fatalf("CreateVariable: %v", err)
+	}
+	created, err := s.repo.GetVariable(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("重读变量: %v", err)
+	}
+	uid := created.ExtUID
+	if err := s.DeleteVariable(ctx, admin.ID, admin.Type, v.ID); err != nil {
+		t.Fatalf("DeleteVariable: %v", err)
+	}
+	if _, err := s.repo.GetVariable(ctx, v.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("删除后业务读路径应视为不存在，got %v", err)
+	}
+	snap, err := s.SyncSnapshot(ctx, admin.ID, admin.Type, proj.ID, 0, 200)
+	if err != nil {
+		t.Fatalf("SyncSnapshot: %v", err)
+	}
+	seen := false
+	for _, it := range snap.Items {
+		if it.Type == model.SyncTypeVariable && it.UID == uid {
+			seen = true
+			if !it.Deleted {
+				t.Fatal("软删变量应在快照中标记 Deleted=true")
+			}
+		}
+	}
+	if !seen {
+		t.Fatal("快照应包含软删变量的墓碑")
+	}
+
+	// 环境：同样软删。
+	env, err := s.CreateVariableEnv(ctx, admin.ID, admin.Type, dto.VariableEnvReq{ProjectID: proj.ID, Name: "dev"})
+	if err != nil {
+		t.Fatalf("CreateVariableEnv: %v", err)
+	}
+	if err := s.DeleteVariableEnv(ctx, admin.ID, admin.Type, env.ID); err != nil {
+		t.Fatalf("DeleteVariableEnv: %v", err)
+	}
+	if _, err := s.repo.GetVariableEnv(ctx, env.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("删除后环境应不可读，got %v", err)
+	}
+
+	// 响应示例：仓储层软删 + 物理清理。
+	ex := &model.ApiReturnSample{ProjectID: proj.ID, ApiID: 1, ExtUID: "ex-uid", Seq: 1}
+	if err := s.repo.CreateApiReturnSample(ctx, ex); err != nil {
+		t.Fatalf("CreateApiReturnSample: %v", err)
+	}
+	if err := s.repo.DeleteApiReturnSample(ctx, ex.ID); err != nil {
+		t.Fatalf("DeleteApiReturnSample: %v", err)
+	}
+	if _, err := s.repo.GetApiReturnSample(ctx, ex.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("软删示例业务读应不存在，got %v", err)
+	}
+	all, err := s.repo.ListApiReturnSamplesAll(ctx, proj.ID)
+	if err != nil || len(all) != 1 || all[0].IsDeleted != model.IsDeletedYes {
+		t.Fatalf("同步用查询应含软删示例：%v %+v", err, all)
+	}
+
+	// 到期物理清理（截止时间取未来，模拟已过保留期）。
+	if _, err := s.repo.PurgeDeletedVariables(ctx, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("PurgeDeletedVariables: %v", err)
+	}
+	if _, err := s.repo.PurgeDeletedVariableEnvs(ctx, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("PurgeDeletedVariableEnvs: %v", err)
+	}
+	if _, err := s.repo.PurgeDeletedApiReturnSamples(ctx, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("PurgeDeletedApiReturnSamples: %v", err)
+	}
+	snap2, err := s.SyncSnapshot(ctx, admin.ID, admin.Type, proj.ID, 0, 200)
+	if err != nil {
+		t.Fatalf("SyncSnapshot after purge: %v", err)
+	}
+	for _, it := range snap2.Items {
+		if it.Type == model.SyncTypeVariable && it.UID == uid {
+			t.Fatal("物理清理后墓碑应从快照消失")
+		}
+	}
+	if left, _ := s.repo.ListApiReturnSamplesAll(ctx, proj.ID); len(left) != 0 {
+		t.Fatalf("物理清理后示例应移除：%+v", left)
 	}
 }
 
