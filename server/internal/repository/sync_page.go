@@ -142,3 +142,15 @@ func (r *Repository) CountVariablesAll(ctx context.Context, projectID uint64) (i
 func (r *Repository) ListVariablesPage(ctx context.Context, projectID uint64, offset, limit int) ([]model.Variable, error) {
 	return listProjectRowsPage[model.Variable](ctx, r.db, projectID, offset, limit)
 }
+
+// ---- 字段字典 ----
+
+// CountFieldMappingsAll 项目内字段字典总数（含软删）。
+func (r *Repository) CountFieldMappingsAll(ctx context.Context, projectID uint64) (int64, error) {
+	return countProjectRows[model.FieldMapping](ctx, r.db, projectID)
+}
+
+// ListFieldMappingsPage 字段字典分页（按 id）。
+func (r *Repository) ListFieldMappingsPage(ctx context.Context, projectID uint64, offset, limit int) ([]model.FieldMapping, error) {
+	return listProjectRowsPage[model.FieldMapping](ctx, r.db, projectID, offset, limit)
+}

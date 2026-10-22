@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"apidoc/internal/model"
@@ -331,6 +332,20 @@ func (r *Repository) FieldMappingByField(ctx context.Context, projectID uint64, 
 	err := r.active(ctx).Where("project_id = ? AND field = ?", projectID, field).First(&v).Error
 	if err != nil {
 		return nil, wrapNotFound(err)
+	}
+	return &v, nil
+}
+
+// FindFieldMappingByExtUID 按同步身份查字段字典（同步 upsert/delete 用）。
+// 查不到返回 (nil, nil) 以示「不存在」；查询错误原样上抛（调用方必须区分两者）。
+func (r *Repository) FindFieldMappingByExtUID(ctx context.Context, projectID uint64, extUID string) (*model.FieldMapping, error) {
+	var v model.FieldMapping
+	err := r.db.WithContext(ctx).Where("project_id = ? AND ext_uid = ?", projectID, extUID).First(&v).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	return &v, nil
 }

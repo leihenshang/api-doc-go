@@ -11,6 +11,9 @@ const (
 	// 变量类同步（S16）：secret 值以客户端密文（enc:v1: 前缀）入库，服务端只存储不解析。
 	SyncTypeVarEnv   = "variable_env" // 环境（variable_env 表）
 	SyncTypeVariable = "variable"     // 变量（variable 表，scope=项目级）
+	// SyncTypeFieldMapping 项目级字段字典（field_mapping 表）：field/type/description，
+	// 客户端用于生成接口返回参数的字段说明。
+	SyncTypeFieldMapping = "field_mapping"
 )
 
 // 同步操作。

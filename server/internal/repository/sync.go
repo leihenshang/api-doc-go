@@ -59,6 +59,8 @@ func (r *Repository) SetLastChange(tx *gorm.DB, entityType string, id uint64, ch
 		col = "variable"
 	case model.SyncTypeVarEnv:
 		col = "variable_env"
+	case model.SyncTypeFieldMapping:
+		col = "field_mapping"
 	default:
 		// 未知实体类型必须显式报错：静默 return nil 会让调用方以为写成功，
 		// 而修订号实际没落库（B-07/P0-6 两类 bug 的共同根因）。

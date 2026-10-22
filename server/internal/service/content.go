@@ -814,10 +814,11 @@ func (s *Service) CreateFieldMapping(ctx context.Context, userID uint64, typ int
 	if _, err := s.repo.FieldMappingByField(ctx, req.ProjectID, req.Field); err == nil {
 		return nil, newBiz(errcode.CodeFailed, "字段重复")
 	}
-	fm := &model.FieldMapping{ProjectID: req.ProjectID, Field: req.Field, Type: req.Type, Description: req.Description}
+	fm := &model.FieldMapping{ProjectID: req.ProjectID, ExtUID: ensureExtUID(""), Field: req.Field, Type: req.Type, Description: req.Description}
 	if err := s.repo.CreateFieldMapping(ctx, fm); err != nil {
 		return nil, err
 	}
+	s.recordChange(model.SyncTypeFieldMapping, fm.ExtUID, fm.ProjectID, fm.ID, model.SyncOpUpsert, userID)
 	return fm, nil
 }
 
@@ -838,10 +839,12 @@ func (s *Service) UpdateFieldMapping(ctx context.Context, userID uint64, typ int
 	if err := s.ensureProjectPermission(ctx, userID, typ, fm.ProjectID, model.PermUpdate); err != nil {
 		return nil, err
 	}
+	fm.ExtUID = ensureExtUID(fm.ExtUID)
 	fm.Field, fm.Type, fm.Description = req.Field, req.Type, req.Description
 	if err := s.repo.UpdateFieldMapping(ctx, fm); err != nil {
 		return nil, err
 	}
+	s.recordChange(model.SyncTypeFieldMapping, fm.ExtUID, fm.ProjectID, fm.ID, model.SyncOpUpsert, userID)
 	return fm, nil
 }
 
@@ -854,7 +857,11 @@ func (s *Service) DeleteFieldMapping(ctx context.Context, userID uint64, typ int
 	if err := s.ensureProjectPermission(ctx, userID, typ, fm.ProjectID, model.PermDelete); err != nil {
 		return err
 	}
-	return s.repo.DeleteFieldMapping(ctx, id)
+	if err := s.repo.DeleteFieldMapping(ctx, id); err != nil {
+		return err
+	}
+	s.recordChange(model.SyncTypeFieldMapping, fm.ExtUID, fm.ProjectID, fm.ID, model.SyncOpDelete, userID)
+	return nil
 }
 
 // 保证 repository 被引用（避免后续重构误删依赖）。

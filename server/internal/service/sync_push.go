@@ -106,7 +106,7 @@ func (s *Service) applyOp(ctx context.Context, r *repository.Repository, userID 
 	}
 	switch op.Type {
 	case model.SyncTypeGroup, model.SyncTypeAPI, model.SyncTypeDoc, model.SyncTypeExample,
-		model.SyncTypeVarEnv, model.SyncTypeVariable:
+		model.SyncTypeVarEnv, model.SyncTypeVariable, model.SyncTypeFieldMapping:
 	default:
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 	}
@@ -166,6 +166,14 @@ func (s *Service) applyOp(ctx context.Context, r *repository.Repository, userID 
 	case model.SyncTypeVariable:
 		e, lerr := r.FindVariableByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
+		if e != nil {
+			exists, curRev = true, e.LastChangeID
+		}
+	case model.SyncTypeFieldMapping:
+		e, lerr := r.FindFieldMappingByExtUID(ctx, req.ProjectID, op.UID)
 		if out, bad := lookupRejected(op, lerr); bad {
 			return out
 		}

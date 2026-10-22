@@ -42,7 +42,7 @@ func (s *Service) Meta(ctx context.Context) *MetaResp {
 		ServerVersion:    ServerVersion,
 		APIVersion:       "1",
 		SyncProto:        SyncProto,
-		Features:         []string{"sync", "pat", "change_log", "tombstone", "op_id"},
+		Features:         []string{"sync", "pat", "change_log", "tombstone", "op_id", "field_mapping"},
 		MinClientVersion: "0.1.0",
 	}
 }
@@ -144,7 +144,7 @@ func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, proj
 //
 // P2-26：改为 **DB 侧分页**。原来是「6 张表全量读进内存 → 拼成一个 rows 切片 → 按 offset/limit 切」，
 // 每翻一页都要重扫全量（O(页数 × N)），大项目（上万条接口）翻十几页就明显卡。
-// 现在按固定类型顺序（group → api → doc → example → variable_env → variable，与客户端
+// 现在按固定类型顺序（group → api → doc → example → variable_env → variable → field_mapping，与客户端
 // typeRank 一致）逐类型「计数 + 只取交集那一段」，单页代价只与 limit 相关。
 //
 // 引用的 uid（parent_uid / group_uid / api_uid / env_uid）也只针对**本页**的行批量反查，
@@ -161,7 +161,7 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 	}
 
 	// 1) 各类型计数（决定每类在全局序列里的区间）
-	counts := make([]int64, 6)
+	counts := make([]int64, 7)
 	counter := []func() (int64, error){
 		func() (int64, error) { return s.repo.CountGroupsAll(ctx, projectID) },
 		func() (int64, error) { return s.repo.CountApisAll(ctx, projectID) },
@@ -169,6 +169,7 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 		func() (int64, error) { return s.repo.CountApiReturnSamplesAll(ctx, projectID) },
 		func() (int64, error) { return s.repo.CountVarEnvsAll(ctx, projectID) },
 		func() (int64, error) { return s.repo.CountVariablesAll(ctx, projectID) },
+		func() (int64, error) { return s.repo.CountFieldMappingsAll(ctx, projectID) },
 	}
 	var total int64
 	for i, fn := range counter {
@@ -205,12 +206,13 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 
 // snapshotSlice 本页要读的各类型区间。
 type snapshotSlice struct {
-	groups   []model.Group
-	apis     []model.Api
-	docs     []model.Doc
-	examples []model.ApiReturnSample
-	varEnvs  []model.VariableEnv
-	vars     []model.Variable
+	groups        []model.Group
+	apis          []model.Api
+	docs          []model.Doc
+	examples      []model.ApiReturnSample
+	varEnvs       []model.VariableEnv
+	vars          []model.Variable
+	fieldMappings []model.FieldMapping
 }
 
 // loadSnapshotSlice 按类型顺序把 [offset, offset+limit) 映射到各表的 [局部起点, 条数) 并读取。
@@ -279,6 +281,13 @@ func (s *Service) loadSnapshotSlice(ctx context.Context, projectID uint64, offse
 		}
 		out.vars = v
 	}
+	if off, n := take(counts[6]); n > 0 {
+		v, err := s.repo.ListFieldMappingsPage(ctx, projectID, off, n)
+		if err != nil {
+			return nil, err
+		}
+		out.fieldMappings = v
+	}
 	return out, nil
 }
 
@@ -326,7 +335,7 @@ func (s *Service) snapshotRows(ctx context.Context, projectID uint64, sl *snapsh
 		return nil, err
 	}
 
-	items := make([]SyncItem, 0, len(sl.groups)+len(sl.apis)+len(sl.docs)+len(sl.examples)+len(sl.varEnvs)+len(sl.vars))
+	items := make([]SyncItem, 0, len(sl.groups)+len(sl.apis)+len(sl.docs)+len(sl.examples)+len(sl.varEnvs)+len(sl.vars)+len(sl.fieldMappings))
 	appendItem := func(t string, uid string, rev int64, p SyncPayload) {
 		if uid == "" {
 			return // 没有 ext_uid 的条目无法参与同步配对
@@ -363,6 +372,11 @@ func (s *Service) snapshotRows(ctx context.Context, projectID uint64, sl *snapsh
 		p := s.varSyncPayloadWith(&v, envUID)
 		p.Deleted = v.IsDeleted == model.IsDeletedYes
 		appendItem(model.SyncTypeVariable, v.ExtUID, v.LastChangeID, p)
+	}
+	for _, fm := range sl.fieldMappings {
+		p := SyncPayload{Field: fm.Field, FieldType: fm.Type, Description: fm.Description}
+		p.Deleted = fm.IsDeleted == model.IsDeletedYes
+		appendItem(model.SyncTypeFieldMapping, fm.ExtUID, fm.LastChangeID, p)
 	}
 	return items, nil
 }

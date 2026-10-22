@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"apidoc/internal/repository"
@@ -12,14 +13,18 @@ import (
 
 // StartCleanup 周期清理超期日志与变更流水（启动即执行一次）。
 // retentionDays<=0 表示不清理；interval 为清理周期。随 ctx 结束停止。
-func StartCleanup(ctx context.Context, db *gorm.DB, retentionDays int, interval time.Duration) {
+// 返回等待函数，供关停流程等待当前轮清理收尾（审核 H-12）。
+func StartCleanup(ctx context.Context, db *gorm.DB, retentionDays int, interval time.Duration) (wait func()) {
 	if retentionDays <= 0 {
-		return
+		return func() {}
 	}
 	if interval <= 0 {
 		interval = time.Hour
 	}
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		cleanup(db, retentionDays)
 		cleanupChangeLog(db)
 		t := time.NewTicker(interval)
@@ -34,6 +39,7 @@ func StartCleanup(ctx context.Context, db *gorm.DB, retentionDays int, interval 
 			}
 		}
 	}()
+	return wg.Wait
 }
 
 // cleanup 物理删除超期 operation_log；并清掉软删超期的变量/环境/响应示例（审核 H-10）。

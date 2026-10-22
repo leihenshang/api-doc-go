@@ -71,10 +71,13 @@ func (BugAssign) TableName() string { return "bug_assign" }
 // FieldMapping 对应字段映射表 field_mapping。
 type FieldMapping struct {
 	BaseModel
-	ProjectID   uint64 `gorm:"column:project_id;not null;index" json:"project_id"`
-	Field       string `gorm:"column:field;size:100;not null" json:"field"`
-	Type        string `gorm:"column:type;size:100;not null" json:"type"`
-	Description string `gorm:"column:description;size:100" json:"description"`
+	// ExtUID 同步身份（客户端生成的 UUID）；LastChangeID 为该条目当前版本。
+	ExtUID       string `gorm:"column:ext_uid;size:64;uniqueIndex:uk_field_mapping_ext_uid,where:is_deleted = 0 AND ext_uid != ''" json:"ext_uid"`
+	LastChangeID int64  `gorm:"column:last_change_id;not null;default:0" json:"last_change_id"`
+	ProjectID    uint64 `gorm:"column:project_id;not null;index" json:"project_id"`
+	Field        string `gorm:"column:field;size:100;not null" json:"field"`
+	Type         string `gorm:"column:type;size:100;not null" json:"type"`
+	Description  string `gorm:"column:description;size:100" json:"description"`
 }
 
 // TableName 指定表名。

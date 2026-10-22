@@ -258,6 +258,39 @@ func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, use
 		}
 		e.LastChangeID = cid
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
+
+	case model.SyncTypeFieldMapping:
+		// 字段字典：项目级、无父依赖；field 在项目内必须唯一（Web 新建同样拦截重复）。
+		e, lerr := r.FindFieldMappingByExtUID(ctx, req.ProjectID, op.UID)
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
+		if e == nil {
+			e = &model.FieldMapping{ProjectID: req.ProjectID}
+		}
+		if other, oerr := r.FieldMappingByField(ctx, req.ProjectID, p.Field); oerr == nil && other.ExtUID != op.UID {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "field_duplicate"}
+		}
+		e.ExtUID = op.UID
+		e.Field = p.Field
+		e.Type = p.FieldType
+		e.Description = p.Description
+		var err error
+		if e.ID == 0 {
+			err = r.CreateFieldMapping(ctx, e)
+		} else {
+			e.IsDeleted = model.IsDeletedNo
+			err = r.UpdateFieldMapping(ctx, e)
+		}
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
+		}
+		cid, err := s.appendChangeTx(ctx, r, model.SyncTypeFieldMapping, op.UID, req.ProjectID, e.ID, model.SyncOpUpsert, userID, device)
+		if err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
+		}
+		e.LastChangeID = cid
+		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 	}
 	return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 }
@@ -345,6 +378,18 @@ func (s *Service) applyDelete(ctx context.Context, r *repository.Repository, use
 		}
 		id = e.ID
 		if err := r.DeleteVariable(ctx, id); err != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
+		}
+	case model.SyncTypeFieldMapping:
+		e, lerr := r.FindFieldMappingByExtUID(ctx, req.ProjectID, op.UID)
+		if out, bad := lookupRejected(op, lerr); bad {
+			return out
+		}
+		if e == nil {
+			return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: 0}
+		}
+		id = e.ID
+		if err := r.DeleteFieldMapping(ctx, id); err != nil {
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 		}
 	default:

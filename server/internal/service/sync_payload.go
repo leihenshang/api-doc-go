@@ -51,6 +51,12 @@ func (s *Service) loadPayload(ctx context.Context, projectID uint64, entityType,
 			return nil, errors.New("not found")
 		}
 		return json.Marshal(s.varSyncPayload(ctx, v))
+	case model.SyncTypeFieldMapping:
+		fm, err := s.repo.FindFieldMappingByExtUID(ctx, projectID, extUID)
+		if err != nil || fm == nil {
+			return nil, errors.New("not found")
+		}
+		return json.Marshal(fieldMappingSyncPayload(fm))
 	}
 	return nil, fmt.Errorf("unknown type %s", entityType)
 }
@@ -99,6 +105,11 @@ func (s *Service) varSyncPayloadWith(v *model.Variable, envUID map[uint64]string
 	}
 	p.EnvUID = envUID[v.EnvID]
 	return p
+}
+
+// fieldMappingSyncPayload 构造字段字典同步载荷（字段路径 / 类型 / 说明）。
+func fieldMappingSyncPayload(fm *model.FieldMapping) SyncPayload {
+	return SyncPayload{Field: fm.Field, FieldType: fm.Type, Description: fm.Description}
 }
 
 // applyApiExtra 把同步 extra（JSON 文本）逐键写入 api 文本列：键存在且为字符串才覆盖
