@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"apidoc/internal/model"
 )
 
 // loadPayload 把实体序列化为同步载荷。
-func (s *Service) loadPayload(ctx context.Context, projectID uint64, entityType, extUID string) (json.RawMessage, error) {
+// reveal 表示调用方具备明文权限（审核 H-11）：明文 secret 只对这类调用方下发。
+func (s *Service) loadPayload(ctx context.Context, projectID uint64, entityType, extUID string, reveal bool) (json.RawMessage, error) {
 	switch entityType {
 	case model.SyncTypeGroup:
 		g, err := s.repo.FindGroupByExtUID(ctx, projectID, extUID)
@@ -50,7 +52,7 @@ func (s *Service) loadPayload(ctx context.Context, projectID uint64, entityType,
 		if err != nil || v == nil {
 			return nil, errors.New("not found")
 		}
-		return json.Marshal(s.varSyncPayload(ctx, v))
+		return json.Marshal(s.varSyncPayload(ctx, v, reveal))
 	case model.SyncTypeFieldMapping:
 		fm, err := s.repo.FindFieldMappingByExtUID(ctx, projectID, extUID)
 		if err != nil || fm == nil {
@@ -73,17 +75,31 @@ func (s *Service) exampleSyncPayload(ctx context.Context, ex *model.ApiReturnSam
 	return p
 }
 
-// varSyncPayload 构造变量同步载荷：env_id 反查 env_uid；值原样回传（enc:v1: 密文不解析）。
-func (s *Service) varSyncPayload(ctx context.Context, v *model.Variable) SyncPayload {
+// varSyncPayload 构造变量同步载荷：env_id 反查 env_uid；值按调用方权限回传（H-11）。
+func (s *Service) varSyncPayload(ctx context.Context, v *model.Variable, reveal bool) SyncPayload {
 	enabled := v.Enabled == model.VarEnabled
 	p := SyncPayload{
-		Name: v.Name, Value: v.Value,
-		Secret: v.IsSecret == model.VarSecret, Enabled: &enabled,
+		Name: v.Name, Secret: v.IsSecret == model.VarSecret, Enabled: &enabled,
 	}
+	p.Value, p.Redacted = syncVariableValue(v, reveal)
 	if v.EnvID > 0 {
 		p.EnvUID = s.repo.VarEnvExtUID(ctx, v.EnvID)
 	}
 	return p
+}
+
+// syncVariableValue 决定 secret 变量在同步载荷里的值（审核 H-11）：
+//   - 非 secret / 空值：原样回传；
+//   - 客户端密文（enc:v1:）：原样回传——服务端不解析，客户端可用口令解密后使用；
+//   - 明文 secret：有明文权限（管理员/负责人/update 位）时原样回传并记审计，否则置 Redacted 不下发。
+func syncVariableValue(v *model.Variable, reveal bool) (value string, redacted bool) {
+	if v.IsSecret != model.VarSecret || v.Value == "" {
+		return v.Value, false
+	}
+	if isEncryptedValue(v.Value) || reveal {
+		return v.Value, false
+	}
+	return "", true
 }
 
 // exampleSyncPayloadWith 快照路径用：所属接口 uid 从已建好的 map 取，避免逐行查询。
@@ -97,14 +113,40 @@ func (s *Service) exampleSyncPayloadWith(ex *model.ApiReturnSample, apiUID map[u
 }
 
 // varSyncPayloadWith 快照路径用：所属环境 uid 从已建好的 map 取。
-func (s *Service) varSyncPayloadWith(v *model.Variable, envUID map[uint64]string) SyncPayload {
+func (s *Service) varSyncPayloadWith(v *model.Variable, envUID map[uint64]string, reveal bool) SyncPayload {
 	enabled := v.Enabled == model.VarEnabled
 	p := SyncPayload{
-		Name: v.Name, Value: v.Value,
-		Secret: v.IsSecret == model.VarSecret, Enabled: &enabled,
+		Name: v.Name, Secret: v.IsSecret == model.VarSecret, Enabled: &enabled,
 	}
+	p.Value, p.Redacted = syncVariableValue(v, reveal)
 	p.EnvUID = envUID[v.EnvID]
 	return p
+}
+
+// maxAuditSecretNames 审计文案里最多列出的变量名数（避免一次快照写出超长日志）。
+const maxAuditSecretNames = 20
+
+// auditSyncSecretReveal 在同步下发明文敏感值时写一条审计（审核 H-11）：
+// 与 /api/variable?with_value=1 同口径；密文与已脱敏条目不算。
+func (s *Service) auditSyncSecretReveal(ctx context.Context, userID, projectID uint64, items []SyncItem) {
+	names := make([]string, 0, 4)
+	for _, it := range items {
+		if it.Type != model.SyncTypeVariable || len(it.Payload) == 0 {
+			continue
+		}
+		var p SyncPayload
+		if json.Unmarshal(it.Payload, &p) != nil || !p.Secret || p.Redacted || p.Value == "" || isEncryptedValue(p.Value) {
+			continue
+		}
+		names = append(names, p.Name)
+	}
+	if len(names) == 0 {
+		return
+	}
+	if len(names) > maxAuditSecretNames {
+		names = append(names[:maxAuditSecretNames], "…")
+	}
+	s.recordOp(ctx, projectID, userID, 0, model.LogObjectVariable, "query", "同步读取敏感变量明文："+strings.Join(names, ", "))
 }
 
 // fieldMappingSyncPayload 构造字段字典同步载荷（字段路径 / 类型 / 说明）。

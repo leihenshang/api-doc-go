@@ -39,11 +39,15 @@ security:
 log:
   retention_days: 70
 
-# 定时备份（BACKUP_ENABLED / BACKUP_INTERVAL_MIN / BACKUP_DIR）
+# 定时备份（BACKUP_ENABLED / BACKUP_INTERVAL_MIN / BACKUP_DIR / BACKUP_RETENTION）
+# 仅 SQLite 支持内置备份：用 VACUUM INTO 生成一致性快照（含 WAL 已提交事务）。
+# PostgreSQL 生产环境请使用 pg_dump 或托管快照。
 backup:
   enabled: false
   interval_minutes: 1440
   dir: data/backups
+  # 保留最近 N 份，超出的从旧到新删除（默认 7）
+  retention: 7
 
 # 初始超级管理员（ADMIN_NAME / ADMIN_PASSWORD）——生产必须修改密码
 admin:

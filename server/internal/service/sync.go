@@ -111,19 +111,9 @@ func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, proj
 	if hasMore {
 		logs = logs[:limit]
 	}
-	items := make([]SyncItem, 0, len(logs))
-	for _, lg := range logs {
-		it := SyncItem{Type: lg.EntityType, UID: lg.ExtUID, Op: lg.Op, ItemRev: lg.ID}
-		if lg.Op == model.SyncOpDelete {
-			it.Deleted = true
-		} else {
-			payload, err := s.loadPayload(ctx, projectID, lg.EntityType, lg.ExtUID)
-			if err == nil {
-				it.Payload = payload
-			}
-		}
-		items = append(items, it)
-	}
+	reveal := s.canRevealValues(ctx, userID, typ, projectID)
+	items := s.changeItems(ctx, projectID, logs, reveal)
+	s.auditSyncSecretReveal(ctx, userID, projectID, items)
 	cursor := since
 	if len(logs) > 0 {
 		cursor = logs[len(logs)-1].ID
@@ -138,6 +128,24 @@ func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, proj
 		cursor = cur
 	}
 	return &SyncChangesResp{Cursor: cursor, Items: items, HasMore: hasMore}, nil
+}
+
+// changeItems 把变更流水转成同步条目；秘密变量按调用方权限决定是否下发明文（H-11）。
+func (s *Service) changeItems(ctx context.Context, projectID uint64, logs []model.ChangeLog, reveal bool) []SyncItem {
+	items := make([]SyncItem, 0, len(logs))
+	for _, lg := range logs {
+		it := SyncItem{Type: lg.EntityType, UID: lg.ExtUID, Op: lg.Op, ItemRev: lg.ID}
+		if lg.Op == model.SyncOpDelete {
+			it.Deleted = true
+		} else {
+			payload, err := s.loadPayload(ctx, projectID, lg.EntityType, lg.ExtUID, reveal)
+			if err == nil {
+				it.Payload = payload
+			}
+		}
+		items = append(items, it)
+	}
+	return items
 }
 
 // SyncSnapshot 全量分页。
@@ -186,10 +194,12 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.snapshotRows(ctx, projectID, loaded)
+	reveal := s.canRevealValues(ctx, userID, typ, projectID)
+	rows, err := s.snapshotRows(ctx, projectID, loaded, reveal)
 	if err != nil {
 		return nil, err
 	}
+	s.auditSyncSecretReveal(ctx, userID, projectID, rows)
 
 	// 3) 游标（P2-5：取不到就报错，不回落 0）
 	cur, cerr := s.repo.LatestChangeID(ctx, projectID)
@@ -292,7 +302,7 @@ func (s *Service) loadSnapshotSlice(ctx context.Context, projectID uint64, offse
 }
 
 // snapshotRows 把本页各类型的行转成同步条目；引用的 uid 只针对本页批量反查。
-func (s *Service) snapshotRows(ctx context.Context, projectID uint64, sl *snapshotSlice) ([]SyncItem, error) {
+func (s *Service) snapshotRows(ctx context.Context, projectID uint64, sl *snapshotSlice, reveal bool) ([]SyncItem, error) {
 	// 收集本页需要反查的 id
 	groupIDs := make([]uint64, 0, len(sl.groups)+len(sl.apis)+len(sl.docs))
 	apiIDs := make([]uint64, 0, len(sl.examples))
@@ -369,7 +379,7 @@ func (s *Service) snapshotRows(ctx context.Context, projectID uint64, sl *snapsh
 		appendItem(model.SyncTypeVarEnv, ev.ExtUID, ev.LastChangeID, p)
 	}
 	for _, v := range sl.vars {
-		p := s.varSyncPayloadWith(&v, envUID)
+		p := s.varSyncPayloadWith(&v, envUID, reveal)
 		p.Deleted = v.IsDeleted == model.IsDeletedYes
 		appendItem(model.SyncTypeVariable, v.ExtUID, v.LastChangeID, p)
 	}

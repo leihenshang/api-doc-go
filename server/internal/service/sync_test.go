@@ -74,7 +74,7 @@ func TestSyncPushAPIParams(t *testing.T) {
 	}
 
 	// 增量载荷：extra 必须是 JSON 对象且各键为 DB 原文（snapshot 同口径）。
-	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeAPI, uid)
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeAPI, uid, true)
 	if err != nil {
 		t.Fatalf("loadPayload: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestSyncPushAPIExtendedFields(t *testing.T) {
 	}
 
 	// 增量载荷必须原样回传这些键（与 applyApiExtra 键集对齐），供客户端双向同步。
-	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeAPI, uid)
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeAPI, uid, true)
 	if err != nil {
 		t.Fatalf("loadPayload: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestSyncVariableRoundTrip(t *testing.T) {
 	}
 
 	// 载荷回读（增量与快照共用 loadPayload）
-	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeVariable, varUID)
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeVariable, varUID, true)
 	if err != nil {
 		t.Fatalf("loadPayload: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestSyncExampleRoundTrip(t *testing.T) {
 	}
 
 	// 增量载荷回读：api_uid 必须还原为宿主接口的 ext_uid
-	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeExample, uid)
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeExample, uid, true)
 	if err != nil {
 		t.Fatalf("loadPayload(example): %v", err)
 	}

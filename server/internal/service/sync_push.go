@@ -182,7 +182,8 @@ func (s *Service) applyOp(ctx context.Context, r *repository.Repository, userID 
 		}
 	}
 	if exists && op.BaseRev > 0 && op.BaseRev != curRev {
-		payload, _ := s.loadPayload(ctx, req.ProjectID, op.Type, op.UID)
+		// push 入口已校验 PermUpdate，等价于具备明文权限：冲突回传服务端原文。
+		payload, _ := s.loadPayload(ctx, req.ProjectID, op.Type, op.UID, true)
 		return SyncOpOut{
 			OpID: op.OpID, Status: "conflict", ItemRev: curRev, Server: payload,
 		}

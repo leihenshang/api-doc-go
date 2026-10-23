@@ -69,7 +69,7 @@ func TestFieldMappingSyncRoundTrip(t *testing.T) {
 	if pushed.LastChangeID == 0 {
 		t.Fatal("push 后 last_change_id 应回写（否则下一轮必冲突）")
 	}
-	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeFieldMapping, uid)
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeFieldMapping, uid, true)
 	if err != nil {
 		t.Fatalf("loadPayload: %v", err)
 	}

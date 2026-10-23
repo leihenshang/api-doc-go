@@ -89,6 +89,8 @@ type BackupConfig struct {
 	IntervalMinutes int `yaml:"interval_minutes"`
 	// Dir 备份输出目录。
 	Dir string `yaml:"dir"`
+	// Retention 保留最近 N 份备份，超出的按时间从旧到新删除；<=0 用默认 7（审核 H-13）。
+	Retention int `yaml:"retention"`
 }
 
 // AdminConfig 初始超级管理员。
@@ -170,7 +172,7 @@ func defaults() *Config {
 			AuthRateLimitPerMin: 10,
 		},
 		Log:    LogConfig{RetentionDays: 70},
-		Backup: BackupConfig{Enabled: false, IntervalMinutes: 1440, Dir: "data/backups"},
+		Backup: BackupConfig{Enabled: false, IntervalMinutes: 1440, Dir: "data/backups", Retention: 7},
 		Admin:  AdminConfig{Name: "admin", Password: "admin123"},
 	}
 }
@@ -229,6 +231,7 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	overrideInt(&cfg.Backup.IntervalMinutes, "BACKUP_INTERVAL_MIN")
 	overrideStr(&cfg.Backup.Dir, "BACKUP_DIR")
+	overrideInt(&cfg.Backup.Retention, "BACKUP_RETENTION")
 	overrideStr(&cfg.Admin.Name, "ADMIN_NAME")
 	overrideStr(&cfg.Admin.Password, "ADMIN_PASSWORD")
 }

@@ -67,7 +67,7 @@ func run() error {
 		log.Printf("default super admin created: name=%s password=%s （请尽快修改）", cfg.Admin.Name, cfg.Admin.Password)
 	}
 
-	waitBackup := job.StartBackup(ctx, cfg)
+	waitBackup := job.StartBackup(ctx, db, cfg)
 	waitCleanup := job.StartCleanup(ctx, db, cfg.Log.RetentionDays, time.Hour)
 
 	engine := router.Setup(db, cfg)
