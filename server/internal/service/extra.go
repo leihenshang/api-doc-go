@@ -257,7 +257,7 @@ func applyOperationToApi(a *model.Api, op shopenapi.Operation) {
 			continue
 		}
 		params = append(params, apiParamRow{
-			FieldName: p.Name, Required: p.Required, Example: p.Example, Description: p.Description,
+			FieldName: p.Name, Type: p.Type, Required: p.Required, Example: p.Example, Description: p.Description,
 		})
 	}
 	if len(headers) > 0 {

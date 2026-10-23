@@ -119,6 +119,7 @@ func TestImportSkipsGhostMethods(t *testing.T) {
 	t.Parallel()
 	f := newVarFixture(t)
 	body := []byte(`{
+	  "openapi": "3.0.0",
 	  "info": {"title": "t", "version": "1"},
 	  "paths": {
 	    "/v1/user": {

@@ -75,7 +75,7 @@ cd web    && npm run check          # type-check + lint + build
 
 ## 共享模块
 
-变量解析、集合格式、代码生成等两端共用的规则集中在 [api-doc-go-share](https://github.com/leihenshang/api-doc-go-share)，本仓库 `require v0.13.0`。
+变量解析、集合格式、代码生成等两端共用的规则集中在 [api-doc-go-share](https://github.com/leihenshang/api-doc-go-share)，本仓库 `require v0.14.0`。
 
 ## 许可证
 

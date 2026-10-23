@@ -7,6 +7,7 @@ import {
 } from '@/api/content'
 import { listLogs } from '@/api/misc'
 import { addMember, listMembers, quitProject, setLeader, setPermission, updateProject } from '@/api/project'
+import ContractDiffModal from '@/components/ContractDiffModal.vue'
 import ShareLinksPanel from '@/components/ShareLinksPanel.vue'
 import TablePager from '@/components/TablePager.vue'
 import { useNumParam } from '@/composables/params'
@@ -26,7 +27,7 @@ import {
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { parse as parseYaml } from 'yaml'
+import { parseOpenAPIText } from '@/utils/openapi'
 
 const router = useRouter()
 const message = useMessage()
@@ -128,6 +129,7 @@ function onLogType(v: number | null): void {
 
 // ---- 接口导入 / 导出 ----
 const showImport = ref(false)
+const showContract = ref(false)
 const importing = ref(false)
 const importSrc = ref<'openapi' | 'bruno' | 'postman'>('openapi')
 const importStrategy = ref<'append' | 'overwrite'>('append')
@@ -183,19 +185,6 @@ async function readBrunoDir(list: UploadFileInfo[]): Promise<void> {
     }
 }
 
-/** 文本解析为 OpenAPI 对象：先按 JSON，再按 YAML（含 Bruno 反引号容错）。 */
-function parseOpenApi(text: string): unknown {
-    try {
-        return JSON.parse(text)
-    } catch {
-        try {
-            return parseYaml(text)
-        } catch {
-            return parseYaml(text.replace(/^(\s*(?:- )?[\w-]+:\s*)`([^`\n]*)`(\s*)$/gm, "$1'$2'$3"))
-        }
-    }
-}
-
 async function doImport(): Promise<void> {
     importing.value = true
     try {
@@ -207,7 +196,7 @@ async function doImport(): Promise<void> {
             }
             let doc: unknown
             try {
-                doc = parseOpenApi(await openapiFile.value.text())
+                doc = parseOpenAPIText(await openapiFile.value.text())
             } catch {
                 message.error('OpenAPI 文件解析失败（JSON / YAML 均无法识别）')
                 return
@@ -413,6 +402,7 @@ onMounted(() => {
                     </div>
                     <div class="hd-actions">
                         <n-button size="small" @click="showImport = true">导入接口</n-button>
+                        <n-button size="small" @click="showContract = true">{{ t('contract.title') }}</n-button>
                         <n-dropdown trigger="click" :options="exportOptions" @select="doExportByKey">
                             <n-button size="small">导出文档</n-button>
                         </n-dropdown>
@@ -547,6 +537,8 @@ onMounted(() => {
                 </div>
             </template>
         </n-modal>
+
+        <contract-diff-modal v-model:show="showContract" :project-id="projectId" />
 
         <n-modal v-model:show="showImport" preset="card" title="导入接口" style="width: 560px">
             <n-form label-placement="left" label-width="88">

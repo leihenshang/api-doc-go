@@ -1,0 +1,50 @@
+info:
+  name: 接口_契约校验
+  type: http
+  seq: 43
+
+http:
+  method: POST
+  url: "{{host}}/api/v1/item/contract-diff"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - OpenAPI 与当前项目接口的只读契约 diff（RM-08）
+
+  ## 请求 URI
+  - `/api/v1/item/contract-diff`（仅 v1）
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>` 或 PAT；需项目读权限。
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |project_id|是|uint|项目 ID|
+  |openapi|是|object|OpenAPI 3.x JSON 文档（YAML 由前端解析后提交）|
+
+  ## 响应 data
+  - `added` / `removed`: `[{method, path}]`
+  - `changes`: `[{method, path, param, in, kind, before, after, breaking}]`
+    - `kind`: `param_added` / `param_removed` / `required_changed` / `type_changed`
+  - `breaking_count`: 破坏性变更总数（含被删除端点）
+
+  ## 规则
+  - 按 `method + path` 匹配端点；参数按名称匹配，类型做 int/integer、bool/boolean 等归一。
+  - 删除端点、删除参数、可选变必填、类型变化、新增必填参数均标记破坏性。
+  - 只读接口，不写入项目；请求体上限 2 MB。
+
+  ## 备注
+  - 当前只覆盖请求侧；响应 Schema 校验需先补数据模型。

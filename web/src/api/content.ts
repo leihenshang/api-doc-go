@@ -1,7 +1,7 @@
 // 分组 / 接口 / 文档 / 字段映射接口。
 import type { ApiResponse } from '@/types/api';
 import type {
-  ApiDoc, DocItem, FieldMapping, Group, Page, ProxySendReq, ProxySendResp,
+  ApiDoc, ContractDiffResult, DocItem, FieldMapping, Group, Page, ProxySendReq, ProxySendResp,
   RevisionDiff, RevisionItem,
 } from '@/types/entities';
 import { del, get, post, put } from './http';
@@ -47,6 +47,9 @@ export function updateApi(
   payload: Record<string, unknown> & { id: number; expected_update_time?: string },
 ): Promise<ApiResponse<ApiDoc>> {
   return put<ApiDoc>('/item', payload)
+}
+export function contractDiff(projectId: number, openapi: unknown): Promise<ApiResponse<ContractDiffResult>> {
+  return post<ContractDiffResult>('/item/contract-diff', { project_id: projectId, openapi })
 }
 export function listRevisions(type: 'api' | 'doc', id: number): Promise<ApiResponse<RevisionItem[]>> {
   return get<RevisionItem[]>('/item/revisions', { type, id })

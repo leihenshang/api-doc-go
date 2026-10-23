@@ -105,6 +105,31 @@ export interface RevisionDiff {
   fields: FieldDiff[]
 }
 
+// ---- 契约校验（RM-08） ----
+
+export interface ContractEndpoint {
+  method: string
+  path: string
+}
+
+export interface ContractChange {
+  method: string
+  path: string
+  param: string
+  in: string
+  kind: 'param_added' | 'param_removed' | 'required_changed' | 'type_changed' | string
+  before: string
+  after: string
+  breaking: boolean
+}
+
+export interface ContractDiffResult {
+  added: ContractEndpoint[]
+  removed: ContractEndpoint[]
+  changes: ContractChange[]
+  breaking_count: number
+}
+
 export interface DocItem extends BaseEntity {
   user_id: number
   project_id: number

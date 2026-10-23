@@ -75,6 +75,8 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			auth.GET("/item/revisions", h.ListRevisions)
 			auth.GET("/item/revision-diff", h.RevisionDiff)
 			auth.POST("/item/revision-restore", h.RestoreRevision)
+			// 契约校验（RM-08）：只读 diff，不落库。
+			auth.POST("/item/contract-diff", h.ContractDiff)
 		}
 	}
 	return engine

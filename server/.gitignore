@@ -41,3 +41,6 @@
 # IDE
 .idea/
 .vscode/
+
+# 本地临时脚本/冒烟产物
+.tmp/

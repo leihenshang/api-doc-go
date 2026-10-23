@@ -41,4 +41,5 @@ docs: |-
   - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期（前端跳登录）/ 403 无权限
 
   ## 备注
+  - 仅接受 OpenAPI 3.x；Swagger 2.0（`swagger: "2.0"`）或缺少 `openapi` 版本字段返回 22（Q-02）。
   - 契约实现见 backend `internal/dto/dto.go` 与对应 handler。
