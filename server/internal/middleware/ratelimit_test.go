@@ -91,24 +91,99 @@ func TestRateLimitRetryAfter(t *testing.T) {
 	}
 }
 
-// TestClientIP 覆盖客户端 IP 解析：优先 X-Forwarded-For / X-Real-IP。
+// TestClientIP 覆盖客户端 IP 解析：只有可信代理才采信 XFF/X-Real-IP（审核 H-19）。
 func TestClientIP(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-	c.Request.RemoteAddr = "10.0.0.1:9"
-	if ip := ClientIP(c); ip != "10.0.0.1" {
-		t.Fatalf("应回退 RemoteAddr，got %q", ip)
+
+	resolve := func(trusted []string, remote, xff, realIP string) string {
+		engine := gin.New()
+		if err := engine.SetTrustedProxies(trusted); err != nil {
+			t.Fatalf("SetTrustedProxies: %v", err)
+		}
+		var got string
+		engine.GET("/ip", func(c *gin.Context) {
+			got = ClientIP(c)
+			c.Status(http.StatusOK)
+		})
+		req := httptest.NewRequest(http.MethodGet, "/ip", nil)
+		req.RemoteAddr = remote
+		if xff != "" {
+			req.Header.Set("X-Forwarded-For", xff)
+		}
+		if realIP != "" {
+			req.Header.Set("X-Real-IP", realIP)
+		}
+		engine.ServeHTTP(httptest.NewRecorder(), req)
+		return got
 	}
-	c.Request.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.0.1")
-	if ip := ClientIP(c); ip != "203.0.113.7" {
-		t.Fatalf("应取 XFF 首个地址，got %q", ip)
+
+	// 未配置可信代理：XFF/X-Real-IP 一律忽略，只信 TCP 对端。
+	if ip := resolve([]string{}, "10.0.0.1:9", "203.0.113.7", "198.51.100.9"); ip != "10.0.0.1" {
+		t.Fatalf("无可信代理时应回退 RemoteAddr，got %q", ip)
 	}
-	c.Request.Header.Del("X-Forwarded-For")
-	c.Request.Header.Set("X-Real-IP", "198.51.100.9")
-	if ip := ClientIP(c); ip != "198.51.100.9" {
-		t.Fatalf("应取 X-Real-IP，got %q", ip)
+	// 来自可信代理：采信 XFF。
+	if ip := resolve([]string{"10.0.0.1"}, "10.0.0.1:9", "203.0.113.7, 10.0.0.1", ""); ip != "203.0.113.7" {
+		t.Fatalf("可信代理应取 XFF 首个地址，got %q", ip)
+	}
+	// 来自可信代理：无 XFF 时采信 X-Real-IP。
+	if ip := resolve([]string{"10.0.0.1"}, "10.0.0.1:9", "", "198.51.100.9"); ip != "198.51.100.9" {
+		t.Fatalf("可信代理应取 X-Real-IP，got %q", ip)
+	}
+}
+
+// TestRateLimitIgnoresSpoofedXFFWithoutTrustedProxy 审核 H-19：无可信代理时换 XFF 不能绕限流。
+func TestRateLimitIgnoresSpoofedXFFWithoutTrustedProxy(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	_ = engine.SetTrustedProxies([]string{})
+	engine.Use(RateLimit(1))
+	engine.GET("/ping", func(c *gin.Context) { c.String(http.StatusOK, "pong") })
+
+	do := func(xff string) string {
+		req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+		req.RemoteAddr = "10.1.1.1:1234"
+		req.Header.Set("X-Forwarded-For", xff)
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		return w.Body.String()
+	}
+	if body := do("203.0.113.1"); body != "pong" {
+		t.Fatalf("第一次应放行，got %s", body)
+	}
+	if body := do("203.0.113.2"); body == "pong" {
+		t.Fatal("换 XFF 不应获得新桶（未配置可信代理）")
+	}
+}
+
+// TestRateLimitHonorsXFFFromTrustedProxy 可信代理链下按真实客户端 IP 分桶。
+func TestRateLimitHonorsXFFFromTrustedProxy(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	if err := engine.SetTrustedProxies([]string{"10.0.0.1"}); err != nil {
+		t.Fatalf("SetTrustedProxies: %v", err)
+	}
+	engine.Use(RateLimit(1))
+	engine.GET("/ping", func(c *gin.Context) { c.String(http.StatusOK, "pong") })
+
+	do := func(xff string) string {
+		req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+		req.RemoteAddr = "10.0.0.1:1234"
+		req.Header.Set("X-Forwarded-For", xff)
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		return w.Body.String()
+	}
+	if body := do("203.0.113.7"); body != "pong" {
+		t.Fatalf("客户端 A 第一次应放行，got %s", body)
+	}
+	if body := do("203.0.113.8"); body != "pong" {
+		t.Fatalf("客户端 B 应使用独立桶，got %s", body)
+	}
+	if body := do("203.0.113.7"); body == "pong" {
+		t.Fatal("客户端 A 第二次应被限流")
 	}
 }
 

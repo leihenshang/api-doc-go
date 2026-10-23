@@ -234,8 +234,8 @@ func (h *Handler) UploadImg(c *gin.Context) {
 		return
 	}
 	ext := fileutil.NormalizeExt(fileHeader.Filename)
-	if !fileutil.Allowed(ext, h.cfg.Upload.AllowExt) {
-		response.Fail(c, errcode.CodeParamError, "不支持的文件类型，允许："+strings.Join(h.cfg.Upload.AllowExt, " "))
+	if !fileutil.Allowed(ext, h.allowUploadExt()) {
+		response.Fail(c, errcode.CodeParamError, "不支持的文件类型，允许："+strings.Join(h.allowUploadExt(), " "))
 		return
 	}
 	// 嗅探文件头：内容类型必须与扩展名同族，防止把 HTML/脚本改名为图片上传。
@@ -271,12 +271,23 @@ func (h *Handler) UploadImg(c *gin.Context) {
 	}
 	sum := sha256.Sum256(data)
 	hash := hex.EncodeToString(sum[:])
-	f, err := h.svc.SaveFileWithHash(c.Request.Context(), fileHeader.Filename, "/uploads/"+name, hash, fileHeader.Header.Get("Content-Type"), fileHeader.Size)
+	// 审核 H-18：multipart 分部头里的 Content-Type 完全由客户端指定，不能入库直出；
+	// 统一按扩展名映射为安全 MIME（html/js 等永远不会被当成可执行内容）。
+	mime := fileutil.ContentTypeOf(ext)
+	f, err := h.svc.SaveFileWithHash(c.Request.Context(), fileHeader.Filename, "/uploads/"+name, hash, mime, fileHeader.Size)
 	if err != nil {
 		fail(c, err)
 		return
 	}
 	response.OK(c, gin.H{"id": f.ID, "url": "/uploads/" + name, "hash": hash})
+}
+
+// allowUploadExt 返回上传扩展名白名单；配置未加载时回退默认值，避免下载全 404。
+func (h *Handler) allowUploadExt() []string {
+	if len(h.cfg.Upload.AllowExt) == 0 {
+		return fileutil.DefaultAllowExt
+	}
+	return h.cfg.Upload.AllowExt
 }
 
 // GetFileByHash 处理 GET /api/file/:hash — 内容寻址取文件（S13 / R9）。
@@ -291,18 +302,28 @@ func (h *Handler) GetFileByHash(c *gin.Context) {
 		response.Fail(c, errcode.CodeFailed, "文件不存在")
 		return
 	}
-	// 返回文件内容（离线映射用）
-	local := strings.TrimPrefix(f.Path, "/uploads/")
+	// 返回文件内容（离线映射用）。
+	// 审核 H-18：路径只取 basename，Content-Type 只按扩展名映射，绝不回吐客户端 MIME；
+	// 否则 PNG+HTML polyglot 可被当作 text/html 执行（同源存储型 XSS）。
+	local := filepath.Base(strings.TrimPrefix(f.Path, "/uploads/"))
+	if local == "" || local == "." || local == ".." || local == string(filepath.Separator) {
+		response.Fail(c, errcode.CodeFailed, "文件不存在")
+		return
+	}
+	ext := fileutil.NormalizeExt(local)
+	if !fileutil.Allowed(ext, h.allowUploadExt()) {
+		c.Status(http.StatusNotFound)
+		return
+	}
 	full := filepath.Join(h.cfg.Upload.Dir, local)
-	if _, err := os.Stat(full); err != nil {
+	if info, err := os.Stat(full); err != nil || info.IsDir() {
 		response.Fail(c, errcode.CodeFailed, "文件丢失")
 		return
 	}
-	ct := f.Mime
-	if ct == "" {
-		ct = "application/octet-stream"
-	}
-	c.Header("Content-Type", ct)
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Type", fileutil.ContentTypeOf(ext))
+	filename := strings.NewReplacer("\"", "", "\r", "", "\n", "").Replace(local)
+	c.Header("Content-Disposition", "inline; filename=\""+filename+"\"")
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
 	c.File(full)
 }
@@ -317,7 +338,7 @@ func (h *Handler) ServeUpload(c *gin.Context) {
 		return
 	}
 	ext := fileutil.NormalizeExt(name)
-	if !fileutil.Allowed(ext, h.cfg.Upload.AllowExt) {
+	if !fileutil.Allowed(ext, h.allowUploadExt()) {
 		c.Status(http.StatusNotFound)
 		return
 	}

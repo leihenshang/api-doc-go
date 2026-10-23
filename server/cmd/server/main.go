@@ -69,7 +69,12 @@ func run() error {
 		return fmt.Errorf("seed admin: %w", err)
 	}
 	if created {
-		log.Printf("default super admin created: name=%s password=%s （请尽快修改）", cfg.Admin.Name, cfg.Admin.Password)
+		// 审核 H-20：口令绝不进常规日志；仅 debug 随机生成时在首次创建后提示一次。
+		if cfg.Admin.PasswordGenerated {
+			log.Printf("initial super admin created: name=%s password=%s（随机生成，仅本次显示，请立即修改）", cfg.Admin.Name, cfg.Admin.Password)
+		} else {
+			log.Printf("initial super admin created: name=%s（请使用配置的 ADMIN_PASSWORD 登录）", cfg.Admin.Name)
+		}
 	}
 
 	waitBackup := job.StartBackup(ctx, db, cfg)

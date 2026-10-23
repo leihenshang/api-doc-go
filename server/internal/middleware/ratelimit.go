@@ -5,7 +5,6 @@ package middleware
 
 import (
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -129,18 +128,9 @@ func RateLimit(limit int) gin.HandlerFunc {
 	}
 }
 
-// ClientIP 取客户端 IP：优先反代头 X-Forwarded-For / X-Real-IP，回退 RemoteAddr。
+// ClientIP 取客户端 IP：由 Gin 按 SetTrustedProxies 配置的可信代理链解析。
+// 审核 H-19：未配置可信代理时只使用 TCP 对端地址，XFF/X-Real-IP 一概忽略；
+// 否则客户端每次换一个头值就能绕开限流。
 func ClientIP(c *gin.Context) string {
-	if v := c.GetHeader("X-Forwarded-For"); v != "" {
-		if idx := strings.IndexByte(v, ','); idx > 0 {
-			v = v[:idx]
-		}
-		if ip := strings.TrimSpace(v); ip != "" {
-			return ip
-		}
-	}
-	if v := strings.TrimSpace(c.GetHeader("X-Real-IP")); v != "" {
-		return v
-	}
 	return c.ClientIP()
 }

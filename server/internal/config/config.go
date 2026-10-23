@@ -6,11 +6,14 @@ package config
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
+	"strings"
 
 	"apidoc/internal/pkg/fileutil"
 
@@ -79,6 +82,9 @@ type SecurityConfig struct {
 	RateLimitPerMin int `yaml:"rate_limit_per_min"`
 	// AuthRateLimitPerMin 敏感接口（登录/注册）限流：每 IP 每分钟请求数（0 = 关闭）。
 	AuthRateLimitPerMin int `yaml:"auth_rate_limit_per_min"`
+	// TrustedProxies 可信反代地址（IP 或 CIDR）。空 = 不信任任何代理头，
+	// 只使用 TCP 对端地址；审核 H-19：无条件信任 X-Forwarded-For 可被换头绕过限流。
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 // BackupConfig 定时备份配置。
@@ -97,6 +103,9 @@ type BackupConfig struct {
 type AdminConfig struct {
 	Name     string `yaml:"name"`
 	Password string `yaml:"password"`
+	// PasswordGenerated 表示 Password 是启动时随机生成的（仅 debug），
+	// 首次创建超管时只在日志里提示一次；生产环境不允许随机口令（审核 H-20）。
+	PasswordGenerated bool `yaml:"-"`
 }
 
 // DatabaseConfig 描述数据库连接参数。
@@ -132,8 +141,15 @@ func Load() (*Config, error) {
 	if len(cfg.Upload.AllowExt) == 0 {
 		cfg.Upload.AllowExt = fileutil.ParseAllowExt("")
 	}
-	// 未显式配置 JWT_SECRET 时随机生成：沿用内置默认密钥可被伪造任意身份并解密全量 PAT。
+	if err := validateTrustedProxies(cfg.Security.TrustedProxies); err != nil {
+		return nil, err
+	}
+	// 审核 H-22：生产环境必须显式配置 JWT_SECRET。随机密钥会让每次重启后的
+	// PAT（HMAC/AES 都由它派生）永久失效；debug 仍随机生成便于开箱使用。
 	if cfg.JWT.Secret == "" || cfg.JWT.Secret == defaultJWTSecret {
+		if cfg.RunMode == "release" {
+			return nil, fmt.Errorf("config: 生产环境必须显式配置 JWT_SECRET（否则重启后全部 PAT 失效）")
+		}
 		if s, err := randomSecret(); err == nil {
 			cfg.JWT.Secret = s
 			log.Printf("config: JWT_SECRET 未配置或仍为内置默认值，已随机生成临时密钥（重启后失效，请显式设置 JWT_SECRET）")
@@ -141,7 +157,56 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("config: 生成临时 JWT 密钥失败: %w", err)
 		}
 	}
+	// 审核 H-20：生产环境必须显式配置超管口令；debug 随机生成，仅首次创建时提示。
+	if cfg.Admin.Password == "" {
+		if cfg.RunMode == "release" {
+			return nil, fmt.Errorf("config: 生产环境必须显式配置 ADMIN_PASSWORD")
+		}
+		pwd, err := randomPassword()
+		if err != nil {
+			return nil, fmt.Errorf("config: 生成临时超管口令失败: %w", err)
+		}
+		cfg.Admin.Password = pwd
+		cfg.Admin.PasswordGenerated = true
+	}
 	return cfg, nil
+}
+
+// validateTrustedProxies 校验可信反代配置：每项必须是 IP 或 CIDR。
+func validateTrustedProxies(list []string) error {
+	for _, raw := range list {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		if net.ParseIP(v) != nil {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(v); err != nil {
+			return fmt.Errorf("config: 非法 TRUSTED_PROXIES 项 %q（需要 IP 或 CIDR）", raw)
+		}
+	}
+	return nil
+}
+
+// splitNonEmpty 按分隔符拆分并去掉空项。
+func splitNonEmpty(raw, sep string) []string {
+	out := make([]string, 0)
+	for _, part := range strings.Split(raw, sep) {
+		if v := strings.TrimSpace(part); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// randomPassword 生成 debug 环境的一次性超管口令（16 字符 base64url）。
+func randomPassword() (string, error) {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // randomSecret 生成 32 字节随机密钥的 hex 串（用于 JWT 签名与 PAT 加密派生）。
@@ -170,10 +235,11 @@ func defaults() *Config {
 		Security: SecurityConfig{
 			RateLimitPerMin:     300,
 			AuthRateLimitPerMin: 10,
+			TrustedProxies:      []string{},
 		},
 		Log:    LogConfig{RetentionDays: 70},
 		Backup: BackupConfig{Enabled: false, IntervalMinutes: 1440, Dir: "data/backups", Retention: 7},
-		Admin:  AdminConfig{Name: "admin", Password: "admin123"},
+		Admin:  AdminConfig{Name: "admin"}, // 口令留空：debug 随机生成，release 必须显式配置
 	}
 }
 
@@ -225,6 +291,9 @@ func applyEnvOverrides(cfg *Config) {
 	overrideStr(&cfg.Upload.SignKey, "UPLOAD_SIGN_KEY")
 	overrideInt(&cfg.Security.RateLimitPerMin, "RATE_LIMIT_PER_MIN")
 	overrideInt(&cfg.Security.AuthRateLimitPerMin, "AUTH_RATE_LIMIT_PER_MIN")
+	if v := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES")); v != "" {
+		cfg.Security.TrustedProxies = splitNonEmpty(v, ",")
+	}
 	overrideInt(&cfg.Log.RetentionDays, "LOG_RETENTION_DAYS")
 	if v := os.Getenv("BACKUP_ENABLED"); v != "" {
 		cfg.Backup.Enabled = v == "true"

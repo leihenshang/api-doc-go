@@ -219,7 +219,8 @@ func (s *Service) UpdatePwd(ctx context.Context, userID uint64, req dto.UpdatePw
 	return s.repo.UpdateUser(ctx, u)
 }
 
-// InitAdmin 初始化/重置超级管理员（幂等），供 seed 命令调用。
+// InitAdmin 初始化/重置超级管理员（显式重置语义），供测试与 seed --force 调用。
+// 线上自动种子请用 EnsureAdmin（存在即不动）。
 func (s *Service) InitAdmin(ctx context.Context, name, plainPwd string) (*model.UserInfo, error) {
 	hash, err := password.Generate(plainPwd)
 	if err != nil {
@@ -250,13 +251,23 @@ func (s *Service) InitAdmin(ctx context.Context, name, plainPwd string) (*model.
 }
 
 // EnsureAdmin 保证默认超管存在：仅当登录名不存在时创建（返回 created=true），
-// 不重置已有账号密码；需要强制重置请改用 InitAdmin。
+// 不重置已有账号密码；需要强制重置请改用 ResetAdminPassword。
 func (s *Service) EnsureAdmin(ctx context.Context, name, plainPwd string) (bool, error) {
-	if _, err := s.repo.UserByName(ctx, name); err == nil {
+	_, err := s.repo.UserByName(ctx, name)
+	if err == nil {
 		return false, nil
 	}
-	_, err := s.InitAdmin(ctx, name, plainPwd)
+	// 审核 H-21：查询出错不能当成「不存在」继续创建。
+	if !errors.Is(err, repository.ErrNotFound) {
+		return false, err
+	}
+	_, err = s.InitAdmin(ctx, name, plainPwd)
 	return err == nil, err
+}
+
+// ResetAdminPassword 显式重置已存在超管的口令（seed -force 专用，命名即语义）。
+func (s *Service) ResetAdminPassword(ctx context.Context, name, plainPwd string) (*model.UserInfo, error) {
+	return s.InitAdmin(ctx, name, plainPwd)
 }
 
 // hours 将小时数转为 time.Duration。

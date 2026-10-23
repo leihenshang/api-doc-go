@@ -11,7 +11,9 @@ FROM gcr.io/distroless/base-debian12
 WORKDIR /app
 COPY --from=build /out/apidoc-server /app/apidoc-server
 COPY --from=build /out/apidoc-seed /app/apidoc-seed
-ENV PORT=8080 DB_DRIVER=sqlite DB_DSN=/app/data/apidoc.db UPLOAD_DIR=/app/data/uploads
+# 生产模式：必须通过 docker run -e 注入 JWT_SECRET 与 ADMIN_PASSWORD，
+# 否则 config.Load 会拒绝启动（审核 H-20/H-22）。
+ENV PORT=8080 GIN_MODE=release DB_DRIVER=sqlite DB_DSN=/app/data/apidoc.db UPLOAD_DIR=/app/data/uploads
 EXPOSE 8080
 VOLUME ["/app/data"]
 ENTRYPOINT ["/app/apidoc-server"]

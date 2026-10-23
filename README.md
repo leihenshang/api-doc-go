@@ -38,7 +38,7 @@ cd server
 go run ./cmd/server
 ```
 
-默认超级管理员：`admin / admin123`（首次启动自动 seed；可用 `ADMIN_NAME` / `ADMIN_PASSWORD` 覆盖；强制重置 `go run ./cmd/seed`）。
+超级管理员：首次启动自动创建 `admin`（存在即不改）。**debug** 未配置 `ADMIN_PASSWORD` 时随机生成并在首次创建时提示一次；**release 必须显式配置 `ADMIN_PASSWORD`，否则拒绝启动**。重置口令需显式执行 `ADMIN_PASSWORD=... go run ./cmd/seed -force`。
 
 ### 前端
 
@@ -57,9 +57,10 @@ npm run build             # vue-tsc 类型检查 + 构建
 | `GIN_MODE` | debug / release | debug |
 | `DB_DRIVER` | `sqlite` / `postgres` | sqlite |
 | `DB_DSN` | sqlite 文件路径或 postgres 连接串 | data/apidoc.db |
-| `JWT_SECRET` / `JWT_EXPIRE_HOURS` | 鉴权 | 24 |
+| `JWT_SECRET` / `JWT_EXPIRE_HOURS` | 鉴权；release 必须显式配置 `JWT_SECRET` | 24 |
+| `TRUSTED_PROXIES` | 可信反代 IP/CIDR（逗号分隔）；留空不信任 XFF | 空 |
 | `UPLOAD_DIR` | 上传目录 | - |
-| `ADMIN_NAME` / `ADMIN_PASSWORD` | seed 超管 | admin / admin123 |
+| `ADMIN_NAME` / `ADMIN_PASSWORD` | seed 超管；release 必须显式配置口令 | admin / 随机（debug）/ 必填（release） |
 
 完整变量见 `server/internal/config`。
 

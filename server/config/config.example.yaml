@@ -17,6 +17,8 @@ db:
   dsn: data/apidoc.db
 
 # JWT 签名令牌（JWT_SECRET / JWT_EXPIRE_HOURS）——生产必须更换 secret
+# 生产（run_mode=release）必须显式设置 JWT_SECRET；否则拒绝启动，
+# 避免每次重启随机生成导致全部 PAT 永久失效（审核 H-22）。
 jwt:
   secret: change-me-in-prod-apidoc-jwt-secret
   expire_hours: 24
@@ -34,6 +36,9 @@ upload:
 security:
   rate_limit_per_min: 300
   auth_rate_limit_per_min: 10
+  # 可信反代（IP 或 CIDR，逗号分隔环境变量 TRUSTED_PROXIES）。
+  # 留空 = 不信任 X-Forwarded-For / X-Real-IP，只用 TCP 对端地址（推荐默认）。
+  trusted_proxies: []
 
 # 操作日志保留天数，超期硬删除（LOG_RETENTION_DAYS，默认 70）
 log:
@@ -49,7 +54,9 @@ backup:
   # 保留最近 N 份，超出的从旧到新删除（默认 7）
   retention: 7
 
-# 初始超级管理员（ADMIN_NAME / ADMIN_PASSWORD）——生产必须修改密码
+# 初始超级管理员（ADMIN_NAME / ADMIN_PASSWORD）。
+# 生产（run_mode=release）必须显式设置 ADMIN_PASSWORD，否则拒绝启动；
+# debug 留空时启动会随机生成一次性口令，并在首次创建超管时提示一次（审核 H-20）。
 admin:
   name: admin
-  password: admin123
+  password: ""
