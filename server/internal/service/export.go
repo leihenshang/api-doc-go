@@ -8,7 +8,6 @@ import (
 	shopenapi "github.com/leihenshang/api-doc-go-share/openapi"
 
 	"apidoc/internal/model"
-	"apidoc/internal/pkg/page"
 )
 
 // OpenAPIExport 将项目（可选限定分组）下的接口生成标准 OpenAPI 3.0 文档（可 JSON 序列化）。
@@ -19,9 +18,8 @@ func (s *Service) OpenAPIExport(ctx context.Context, userID uint64, typ int8, pr
 		return nil, err
 	}
 
-	q := page.Query{PageNum: 1, PageSize: 200}
-	q.Normalize()
-	apis, _, err := s.repo.ListApis(ctx, projectID, groupID, 0, "", q)
+	// 审核 H-17：导出必须包含全部接口，不能固定 PageSize=200 静默截断。
+	apis, err := s.repo.ListApisForExport(ctx, projectID, groupID)
 	if err != nil {
 		return nil, err
 	}

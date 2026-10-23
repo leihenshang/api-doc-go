@@ -7,18 +7,19 @@ import ApiParamTable from '@/components/ApiParamTable.vue'
 import EnvPicker from '@/components/EnvPicker.vue'
 import JsonBlock from '@/components/JsonBlock.vue'
 import MethodTag from '@/components/MethodTag.vue'
+import TryItPanel from '@/components/TryItPanel.vue'
 import VarText from '@/components/VarText.vue'
 import { useMdUpload } from '@/composables/md-upload'
 import { useNumParam } from '@/composables/params'
 import { useProjectStore } from '@/stores/project'
 import { useVariableStore } from '@/stores/variable'
 import { ErrCode } from '@/types/api'
-import type { ApiHeader, ApiParam, Group } from '@/types/entities'
+import type { ApiHeader, ApiParam, Group, ProxyAuth } from '@/types/entities'
 import { headersToParams, paramsToHeaders } from '@/utils/api-params'
 import {
     apiToMarkdown, apiToStandaloneHtml, downloadText, safeName, type ApiExportInput,
 } from '@/utils/export-doc'
-import { ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, RefreshOutline } from '@vicons/ionicons5'
+import { ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, PlayOutline, RefreshOutline } from '@vicons/ionicons5'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
@@ -47,6 +48,7 @@ const apiId = computed(() => props.apiId ?? (Number(route.params.apiId) || 0))
 const loading = ref(false)
 const saving = ref(false)
 const editing = ref(route.query.edit === '1')
+const tryItShow = ref(false)
 const groups = ref<Group[]>([])
 
 const groupId = ref(0)
@@ -214,6 +216,28 @@ const extEdit = reactive({
   encodeUrl: '' as '' | 'yes' | 'no',
   settingsBase: {} as Record<string, unknown>,
   retContentType: '',
+})
+
+// 在线调试面板的初始数据：编辑态用未保存的 extEdit，查看态用已保存的 ext。
+const debugBodyType = computed(() => (editing.value ? extEdit.bodyType : (ext.http_request_body_type || 'none')))
+const debugBodyRaw = computed(() => (editing.value ? extEdit.bodyRaw : ext.http_request_body))
+const debugBodyForm = computed<BodyFormRow[]>(() =>
+  editing.value ? extEdit.bodyForm : parseArray<BodyFormRow>(ext.http_request_body_form))
+const debugAuth = computed<ProxyAuth | null>(() => {
+  if (editing.value) {
+    if (!extEdit.authType || extEdit.authType === 'inherit' || extEdit.authType === 'none') return null
+    return {
+      type: extEdit.authType, username: extEdit.authUser, password: extEdit.authPass,
+      token: extEdit.authToken, key: extEdit.authKey, value: extEdit.authValue, in: extEdit.authIn,
+    }
+  }
+  const a = parseObject(ext.http_auth)
+  const type = str(a, 'type')
+  if (!type || type === 'inherit' || type === 'none') return null
+  return {
+    type, username: str(a, 'username'), password: str(a, 'password'), token: str(a, 'token'),
+    key: str(a, 'key'), value: str(a, 'value'), in: str(a, 'in'),
+  }
 })
 
 const bodyTypeOptions = BODY_TYPES.map((v) => ({ label: v, value: v }))
@@ -761,6 +785,10 @@ function exportApi(key: string): void {
 
         <div class="req-ops">
           <env-picker :project-id="projectId" />
+          <n-button size="small" quaternary :title="t('tryIt.openTitle')" data-testid="detail.tryIt" @click="tryItShow = true">
+            <template #icon><n-icon :component="PlayOutline" /></template>
+            {{ t('tryIt.open') }}
+          </n-button>
           <n-dropdown trigger="click" :options="codeOptions" @select="showCode">
             <n-button size="small" quaternary :title="t('detail.codeBtnTitle')">
               <template #icon><n-icon :component="CodeSlashOutline" /></template>
@@ -1125,6 +1153,21 @@ function exportApi(key: string): void {
         <n-icon :component="ArrowUpOutline" />
       </button>
     </div>
+
+    <!-- 在线调试（RM-01）：服务端代发请求，复用当前环境变量 -->
+    <try-it-panel
+      v-model:show="tryItShow"
+      :project-id="projectId"
+      :api-id="apiId"
+      :method="form.http_method_type"
+      :url="form.url"
+      :headers="headerRows"
+      :params="reqParams"
+      :body-type="debugBodyType"
+      :body="debugBodyRaw"
+      :form="debugBodyForm"
+      :auth="debugAuth"
+    />
 
     <!-- 请求代码预览（cURL / fetch / axios / Go / Python） -->
     <n-modal v-model:show="codeShow" preset="card" :title="t('detail.codeModalTitle', { title: codeTitle })" style="width: 680px">

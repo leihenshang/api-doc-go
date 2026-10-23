@@ -52,6 +52,10 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		// 受保护接口（JWT 或 PAT）。JWT 路径回源刷新主体：禁用/降权后存量令牌立即失效（审核 H-1）。
 		auth := engine.Group(m.prefix, middleware.AuthOrPATWithRefresh(cfg.JWT.Secret, h.VerifyPAT, h.LoadPrincipal))
 		registerRoutes(auth, h, m.entitySeg)
+		// 在线调试（RM-01）只挂 v1：桌面客户端不需要，历史前缀不再新增路由（P2-27）。
+		if m.prefix == "/api/v1" {
+			auth.POST("/proxy/send", h.ProxySend)
+		}
 	}
 	return engine
 }

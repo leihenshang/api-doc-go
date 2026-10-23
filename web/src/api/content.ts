@@ -1,6 +1,8 @@
 // 分组 / 接口 / 文档 / 字段映射接口。
 import type { ApiResponse } from '@/types/api';
-import type { ApiDoc, DocItem, FieldMapping, Group, Page } from '@/types/entities';
+import type {
+  ApiDoc, DocItem, FieldMapping, Group, Page, ProxySendReq, ProxySendResp,
+} from '@/types/entities';
 import { del, get, post, put } from './http';
 
 // ---- 分组 ----
@@ -155,6 +157,11 @@ export interface SearchResult {
   apis: SearchItem[]
   docs: SearchItem[]
 }
+/** 在线调试：由服务端代发请求（变量渲染、SSRF 防护、审计）。 */
+export function sendProxy(payload: ProxySendReq): Promise<ApiResponse<ProxySendResp>> {
+  return post<ProxySendResp>('/proxy/send', payload)
+}
+
 export function searchAll(keyword: string, limit = 8): Promise<ApiResponse<SearchResult>> {
   return get<SearchResult>('/search', { keyword, limit })
 }

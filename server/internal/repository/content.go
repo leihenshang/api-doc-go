@@ -181,6 +181,18 @@ func (r *Repository) ListApisByProject(ctx context.Context, projectID uint64) ([
 	return items, err
 }
 
+// ListApisForExport 取项目下全部未删除接口（导出用，审核 H-17）。
+// 与 ListApis 的筛选口径一致（groupID > 0 时只取该分组），但不分页，避免静默截断。
+func (r *Repository) ListApisForExport(ctx context.Context, projectID, groupID uint64) ([]model.Api, error) {
+	db := r.db.WithContext(ctx).Where("project_id = ? AND is_deleted = ?", projectID, 0)
+	if groupID > 0 {
+		db = db.Where("group_id = ?", groupID)
+	}
+	var items []model.Api
+	err := db.Order("priority ASC, id ASC").Find(&items).Error
+	return items, err
+}
+
 // ApisByIDs 取项目下指定 id 的未删除接口（批量变量徽标用，避免逐条查询）。
 func (r *Repository) ApisByIDs(ctx context.Context, projectID uint64, ids []uint64) ([]model.Api, error) {
 	var items []model.Api

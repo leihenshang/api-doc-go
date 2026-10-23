@@ -219,6 +219,67 @@ export interface ApiHeader {
   description?: string
 }
 
+/** 在线调试的请求头 / 查询参数 / 表单行。 */
+export interface ProxyKV {
+  name: string
+  value: string
+  enabled?: boolean
+}
+
+/** 在线调试认证配置（与客户端集合 auth 的 JSON 形态对齐）。 */
+export interface ProxyAuth {
+  type: string
+  username?: string
+  password?: string
+  token?: string
+  key?: string
+  value?: string
+  in?: string
+}
+
+/** 在线调试请求体表单行（客户端 bodyForm 的超集）。 */
+export interface ProxyFormRow {
+  name?: string
+  value?: string
+  enabled?: boolean
+  description?: string
+  type?: string
+}
+
+/** 在线调试请求：服务端负责变量渲染、SSRF 校验与审计。 */
+export interface ProxySendReq {
+  project_id: number
+  api_id?: number
+  env_id?: number
+  method: string
+  url: string
+  headers?: ProxyKV[]
+  query?: ProxyKV[]
+  body_type?: string
+  body?: string
+  form?: ProxyKV[]
+  auth?: ProxyAuth | null
+}
+
+/** 在线调试响应头（保留重复项）。 */
+export interface ProxyHeader {
+  name: string
+  value: string
+}
+
+/** 在线调试响应。 */
+export interface ProxySendResp {
+  status: number
+  status_text: string
+  headers: ProxyHeader[]
+  body: string
+  content_type: string
+  duration_ms: number
+  size: number
+  truncated: boolean
+  final_url: string
+}
+
 /** 个人访问令牌（PAT，S7）：服务端只存 hash，明文仅创建时返回一次。 */
 export interface UserToken {
   id: number

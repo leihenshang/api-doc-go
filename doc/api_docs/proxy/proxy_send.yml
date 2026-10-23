@@ -1,0 +1,60 @@
+info:
+  name: 在线调试_发送请求
+  type: http
+  seq: 200
+
+http:
+  method: POST
+  url: "{{host}}/api/v1/proxy/send"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 在线调试（Web Try it）：由服务端代发 HTTP 请求，复用当前项目的环境与变量。
+  - 仅挂 `/api/v1` 前缀；需要项目读权限（PermQuery）。
+
+  ## 请求 URI
+  - `/api/v1/proxy/send`
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>`
+
+  ## 请求体
+  |字段|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |project_id|是|uint|项目 ID（权限校验与变量解析）|
+  |api_id|否|uint|接口 ID（用于请求级变量与审计对象）|
+  |env_id|否|uint|环境 ID（缺省 0 = 仅通用/全局变量）|
+  |method|是|string|GET / POST / PUT / PATCH / DELETE / HEAD|
+  |url|是|string|完整 http(s) URL，支持 `{{变量}}`|
+  |headers|否|array|`[{name,value,enabled}]`，值支持变量|
+  |query|否|array|`[{name,value,enabled}]`，追加到 URL 查询串|
+  |body_type|否|string|`none` / `json` / `text` / `form`（multipart 暂不支持）|
+  |body|否|string|`json`/`text` 的正文，支持变量|
+  |form|否|array|`form` 类型的 `[{name,value,enabled}]`|
+  |auth|否|object|`{type,username,password,token,key,value,in}`，type 支持 basic/bearer/apikey|
+
+  ## 响应
+  - `status` / `status_text`：目标服务状态码
+  - `headers`：响应头数组（保留重复项）
+  - `body`：响应正文（最大 5 MB，超出时 `truncated=true`）
+  - `content_type` / `duration_ms` / `size` / `final_url`
+  - 统一响应：`{ "code": 200, "msg": "success", "data": { ... } }`，HTTP 状态码恒为 200
+  - 错误码：200 成功 / 22 参数错误 / 14 失败 / 34 未登录或过期 / 403 无权限（含 SSRF 拦截）
+
+  ## 安全与审计
+  - 仅允许 http/https；禁止回环、内网、链路本地、组播与保留网段（含 DNS 解析后的地址与重定向）。
+  - 超时 15s、最多 5 次重定向、响应最大 5 MB、请求体最大 2 MB。
+  - 明文 secret 只对有明文权限的成员参与渲染；无权限成员仍可使用调试，但敏感占位符原样保留（避免把 secret 发往任意目标）。
+  - 每次调用写操作日志（`type=3`、`action=debug`）：只记方法、主机、路径与敏感变量名，不记查询串/正文/值。

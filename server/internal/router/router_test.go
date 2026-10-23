@@ -273,3 +273,20 @@ func TestVersionedPrefixAndLegacyCompat(t *testing.T) {
 		}
 	}
 }
+
+// TestProxyRouteVersionedOnly 在线调试只挂 v1；历史前缀不新增（P2-27）。
+func TestProxyRouteVersionedOnly(t *testing.T) {
+	t.Parallel()
+	engine, _ := newTestEngine(t)
+	out, code := do(t, engine, http.MethodPost, "/api/v1/proxy/send", "", map[string]any{})
+	if code != http.StatusOK || out.Code != errcode.CodeUnauthorized {
+		t.Fatalf("v1 未登录应返回 34，got http=%d code=%d", code, out.Code)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/proxy/send", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("历史前缀 /api/proxy/send 不应注册，got %d", w.Code)
+	}
+}

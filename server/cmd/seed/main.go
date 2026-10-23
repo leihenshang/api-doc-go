@@ -21,7 +21,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
-	if err := database.Migrate(db); err != nil {
+	if err := database.MigrateRelease(db); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
 	svc := service.New(repository.New(db, cfg), cfg)

@@ -15,6 +15,10 @@ import (
 // ErrNotFound 表示记录不存在。
 var ErrNotFound = errors.New("repository: not found")
 
+// ErrUserNameAmbiguous 表示库中存在多条同名活跃用户（数据损坏）。
+// 单列唯一索引落地前可能存在同名不同邮箱的历史账号，登录必须拒绝而不是任选一条（审核 H-15）。
+var ErrUserNameAmbiguous = errors.New("repository: duplicate user name")
+
 // ---- 用户 ----
 
 // CreateUser 新建用户。
@@ -32,12 +36,21 @@ func (r *Repository) UserByID(ctx context.Context, id uint64) (*model.UserInfo, 
 }
 
 // UserByName 按登录名取用户（含软删过滤）。
+// 审核 H-15：同名时不能 First 任取一条（会静默登录到 id 较小的账号），
+// 必须返回 ErrUserNameAmbiguous，由登录入口给出明确错误。
 func (r *Repository) UserByName(ctx context.Context, name string) (*model.UserInfo, error) {
-	var u model.UserInfo
-	if err := r.active(ctx).Where("name = ?", name).First(&u).Error; err != nil {
-		return nil, wrapNotFound(err)
+	var items []model.UserInfo
+	if err := r.active(ctx).Where("name = ?", name).Limit(2).Find(&items).Error; err != nil {
+		return nil, err
 	}
-	return &u, nil
+	switch len(items) {
+	case 0:
+		return nil, ErrNotFound
+	case 1:
+		return &items[0], nil
+	default:
+		return nil, ErrUserNameAmbiguous
+	}
 }
 
 // UserTaken 判断名字/邮箱/昵称是否已被占用（excludeID 排除自身，0 表示不排除）。

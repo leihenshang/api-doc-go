@@ -28,7 +28,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if err := database.Migrate(db); err != nil {
+	// 生成器只按模型导出初始结构，不执行迁移（否则会把 schema_migrations 一起导出）。
+	if err := database.AutoMigrate(db); err != nil {
 		panic(err)
 	}
 

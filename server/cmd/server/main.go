@@ -49,7 +49,12 @@ func run() error {
 			log.Printf("close database: %v", err)
 		}
 	}()
-	if err := database.Migrate(db); err != nil {
+	// 生产只跑版本化迁移；开发/测试保留 AutoMigrate 兜底（审核 H-14）。
+	if cfg.RunMode == "release" {
+		if err := database.MigrateRelease(db); err != nil {
+			return fmt.Errorf("migrate database: %w", err)
+		}
+	} else if err := database.Migrate(db); err != nil {
 		return fmt.Errorf("migrate database: %w", err)
 	}
 

@@ -1,17 +1,18 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
+	"log"
 	"math/big"
 	"time"
-
-	"context"
 
 	"apidoc/internal/dto"
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
 	"apidoc/internal/pkg/page"
+	"apidoc/internal/repository"
 )
 
 // ---- Bug ----
@@ -68,17 +69,24 @@ func (s *Service) AssignBug(ctx context.Context, userID uint64, typ int8, req dt
 	if err := s.ensureProjectPermission(ctx, userID, typ, b.ProjectID, model.PermUpdate); err != nil {
 		return err
 	}
-	b.ToUserID = req.ToUserID
-	if err := s.repo.UpdateBug(ctx, b); err != nil {
+	// 审核 H-16：改指派人 + 写流转记录必须同生共死，避免「指派人改了但没记录」。
+	err = s.repo.Transaction(ctx, func(tx *repository.Repository) error {
+		b.ToUserID = req.ToUserID
+		if err := tx.UpdateBug(ctx, b); err != nil {
+			return err
+		}
+		return tx.CreateBugAssign(ctx, &model.BugAssign{
+			BugID: b.ID, FromUserID: userID, ToUserID: req.ToUserID, Comment: req.Comment, Status: model.BugStatusPending,
+		})
+	})
+	if err != nil {
 		return err
 	}
-	if err := s.repo.CreateBugAssign(ctx, &model.BugAssign{
-		BugID: b.ID, FromUserID: userID, ToUserID: req.ToUserID, Comment: req.Comment, Status: model.BugStatusPending,
-	}); err != nil {
-		return err
+	// 通知是旁路：失败只记日志，不能让已成功的指派变成失败（重试会重复插流转记录）。
+	if err := s.Notify(ctx, req.ToUserID, "Bug 待处理", fmt.Sprintf("你被指派处理缺陷：%s", b.Title)); err != nil {
+		log.Printf("assign bug %d: notify user %d: %v", b.ID, req.ToUserID, err)
 	}
-	// 指派后给处理人发站内通知；通知失败一并返回，交由调用方感知
-	return s.Notify(ctx, req.ToUserID, "Bug 待处理", fmt.Sprintf("你被指派处理缺陷：%s", b.Title))
+	return nil
 }
 
 // GetBug 缺陷详情。

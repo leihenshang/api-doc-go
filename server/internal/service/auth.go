@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"apidoc/internal/dto"
@@ -10,6 +11,7 @@ import (
 	"apidoc/internal/pkg/jwt"
 	"apidoc/internal/pkg/page"
 	"apidoc/internal/pkg/password"
+	"apidoc/internal/repository"
 )
 
 // LoginResult 是登录结果。
@@ -22,6 +24,10 @@ type LoginResult struct {
 func (s *Service) Login(ctx context.Context, req dto.LoginReq) (*LoginResult, error) {
 	u, err := s.repo.UserByName(ctx, req.Name)
 	if err != nil {
+		// 审核 H-15：同名账号属数据损坏，不能任选一条校验密码。
+		if errors.Is(err, repository.ErrUserNameAmbiguous) {
+			return nil, newBiz(errcode.CodeFailed, "账号数据异常：用户名不唯一，请联系管理员处理")
+		}
 		return nil, newBiz(errcode.CodeFailed, "用户名或密码错误")
 	}
 	ok, err := password.Verify(req.Pwd, u.Pwd)
@@ -228,6 +234,10 @@ func (s *Service) InitAdmin(ctx context.Context, name, plainPwd string) (*model.
 			return nil, err
 		}
 		return u, nil
+	}
+	// 只有「确实不存在」才建新账号；同名脏数据/查询错误必须上报（审核 H-15）。
+	if !errors.Is(err, repository.ErrNotFound) {
+		return nil, err
 	}
 	u = &model.UserInfo{
 		Name: name, Pwd: hash, NickName: name,

@@ -42,3 +42,35 @@ jobs:
 
       - name: 一键门禁
         run: bash scripts/check.sh
+
+  # 审核 H-14：PostgreSQL 方言的迁移脚本必须在真实 PG 上跑一遍 up/down。
+  # 本地无 PG 时该测试自动跳过（TEST_POSTGRES_DSN 为空）。
+  migrate-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: apidoc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+
+      - name: PostgreSQL 迁移 up/down
+        working-directory: server
+        env:
+          TEST_POSTGRES_DSN: "host=localhost user=postgres password=postgres dbname=apidoc_test port=5432 sslmode=disable TimeZone=UTC"
+          TEST_POSTGRES_RESET: "1"
+        run: go test ./internal/database -run TestPostgresMigrationsApply -count=1 -v
