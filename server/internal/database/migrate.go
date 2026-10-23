@@ -110,6 +110,8 @@ func entities() []any {
 		&model.ChangeLog{},
 		&model.SyncOp{},
 		&model.UserToken{},
+		// 内容快照（RM-05）
+		&model.ContentSnapshot{},
 	}
 }
 

@@ -39,6 +39,10 @@ func (s *Service) OpenAPIExport(ctx context.Context, userID uint64, typ int8, pr
 
 	doc := &shopenapi.Document{Title: docTitle, Version: docVersion}
 	for i := range apis {
+		// RM-04：草稿与已废弃接口不进对外 OpenAPI；0 为历史数据，按已发布处理。
+		if apis[i].Status == model.ApiStatusDraft || apis[i].Status == model.ApiStatusDeprecated {
+			continue
+		}
 		doc.Ops = append(doc.Ops, openAPIOperation(&apis[i], titles[apis[i].GroupID]))
 	}
 	return doc.Encode(), nil

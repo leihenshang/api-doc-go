@@ -77,6 +77,32 @@ export interface ApiDoc extends BaseEntity {
   script_vars?: string
   script_asserts?: string
   http_return_content_type?: string
+  /** 生命周期：1=草稿 2=已发布 3=已废弃（RM-04）。 */
+  status?: number
+  version?: string
+  deprecated_at?: string | null
+}
+
+// ---- 接口/文档历史快照（RM-05） ----
+
+export interface RevisionItem {
+  id: number
+  revision: number
+  action: 'create' | 'update' | 'restore' | string
+  actor_id: number
+  create_time: string
+}
+
+export interface FieldDiff {
+  field: string
+  label: string
+  before: unknown
+  after: unknown
+}
+
+export interface RevisionDiff {
+  revision: RevisionItem
+  fields: FieldDiff[]
 }
 
 export interface DocItem extends BaseEntity {

@@ -156,10 +156,13 @@ func (r *Repository) UpdateApiSort(ctx context.Context, id, groupID uint64, prio
 }
 
 // ListApis 分页查询接口。deleted=0 正常、1 回收站。
-func (r *Repository) ListApis(ctx context.Context, projectID, groupID uint64, deleted int8, keyword string, q page.Query) ([]model.Api, int64, error) {
+func (r *Repository) ListApis(ctx context.Context, projectID, groupID uint64, deleted, status int8, keyword string, q page.Query) ([]model.Api, int64, error) {
 	db := r.db.WithContext(ctx).Where("project_id = ?", projectID).Where("is_deleted = ?", deleted)
 	if groupID > 0 {
 		db = db.Where("group_id = ?", groupID)
+	}
+	if status > 0 {
+		db = db.Where("status = ?", status)
 	}
 	if keyword != "" {
 		like := keyword + "%"

@@ -34,6 +34,9 @@ export interface ApiExportInput {
   http_return_sample?: string
   develop_language?: string
   update_time?: string
+  status?: number
+  version?: string
+  deprecated_at?: string | null
 }
 
 // ---- 数据整理 ----
@@ -123,6 +126,10 @@ function apiMetaMd(api: ApiExportInput, groups: Group[]): string {
     `- **请求协议**：${api.protocol_type || 'HTTP'}`,
     `- **返回类型**：${api.http_return_type || '—'}`,
   ]
+  if (api.version) rows.push(`- **版本**：${api.version}`)
+  if (api.status === 1) rows.push('- **状态**：草稿')
+  if (api.status === 3) rows.push('- **状态**：已废弃')
+  if (api.deprecated_at) rows.push(`- **废弃时间**：${api.deprecated_at}`)
   if (api.develop_language) rows.push(`- **开发语言**：${api.develop_language}`)
   if (api.update_time) rows.push(`- **最后更新**：${api.update_time}`)
   return rows.join('\n') + '\n'
@@ -157,6 +164,10 @@ export function apiToHtml(api: ApiExportInput, groups: Group[] = [], level = 2, 
   <ul class="meta">
     <li>所属分组：${esc(path.length ? path.join(' / ') : '未分组')}</li>
     <li>请求协议：${esc(api.protocol_type || 'HTTP')} · 返回类型：${esc(api.http_return_type || '—')}</li>
+    ${api.version ? `<li>版本：${esc(api.version)}</li>` : ''}
+    ${api.status === 1 ? '<li>状态：草稿</li>' : ''}
+    ${api.status === 3 ? '<li>状态：已废弃</li>' : ''}
+    ${api.deprecated_at ? `<li>废弃时间：${esc(api.deprecated_at)}</li>` : ''}
     ${api.develop_language ? `<li>开发语言：${esc(api.develop_language)}</li>` : ''}
     ${api.update_time ? `<li>最后更新：${esc(api.update_time)}</li>` : ''}
   </ul>

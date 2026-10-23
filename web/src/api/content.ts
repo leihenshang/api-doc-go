@@ -2,6 +2,7 @@
 import type { ApiResponse } from '@/types/api';
 import type {
   ApiDoc, DocItem, FieldMapping, Group, Page, ProxySendReq, ProxySendResp,
+  RevisionDiff, RevisionItem,
 } from '@/types/entities';
 import { del, get, post, put } from './http';
 
@@ -36,7 +37,7 @@ export function deleteGroup(id: number): Promise<ApiResponse<null>> {
 export function createApi(payload: Record<string, unknown>): Promise<ApiResponse<ApiDoc>> {
   return post<ApiDoc>('/item', payload)
 }
-export function listApis(params: { project_id: number; group_id?: number; deleted?: number; keyword?: string; page_num?: number; page_size?: number }): Promise<ApiResponse<Page<ApiDoc>>> {
+export function listApis(params: { project_id: number; group_id?: number; deleted?: number; status?: number; keyword?: string; page_num?: number; page_size?: number }): Promise<ApiResponse<Page<ApiDoc>>> {
   return get<Page<ApiDoc>>('/item', params)
 }
 export function getApi(id: number): Promise<ApiResponse<ApiDoc>> {
@@ -46,6 +47,15 @@ export function updateApi(
   payload: Record<string, unknown> & { id: number; expected_update_time?: string },
 ): Promise<ApiResponse<ApiDoc>> {
   return put<ApiDoc>('/item', payload)
+}
+export function listRevisions(type: 'api' | 'doc', id: number): Promise<ApiResponse<RevisionItem[]>> {
+  return get<RevisionItem[]>('/item/revisions', { type, id })
+}
+export function getRevisionDiff(type: 'api' | 'doc', id: number, revisionId: number): Promise<ApiResponse<RevisionDiff>> {
+  return get<RevisionDiff>('/item/revision-diff', { type, id, revision_id: revisionId })
+}
+export function restoreRevision(type: 'api' | 'doc', id: number, revisionId: number): Promise<ApiResponse<null>> {
+  return post<null>('/item/revision-restore', { type, id, revision_id: revisionId })
 }
 export function deleteApi(id: number): Promise<ApiResponse<null>> {
   return del<null>('/item', { id })

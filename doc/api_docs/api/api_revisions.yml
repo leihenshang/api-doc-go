@@ -1,0 +1,40 @@
+info:
+  name: 接口_历史版本列表
+  type: http
+  seq: 40
+
+http:
+  method: GET
+  url: "{{host}}/api/v1/item/revisions?type=api&id=1"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 接口/文档保存历史列表（RM-05）
+
+  ## 请求 URI
+  - `/api/v1/item/revisions`（仅 v1）
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>` 或 PAT；需项目读权限。
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |type|是|string|`api` 或 `doc`|
+  |id|是|uint|接口/文档 ID|
+
+  ## 响应 data
+  - `[{ id, revision, action, actor_id, create_time }]`，按 revision 倒序，最多 50 条；`id` 为快照 ID（diff/回滚用）。
+
+  ## 备注
+  - 每次 Web 创建/保存/回滚各留一份快照；超过 50 条自动裁剪旧记录。

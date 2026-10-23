@@ -1,7 +1,10 @@
 // Package dto 请求/响应传输结构体。按操作拆分字段，用 binding tag 声明校验。
 package dto
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ---- 用户 ----
 
@@ -156,6 +159,11 @@ type ApiCreateReq struct {
 	ScriptVars            string `json:"script_vars"`
 	ScriptAsserts         string `json:"script_asserts"`
 	HttpReturnContentType string `json:"http_return_content_type"`
+	// 生命周期（RM-04）：status 0 = 新建按已发布 / 更新保持原值；
+	// version 为空时更新保持原值；deprecated_at 由 service 在进入废弃时补当前时间。
+	Status       int8       `json:"status"`
+	Version      string     `json:"version"`
+	DeprecatedAt *time.Time `json:"deprecated_at"`
 }
 
 // ApiUpdateReq 更新接口文档。
@@ -173,8 +181,10 @@ type ApiListQuery struct {
 	GroupID   uint64 `form:"group_id"`
 	Deleted   int8   `form:"deleted"`
 	Keyword   string `form:"keyword"`
-	PageNum   int    `form:"page_num"`
-	PageSize  int    `form:"page_size"`
+	// Status 可选：0=全部，1=草稿，2=已发布，3=已废弃。
+	Status   int8 `form:"status"`
+	PageNum  int  `form:"page_num"`
+	PageSize int  `form:"page_size"`
 }
 
 // ---- 接口响应示例（多示例） ----

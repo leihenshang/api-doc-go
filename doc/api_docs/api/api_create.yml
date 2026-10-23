@@ -48,6 +48,9 @@ docs: |-
 |http_request_params|否|json 数组|[{fieldName,type,required,description,example}]|
 |http_return_params|否|json 数组|创建时按项目字段映射回填 type/description|
 |http_return_sample|否|json|响应样例|
+|status|否|int|1 草稿 / 2 已发布 / 3 已废弃；不传默认已发布（RM-04）|
+|version|否|string|业务版本号（≤50 字符）|
+|deprecated_at|否|time|废弃时间；status=3 且不传时由服务端补当前时间|
 
   ## 统一响应
   - `{ "code": 200, "msg": "success", "data": ... }`，HTTP 状态码恒为 200

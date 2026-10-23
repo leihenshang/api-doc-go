@@ -2,6 +2,8 @@
 package router
 
 import (
+	"log"
+
 	"apidoc/internal/config"
 	"apidoc/internal/handler"
 	"apidoc/internal/middleware"
@@ -15,6 +17,17 @@ import (
 // Setup 创建引擎并注册全部路由。
 func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	engine := gin.New()
+	// 审核 H-19：只信任显式配置的反代地址；空列表 = 不信任 XFF/X-Real-IP，
+	// 避免客户端换头获得全新限流桶。
+	// 注意 nil 在 Gin 里表示「信任所有代理」，必须显式换成空切片。
+	trusted := cfg.Security.TrustedProxies
+	if trusted == nil {
+		trusted = []string{}
+	}
+	if err := engine.SetTrustedProxies(trusted); err != nil {
+		log.Printf("router: 非法 TRUSTED_PROXIES（%v），已禁用代理头信任", err)
+		_ = engine.SetTrustedProxies([]string{})
+	}
 	engine.Use(gin.Recovery(), middleware.CORS())
 
 	h := handler.New(cfg, service.New(repository.New(db, cfg), cfg))
@@ -30,16 +43,19 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	// Mock 服务（前端联调用，按项目 id 直接对外开放）。
 	engine.Any("/mock/:project_id/*path", h.Mock)
 
+	// 登录/注册限流器只构造一次：两套前缀共享同一配额（审核 H-19，
+	// 此前在循环内各建一个，交替请求可把 10/min 翻倍）。
+	authLimit := middleware.RateLimit(cfg.Security.AuthRateLimitPerMin)
+
 	// 两套前缀同时挂载（P2-27）：
-	//   /api/v1/...  新代码与 Web 前端用，带版本号，未来破坏性升级有地方安放；
+	//   /api/v1/...  新代码与 Web 前端用，带版本号，未来破坏性升级有地方安 放；
 	//   /api/...     历史路径，桌面端已发布版本仍在用，不能拆。
-	// v1 里「接口实体」的路径段是 /item（旧的是 /api/api，读起来像重复了一层）。
+	// v1 里「接口实体」的路径段是 /item（旧的是 /api/api，读起来像重复了一 层）。
 	for _, m := range []struct{ prefix, entitySeg string }{
 		{"/api", "api"},     // 历史兼容
 		{"/api/v1", "item"}, // 版本化
 	} {
 		// 公共接口（无需登录）；登录/注册额外套一层更严格的限流（防爆破）。
-		authLimit := middleware.RateLimit(cfg.Security.AuthRateLimitPerMin)
 		engine.POST(m.prefix+"/user/login", authLimit, h.Login)
 		engine.POST(m.prefix+"/user/register", authLimit, h.Register)
 		// 查重供注册页未登录时调用。
@@ -55,6 +71,10 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		// 在线调试（RM-01）只挂 v1：桌面客户端不需要，历史前缀不再新增路由（P2-27）。
 		if m.prefix == "/api/v1" {
 			auth.POST("/proxy/send", h.ProxySend)
+			// 接口/文档历史快照（RM-05）：列表 / 字段级 diff / 回滚。
+			auth.GET("/item/revisions", h.ListRevisions)
+			auth.GET("/item/revision-diff", h.RevisionDiff)
+			auth.POST("/item/revision-restore", h.RestoreRevision)
 		}
 	}
 	return engine

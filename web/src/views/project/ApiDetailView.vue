@@ -7,6 +7,7 @@ import ApiParamTable from '@/components/ApiParamTable.vue'
 import EnvPicker from '@/components/EnvPicker.vue'
 import JsonBlock from '@/components/JsonBlock.vue'
 import MethodTag from '@/components/MethodTag.vue'
+import RevisionHistory from '@/components/RevisionHistory.vue'
 import TryItPanel from '@/components/TryItPanel.vue'
 import VarText from '@/components/VarText.vue'
 import { useMdUpload } from '@/composables/md-upload'
@@ -19,12 +20,15 @@ import { headersToParams, paramsToHeaders } from '@/utils/api-params'
 import {
     apiToMarkdown, apiToStandaloneHtml, downloadText, safeName, type ApiExportInput,
 } from '@/utils/export-doc'
-import { ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, PlayOutline, RefreshOutline } from '@vicons/ionicons5'
+import {
+    ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, PlayOutline,
+    RefreshOutline, TimeOutline,
+} from '@vicons/ionicons5'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
 import {
-    NButton, NDropdown, NIcon, NInput, NInputNumber, NModal, NSelect, NSpin, useDialog, useMessage,
+    NButton, NDropdown, NIcon, NInput, NInputNumber, NModal, NSelect, NSpin, NTag, useDialog, useMessage,
     type DropdownOption,
 } from 'naive-ui'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -51,11 +55,15 @@ const editing = ref(route.query.edit === '1')
 const tryItShow = ref(false)
 const groups = ref<Group[]>([])
 
+// ---- 历史版本（RM-05） ----
+const historyShow = ref(false)
+
 const groupId = ref(0)
 const groupIdSecond = ref(0)
 const form = reactive({
   api_name: '', http_method_type: 'GET', url: '', protocol_type: 'HTTP',
   description: '', develop_language: '', http_return_type: 'JSON',
+  status: 2, version: '',
 })
 /** 请求头以参数行形态编辑（表格直接改这份数组），保存时再转回 ApiHeader[]。 */
 const headerRows = ref<ApiParam[]>([])
@@ -74,6 +82,22 @@ const ext = reactive({
 })
 
 const methodOptions = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map((m) => ({ label: m, value: m }))
+const statusOptions = computed(() => [
+  { label: t('api.statusDraft'), value: 1 },
+  { label: t('api.statusPublished'), value: 2 },
+  { label: t('api.statusDeprecated'), value: 3 },
+])
+const statusLabel = computed(() => {
+  const map: Record<number, string> = {
+    1: t('api.statusDraft'), 2: t('api.statusPublished'), 3: t('api.statusDeprecated'),
+  }
+  return map[form.status] || t('api.statusPublished')
+})
+const statusTagType = computed<'default' | 'success' | 'warning' | 'error'>(() => {
+  if (form.status === 1) return 'warning'
+  if (form.status === 3) return 'error'
+  return 'success'
+})
 
 /** 载入时的 update_time：保存时作为乐观锁期望值回传。 */
 const loadedUpdateTime = ref('')
@@ -386,6 +410,8 @@ async function load(): Promise<boolean> {
       description: a.description,
       develop_language: a.develop_language ?? '',
       http_return_type: a.http_return_type || 'JSON',
+      status: a.status || 2,
+      version: a.version ?? '',
     })
     headerRows.value = headersToParams(parseArray<ApiHeader>(a.http_request_header))
     reqParams.value = parseArray<ApiParam>(a.http_request_params)
@@ -718,6 +744,12 @@ async function copyCode(): Promise<void> {
     await copyText(codeText.value, codeTitle.value)
 }
 
+// 历史版本回滚成功后刷新详情与左侧树。
+function onRevisionRestored(): void {
+    void load()
+    emit('changed')
+}
+
 // ---- 导出接口文档（Markdown / 自包含 HTML）：交付与归档用，取「编辑态当前内容」 ----
 const exportOptions = computed<DropdownOption[]>(() => [
     { label: t('detail.exportMd'), key: 'md' },
@@ -741,6 +773,8 @@ function currentExportInput(): ApiExportInput {
         http_return_sample: sample.value,
         develop_language: form.develop_language,
         update_time: loadedUpdateTime.value,
+        status: form.status,
+        version: form.version,
     }
 }
 
@@ -780,7 +814,27 @@ function exportApi(key: string): void {
         <!-- 查看态：请求协议 → 所属分组，依次跟在接口名称后 -->
         <template v-else>
           <span v-if="form.protocol_type" class="req-meta">{{ form.protocol_type }}</span>
+          <n-tag size="small" :type="statusTagType" round class="req-status" data-testid="detail.status">
+            {{ statusLabel }}
+          </n-tag>
+          <span v-if="form.version" class="req-meta">{{ form.version }}</span>
           <span class="req-meta">{{ groupName }}</span>
+        </template>
+        <template v-if="editing">
+          <n-select
+            v-model:value="form.status"
+            :options="statusOptions"
+            size="small"
+            class="req-status-select"
+            data-testid="detail.statusEdit"
+          />
+          <n-input
+            v-model:value="form.version"
+            size="small"
+            class="req-version-input"
+            :placeholder="t('api.versionPlaceholder')"
+            data-testid="detail.version"
+          />
         </template>
 
         <div class="req-ops">
@@ -788,6 +842,10 @@ function exportApi(key: string): void {
           <n-button size="small" quaternary :title="t('tryIt.openTitle')" data-testid="detail.tryIt" @click="tryItShow = true">
             <template #icon><n-icon :component="PlayOutline" /></template>
             {{ t('tryIt.open') }}
+          </n-button>
+          <n-button size="small" quaternary :title="t('history.title')" data-testid="detail.history" @click="historyShow = true">
+            <template #icon><n-icon :component="TimeOutline" /></template>
+            {{ t('history.btn') }}
           </n-button>
           <n-dropdown trigger="click" :options="codeOptions" @select="showCode">
             <n-button size="small" quaternary :title="t('detail.codeBtnTitle')">
@@ -1169,6 +1227,9 @@ function exportApi(key: string): void {
       :auth="debugAuth"
     />
 
+    <!-- 历史版本（RM-05）：列表 + 字段级 diff + 回滚 -->
+    <revision-history v-model:show="historyShow" type="api" :id="apiId" @restored="onRevisionRestored" />
+
     <!-- 请求代码预览（cURL / fetch / axios / Go / Python） -->
     <n-modal v-model:show="codeShow" preset="card" :title="t('detail.codeModalTitle', { title: codeTitle })" style="width: 680px">
       <n-spin :show="codeLoading">
@@ -1233,6 +1294,20 @@ function exportApi(key: string): void {
 
 .req-group-select {
   width: 180px;
+  flex: 0 0 auto;
+}
+
+.req-status {
+  flex: 0 0 auto;
+}
+
+.req-status-select {
+  width: 108px;
+  flex: 0 0 auto;
+}
+
+.req-version-input {
+  width: 110px;
   flex: 0 0 auto;
 }
 

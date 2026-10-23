@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
+	"time"
 
 	"apidoc/internal/dto"
 	"apidoc/internal/model"
@@ -53,11 +55,12 @@ func (s *Service) appendChangeTx(ctx context.Context, r *repository.Repository, 
 // 失败不回滚已落库的实体——回滚会让用户以为没保存而重复提交。因为改成单事务写入，
 // 失败意味着「流水与版本号都没写」，不会留下半截状态，下轮同步仍能按旧 revision 重新拉到该条目。
 // ext_uid 为空时直接跳过（无 uid 的条目无法参与同步配对）。
-func (s *Service) recordChange(entityType, extUID string, projectID uint64, id uint64, op string, actor uint64) {
+func (s *Service) recordChange(entityType, extUID string, projectID uint64, id uint64, op string, actor uint64) int64 {
 	if extUID == "" {
-		return
+		return 0
 	}
-	_, _ = s.appendChangeTx(context.Background(), nil, entityType, extUID, projectID, id, op, actor, "web")
+	cid, _ := s.appendChangeTx(context.Background(), nil, entityType, extUID, projectID, id, op, actor, "web")
+	return cid
 }
 
 // ensureExtUID 条目缺 uid 时补一个（Web 新建也分配，便于后续同步）。
@@ -203,13 +206,18 @@ func (s *Service) CreateApi(ctx context.Context, userID uint64, typ int8, req dt
 	if err := s.ensureProjectPermission(ctx, userID, typ, req.ProjectID, model.PermCreate); err != nil {
 		return nil, err
 	}
+	if err := validateApiLifecycle(req.Status, req.Version); err != nil {
+		return nil, err
+	}
 	a := apiFromCreate(req)
+	applyApiLifecycle(a, nil)
 	a.ExtUID = ensureExtUID("")
 	s.applyFieldMapping(ctx, req.ProjectID, a)
 	if err := s.repo.CreateApi(ctx, a); err != nil {
 		return nil, err
 	}
-	s.recordChange(model.SyncTypeAPI, a.ExtUID, a.ProjectID, a.ID, model.SyncOpUpsert, userID)
+	cid := s.recordChange(model.SyncTypeAPI, a.ExtUID, a.ProjectID, a.ID, model.SyncOpUpsert, userID)
+	s.saveSnapshot(ctx, a.ProjectID, model.SnapshotEntityAPI, a.ID, cid, userID, model.SnapshotActionCreate, a)
 	s.recordOp(ctx, req.ProjectID, userID, a.ID, model.LogObjectAPI, "create", "接口:"+a.ApiName)
 	return a, nil
 }
@@ -227,7 +235,14 @@ func (s *Service) UpdateApi(ctx context.Context, userID uint64, typ int8, req dt
 	if err := ensureNotStale(req.ExpectedUpdateTime, a.UpdateTime, "接口"); err != nil {
 		return nil, err
 	}
+	if err := validateApiLifecycle(req.Status, req.Version); err != nil {
+		return nil, err
+	}
 	updated := apiFromCreate(req.ApiCreateReq)
+	applyApiLifecycle(updated, a)
+	if updated.Version == "" {
+		updated.Version = a.Version
+	}
 	updated.ID = a.ID
 	updated.BaseModel = a.BaseModel
 	updated.ExtUID = ensureExtUID(a.ExtUID)
@@ -236,7 +251,8 @@ func (s *Service) UpdateApi(ctx context.Context, userID uint64, typ int8, req dt
 	if err := s.repo.UpdateApi(ctx, updated); err != nil {
 		return nil, err
 	}
-	s.recordChange(model.SyncTypeAPI, updated.ExtUID, updated.ProjectID, updated.ID, model.SyncOpUpsert, userID)
+	cid := s.recordChange(model.SyncTypeAPI, updated.ExtUID, updated.ProjectID, updated.ID, model.SyncOpUpsert, userID)
+	s.saveSnapshot(ctx, updated.ProjectID, model.SnapshotEntityAPI, updated.ID, cid, userID, model.SnapshotActionUpdate, updated)
 	return updated, nil
 }
 
@@ -259,7 +275,7 @@ func (s *Service) ListApis(ctx context.Context, userID uint64, userType int8, q 
 	}
 	pq := page.Query{PageNum: q.PageNum, PageSize: q.PageSize}
 	pq.Normalize()
-	items, total, err := s.repo.ListApis(ctx, q.ProjectID, q.GroupID, q.Deleted, q.Keyword, pq)
+	items, total, err := s.repo.ListApis(ctx, q.ProjectID, q.GroupID, q.Deleted, q.Status, q.Keyword, pq)
 	if err != nil {
 		return page.Result[model.Api]{}, err
 	}
@@ -501,7 +517,43 @@ func apiFromCreate(req dto.ApiCreateReq) *model.Api {
 		HttpAuth: req.HttpAuth, RequestSettings: req.RequestSettings,
 		HttpScript: req.HttpScript, ScriptVars: req.ScriptVars,
 		ScriptAsserts: req.ScriptAsserts, HttpReturnContentType: req.HttpReturnContentType,
+		Status: req.Status, Version: strings.TrimSpace(req.Version), DeprecatedAt: req.DeprecatedAt,
 	}
+}
+
+// validateApiLifecycle 校验接口生命周期字段；0 表示未提供（新建默认发布/更新保持原值）。
+func validateApiLifecycle(status int8, version string) error {
+	if status < 0 || status > model.ApiStatusDeprecated {
+		return newBiz(errcode.CodeParamError, "接口状态取值非法")
+	}
+	if len(strings.TrimSpace(version)) > 50 {
+		return newBiz(errcode.CodeParamError, "接口版本过长（最多 50 字符）")
+	}
+	return nil
+}
+
+// applyApiLifecycle 归一状态与废弃时间：新建默认已发布，更新时 0/空值保持原值。
+func applyApiLifecycle(a *model.Api, prev *model.Api) {
+	if a.Status == 0 {
+		if prev != nil && prev.Status != 0 {
+			a.Status = prev.Status
+		} else {
+			a.Status = model.ApiStatusPublished
+		}
+	}
+	if a.Status != model.ApiStatusDeprecated {
+		a.DeprecatedAt = nil
+		return
+	}
+	if a.DeprecatedAt != nil {
+		return
+	}
+	if prev != nil && prev.Status == model.ApiStatusDeprecated && prev.DeprecatedAt != nil {
+		a.DeprecatedAt = prev.DeprecatedAt
+		return
+	}
+	now := time.Now()
+	a.DeprecatedAt = &now
 }
 
 // applyFieldMapping 依据项目字段字典回填返回参数的 type/description。
@@ -554,7 +606,8 @@ func (s *Service) CreateDoc(ctx context.Context, userID uint64, typ int8, req dt
 	if err := s.repo.CreateDoc(ctx, d); err != nil {
 		return nil, err
 	}
-	s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpUpsert, userID)
+	cid := s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpUpsert, userID)
+	s.saveSnapshot(ctx, d.ProjectID, model.SnapshotEntityDoc, d.ID, cid, userID, model.SnapshotActionCreate, d)
 	s.recordOp(ctx, req.ProjectID, userID, d.ID, model.LogObjectDoc, "create", "文档:"+d.Title)
 	return d, nil
 }
@@ -584,7 +637,8 @@ func (s *Service) UpdateDoc(ctx context.Context, userID uint64, typ int8, req dt
 	if err := s.repo.UpdateDoc(ctx, d); err != nil {
 		return nil, err
 	}
-	s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpUpsert, userID)
+	cid := s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpUpsert, userID)
+	s.saveSnapshot(ctx, d.ProjectID, model.SnapshotEntityDoc, d.ID, cid, userID, model.SnapshotActionUpdate, d)
 	return d, nil
 }
 

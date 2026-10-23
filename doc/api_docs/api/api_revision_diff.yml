@@ -1,0 +1,42 @@
+info:
+  name: 接口_历史版本字段差异
+  type: http
+  seq: 41
+
+http:
+  method: GET
+  url: "{{host}}/api/v1/item/revision-diff?type=api&id=1&revision_id=1"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 比较历史快照与当前内容的字段级差异（RM-05）
+
+  ## 请求 URI
+  - `/api/v1/item/revision-diff`（仅 v1）
+
+  ## 请求方式
+  - GET
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>` 或 PAT；需项目读权限。
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |type|是|string|`api` 或 `doc`|
+  |id|是|uint|接口/文档 ID|
+  |revision_id|是|uint|历史快照 ID（列表返回的 `id`）|
+
+  ## 响应 data
+  - `{ revision: {id, revision, action, actor_id, create_time}, fields: [{field, label, before, after}] }`
+  - `before` 为历史快照值，`after` 为当前内容值；仅比较白名单业务字段。
+
+  ## 备注
+  - 快照不属于该条目/项目时返回 22。

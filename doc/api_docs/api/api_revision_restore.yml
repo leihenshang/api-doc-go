@@ -1,0 +1,44 @@
+info:
+  name: 接口_历史版本回滚
+  type: http
+  seq: 42
+
+http:
+  method: POST
+  url: "{{host}}/api/v1/item/revision-restore"
+  headers:
+    - name: Authorization
+      value: "{{Authorization}}"
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  timeout: 0
+
+docs: |-
+  ## 简要描述
+  - 回滚到指定历史快照（RM-05）
+
+  ## 请求 URI
+  - `/api/v1/item/revision-restore`（仅 v1）
+
+  ## 请求方式
+  - POST
+
+  ## 鉴权
+  - 请求头 `Authorization: Bearer <JWT>` 或 PAT；需项目 **update** 权限。
+
+  ## 请求参数
+  |参数名|必选|类型|说明|
+  |:--|:--|:--|:--|
+  |type|是|string|`api` 或 `doc`|
+  |id|是|uint|接口/文档 ID|
+  |revision_id|是|uint|历史快照 ID|
+
+  ## 行为
+  - 用快照载荷覆盖当前内容，保留 ID/项目/ext_uid/创建时间等关联字段；
+  - 写一条新的变更流水，并再留一份 `action=restore` 快照，因此历史可继续追溯。
+
+  ## 备注
+  - 回滚不做乐观锁比对（属于显式覆盖）；如需冲突保护先取详情再确认。

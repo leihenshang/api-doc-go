@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 文档详情整页：Markdown 渲染查看 + 就地编辑（含图床上传）、点赞、删除。
 import { deleteDoc, getDoc, likeDoc, updateDoc } from '@/api/content'
+import RevisionHistory from '@/components/RevisionHistory.vue'
 import { uploadImg } from '@/api/misc'
 import { useMdUpload } from '@/composables/md-upload'
 import { useNumParam } from '@/composables/params'
@@ -10,7 +11,7 @@ import { ErrCode } from '@/types/api'
 import type { DocItem } from '@/types/entities'
 import { fmtTime } from '@/utils/format'
 import { DEFAULT_DOC_ICON, isImageIcon } from '@/utils/icon'
-import { ArrowBackOutline } from '@vicons/ionicons5'
+import { ArrowBackOutline, TimeOutline } from '@vicons/ionicons5'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
@@ -41,6 +42,7 @@ const doc = ref<DocItem | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const editing = ref(route.query.edit === '1')
+const historyShow = ref(false)
 /** icon：文档图标（emoji 或上传后的图片 URL）。 */
 const form = reactive({ title: '', content: '', icon: '', group_id: 0 })
 const iconUploading = ref(false)
@@ -95,6 +97,12 @@ async function load(): Promise<void> {
     } finally {
         loading.value = false
     }
+}
+
+// 历史版本回滚成功后刷新文档与左侧树。
+function onRevisionRestored(): void {
+    void load()
+    emit('changed')
 }
 
 function back(): void {
@@ -232,6 +240,10 @@ onMounted(() => {
                         <n-button size="small" type="primary" :loading="saving" @click="save">{{ t('common.save') }}</n-button>
                     </template>
                     <template v-else>
+                        <n-button v-if="doc" size="small" tertiary :title="t('history.title')" data-testid="doc.history" @click="historyShow = true">
+                            <template #icon><n-icon :component="TimeOutline" /></template>
+                            {{ t('history.btn') }}
+                        </n-button>
                         <n-button size="small" tertiary @click="like">👍 {{ doc?.like_count ?? 0 }}</n-button>
                         <n-button v-if="canUpdate" size="small" tertiary @click="toggleTop">
                             {{ doc?.is_top === 1 ? t('docDetail.untop') : t('docDetail.top') }}
@@ -285,6 +297,9 @@ onMounted(() => {
                 </template>
             </n-card>
         </div>
+
+        <!-- 历史版本（RM-05）：列表 + 字段级 diff + 回滚 -->
+        <revision-history v-model:show="historyShow" type="doc" :id="docId" @restored="onRevisionRestored" />
     </n-spin>
 </template>
 
