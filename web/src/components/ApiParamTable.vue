@@ -13,12 +13,13 @@ import { useI18n } from 'vue-i18n'
 type Kind = 'request' | 'response' | 'header'
 
 /**
- * 各形态的列配置：请求头无需类型与必填，返回参数无需必填；color 用于计数圆标。
+ * 各形态的列配置：请求头无需类型与必填，返回参数需要必填（与客户端响应字段表同口径：
+ * 生成时默认「是」，文档也按这个值输出 是/否）；color 用于计数圆标。
  * 文案存 labelKey，切语言时由 cfg 重新解析。
  */
 const COLUMNS: Record<Kind, { titleKey: string; nameKey: string; valueKey: string; color: string; withRequired: boolean; withType: boolean }> = {
   request: { titleKey: 'param.requestTitle', nameKey: 'param.name', valueKey: 'param.example', color: '#0cbb52', withRequired: true, withType: true },
-  response: { titleKey: 'param.responseTitle', nameKey: 'param.name', valueKey: 'param.example', color: '#8e44ad', withRequired: false, withType: true },
+  response: { titleKey: 'param.responseTitle', nameKey: 'param.name', valueKey: 'param.example', color: '#8e44ad', withRequired: true, withType: true },
   header: { titleKey: 'param.headerTitle', nameKey: 'param.headerName', valueKey: 'param.value', color: '#097bed', withRequired: false, withType: false },
 }
 
@@ -79,10 +80,15 @@ function canAddChild(row: ApiParam): boolean {
   return props.editable && props.kind !== 'header' && (row.type === 'object' || row.type === 'array')
 }
 
+/** 新增行的必填默认值：返回参数按产品口径默认「是」，请求参数默认「否」。 */
+function defaultRequired(): boolean {
+  return props.kind === 'response'
+}
+
 function add(): void {
   writeRows([
     ...rows.value,
-    { fieldName: '', type: props.kind === 'header' ? '' : 'string', required: false, description: '', example: '' },
+    { fieldName: '', type: props.kind === 'header' ? '' : 'string', required: defaultRequired(), description: '', example: '' },
   ])
   void nextTick(() => nameRefs.value[rows.value.length - 1]?.focus())
 }
@@ -91,7 +97,7 @@ function addChild(i: number): void {
   const parent = rows.value[i]
   const prefix = parent.type === 'array' ? `${parent.fieldName}[]` : parent.fieldName
   const next = [...rows.value]
-  next.splice(i + 1, 0, { fieldName: `${prefix}.`, type: 'string', required: false, description: '', example: '' })
+  next.splice(i + 1, 0, { fieldName: `${prefix}.`, type: 'string', required: defaultRequired(), description: '', example: '' })
   writeRows(next)
   void nextTick(() => nameRefs.value[i + 1]?.focus())
 }
