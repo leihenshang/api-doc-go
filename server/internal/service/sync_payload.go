@@ -182,12 +182,15 @@ func applyApiExtra(e *model.Api, raw string) {
 	setStr("body", &e.HttpRequestBody)
 	setStr("bodyForm", &e.HttpRequestBodyForm)
 	setStr("bodyDescs", &e.HttpRequestBodyDescs)
+	setStr("bodyFields", &e.HttpRequestBodyFields)
 	setStr("auth", &e.HttpAuth)
 	setStr("settings", &e.RequestSettings)
 	setStr("script", &e.HttpScript)
 	setStr("vars", &e.ScriptVars)
 	setStr("asserts", &e.ScriptAsserts)
 	setStr("retContentType", &e.HttpReturnContentType)
+	// API 概述（请求体字段表格与概述需求）：与 bodyFields 一样走「键存在才覆盖、空串清空」。
+	setStr("summary", &e.HttpRequestSummary)
 }
 
 // apiSyncPayload 构造 api 条目的同步载荷：名称/方法/URL/分组 + extra 全量原文。
@@ -235,6 +238,8 @@ func (s *Service) apiSyncPayloadWith(ctx context.Context, a *model.Api, groupUID
 		"body":           a.HttpRequestBody,
 		"bodyForm":       a.HttpRequestBodyForm,
 		"bodyDescs":      a.HttpRequestBodyDescs,
+		"bodyFields":     a.HttpRequestBodyFields,
+		"summary":        a.HttpRequestSummary,
 		"auth":           a.HttpAuth,
 		"settings":       a.RequestSettings,
 		"script":         a.HttpScript,

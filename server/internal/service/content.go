@@ -514,6 +514,7 @@ func apiFromCreate(req dto.ApiCreateReq) *model.Api {
 		// 客户端富字段：原样透传（保存须带回原值，避免整条覆盖清空）。
 		HttpRequestBodyType: req.HttpRequestBodyType, HttpRequestBody: req.HttpRequestBody,
 		HttpRequestBodyForm: req.HttpRequestBodyForm, HttpRequestBodyDescs: req.HttpRequestBodyDescs,
+		HttpRequestBodyFields: req.HttpRequestBodyFields, HttpRequestSummary: req.HttpRequestSummary,
 		HttpAuth: req.HttpAuth, RequestSettings: req.RequestSettings,
 		HttpScript: req.HttpScript, ScriptVars: req.ScriptVars,
 		ScriptAsserts: req.ScriptAsserts, HttpReturnContentType: req.HttpReturnContentType,

@@ -150,6 +150,75 @@ func TestSyncPushAPIExtendedFields(t *testing.T) {
 	}
 }
 
+// TestSyncPushAPISummaryAndBodyFields 概述与请求体字段表格（请求体字段表格与概述需求）：
+// 两列都以原文落库，增量载荷原样回传；空串清空、缺键不动。
+func TestSyncPushAPISummaryAndBodyFields(t *testing.T) {
+	t.Parallel()
+	f := newVarFixture(t)
+	ctx := context.Background()
+	const uid = "api-summary-fields-uid-1"
+	const (
+		summary    = "创建订单接口"
+		bodyFields = `[{"name":"uid","type":"string","required":true,"example":"u-42","description":"用户ID"}]`
+		descs      = `{"uid":"用户ID"}`
+	)
+	extra, _ := json.Marshal(map[string]any{
+		"summary": summary, "bodyFields": bodyFields, "bodyDescs": descs,
+	})
+	pushAPI(t, f.s, f.admin.ID, f.proj.ID, uid, "op-sum-1", SyncPayload{Name: "订单", Method: "POST", URL: "/orders", Extra: string(extra)})
+
+	a, err := f.s.repo.FindApiByExtUID(ctx, f.proj.ID, uid)
+	if err != nil || a == nil {
+		t.Fatalf("推送后应能查到接口: %v", err)
+	}
+	if a.HttpRequestSummary != summary || a.HttpRequestBodyFields != bodyFields {
+		t.Fatalf("概述/字段表格未落库: summary=%q fields=%q", a.HttpRequestSummary, a.HttpRequestBodyFields)
+	}
+
+	// 增量载荷原样回传（与 applyApiExtra 键集对齐）。
+	raw, err := f.s.loadPayload(ctx, f.proj.ID, model.SyncTypeAPI, uid, true)
+	if err != nil {
+		t.Fatalf("loadPayload: %v", err)
+	}
+	var got SyncPayload
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("载荷反序列化: %v", err)
+	}
+	var em map[string]any
+	if err := json.Unmarshal([]byte(got.Extra), &em); err != nil {
+		t.Fatalf("extra 应为 JSON 对象: %v", err)
+	}
+	if em["summary"] != summary || em["bodyFields"] != bodyFields {
+		t.Fatalf("回传不符: summary=%v bodyFields=%v", em["summary"], em["bodyFields"])
+	}
+
+	// 空串清空两列。
+	clearExtra, _ := json.Marshal(map[string]any{"summary": "", "bodyFields": ""})
+	pushAPI(t, f.s, f.admin.ID, f.proj.ID, uid, "op-sum-2", SyncPayload{Name: "订单", Method: "POST", URL: "/orders", Extra: string(clearExtra)})
+	a, err = f.s.repo.FindApiByExtUID(ctx, f.proj.ID, uid)
+	if err != nil || a == nil {
+		t.Fatalf("清空后仍应能查到接口: %v", err)
+	}
+	if a.HttpRequestSummary != "" || a.HttpRequestBodyFields != "" {
+		t.Fatalf("空串应清空两列: summary=%q fields=%q", a.HttpRequestSummary, a.HttpRequestBodyFields)
+	}
+
+	// 缺键不动：只推 descs 时概述与表格保持（此处已是空，故先写回再验证）。
+	pushAPI(t, f.s, f.admin.ID, f.proj.ID, uid, "op-sum-3", SyncPayload{Name: "订单", Method: "POST", URL: "/orders", Extra: string(extra)})
+	descOnly, _ := json.Marshal(map[string]any{"desc": "只改说明"})
+	pushAPI(t, f.s, f.admin.ID, f.proj.ID, uid, "op-sum-4", SyncPayload{Name: "订单", Method: "POST", URL: "/orders", Extra: string(descOnly)})
+	a, err = f.s.repo.FindApiByExtUID(ctx, f.proj.ID, uid)
+	if err != nil || a == nil {
+		t.Fatalf("缺键推送后仍应能查到接口: %v", err)
+	}
+	if a.HttpRequestSummary != summary || a.HttpRequestBodyFields != bodyFields {
+		t.Fatalf("缺键时概述/表格不应被清空: summary=%q fields=%q", a.HttpRequestSummary, a.HttpRequestBodyFields)
+	}
+	if a.Description != "只改说明" {
+		t.Fatalf("desc 未生效: %q", a.Description)
+	}
+}
+
 // TestSyncPushAPIEmptyExtraClears 空串键表示清空；缺键保持不动（整份覆盖 + 部分更新语义）。
 func TestSyncPushAPIEmptyExtraClears(t *testing.T) {
 	t.Parallel()

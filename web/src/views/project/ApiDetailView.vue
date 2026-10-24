@@ -28,7 +28,7 @@ import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
 import {
-    NButton, NDropdown, NIcon, NInput, NInputNumber, NModal, NSelect, NSpin, NTag, useDialog, useMessage,
+    NButton, NCheckbox, NDropdown, NIcon, NInput, NInputNumber, NModal, NSelect, NSpin, NTag, useDialog, useMessage,
     type DropdownOption,
 } from 'naive-ui'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -64,6 +64,8 @@ const form = reactive({
   api_name: '', http_method_type: 'GET', url: '', protocol_type: 'HTTP',
   description: '', develop_language: '', http_return_type: 'JSON',
   status: 2, version: '',
+  // API 概述：纯文本列，随 `...form` 展开自动参与保存（放 form 而非 ext，避免漏回传）
+  http_request_summary: '',
 })
 /** 请求头以参数行形态编辑（表格直接改这份数组），保存时再转回 ApiHeader[]。 */
 const headerRows = ref<ApiParam[]>([])
@@ -77,7 +79,10 @@ const sample = ref('')
  */
 const ext = reactive({
   http_request_body_type: '', http_request_body: '', http_request_body_form: '',
-  http_request_body_descs: '', http_auth: '', request_settings: '',
+  http_request_body_descs: '',
+  // 请求体字段表格：JSON 数组串，走「解析成行 → 编辑 → 序列化原样回传」的富字段通道
+  http_request_body_fields: '',
+  http_auth: '', request_settings: '',
   http_script: '', script_vars: '', script_asserts: '', http_return_content_type: '',
 })
 
@@ -214,6 +219,14 @@ function triLabel(v: unknown): string {
 
 /** form/multipart 请求体行。 */
 interface BodyFormRow { name?: string; value?: string; enabled?: boolean; description?: string; type?: string }
+/** 请求体字段表格行（对齐客户端 BodyField：字段名/类型/必填/示例值/说明）。 */
+interface BodyFieldRow {
+  name?: string
+  type?: string
+  required?: boolean
+  example?: string
+  description?: string
+}
 interface NamedVal { name?: string; value?: string; expr?: string; enabled?: boolean }
 
 // ---- 富字段编辑（⑤）：进编辑态时从 ext 串解析，保存时序列化回 ext（未知键保留，全空则清空串） ----
@@ -230,6 +243,8 @@ const extEdit = reactive({
   bodyRaw: '',
   bodyForm: [] as BodyFormRow[],
   bodyDescs: [] as { path: string; note: string }[],
+  /** 请求体字段表格（5 列）：客户端「生成数据表格」生成的行，Web 可改行 / 加行 / 删行 */
+  bodyFields: [] as BodyFieldRow[],
   authType: '',
   authUser: '', authPass: '', authToken: '', authKey: '', authValue: '', authIn: 'header',
   authBase: {} as Record<string, unknown>,
@@ -286,6 +301,7 @@ function parseExtEdit(): void {
   extEdit.bodyForm = parseArray<BodyFormRow>(ext.http_request_body_form)
   extEdit.bodyDescs = Object.entries(parseObject(ext.http_request_body_descs))
     .map(([path, note]) => ({ path, note: String(note ?? '') }))
+  extEdit.bodyFields = parseArray<BodyFieldRow>(ext.http_request_body_fields)
   const a = parseObject(ext.http_auth)
   extEdit.authBase = a
   extEdit.authType = str(a, 'type')
@@ -309,8 +325,19 @@ function parseExtEdit(): void {
 function serializeExtEdit(): void {
   const rows = extEdit.bodyForm.filter((r) => (r.name ?? '').trim())
   const descs = extEdit.bodyDescs.filter((d) => d.path.trim())
+  // 字段表格：只要有一行有字段名就算有内容（空表 → 空串 = 清空该列）
+  const fieldRows = extEdit.bodyFields.filter((f) => (f.name ?? '').trim())
+  const fieldsJSON = fieldRows.length
+    ? JSON.stringify(fieldRows.map((f) => ({
+      name: (f.name ?? '').trim(),
+      type: f.type ?? '',
+      required: f.required === true,
+      example: f.example ?? '',
+      description: f.description ?? '',
+    })))
+    : ''
   const bt = extEdit.bodyType
-  if (bt === 'none' && !extEdit.bodyRaw.trim() && !rows.length && !descs.length) {
+  if (bt === 'none' && !extEdit.bodyRaw.trim() && !rows.length && !descs.length && !fieldsJSON) {
     ext.http_request_body_type = ''
     ext.http_request_body = ''
     ext.http_request_body_form = ''
@@ -328,6 +355,8 @@ function serializeExtEdit(): void {
       ? JSON.stringify(Object.fromEntries(descs.map((d) => [d.path.trim(), d.note.trim()])))
       : ''
   }
+  // 字段表格独立于请求体类型：哪怕 type=none，只要表格有行也要落列（否则整条覆盖会静默清空）
+  ext.http_request_body_fields = fieldsJSON
 
   const at = extEdit.authType
   if (!at) {
@@ -359,6 +388,10 @@ const bodyFormRows = computed<BodyFormRow[]>(() => parseArray<BodyFormRow>(ext.h
 const bodyDescRows = computed(() =>
   Object.entries(parseObject(ext.http_request_body_descs))
     .map(([path, note]) => ({ path, note: typeof note === 'string' ? note : String(note) })))
+/** 请求体字段表格（查看态：只读展示；每行 5 列）。 */
+const bodyFieldRows = computed<BodyFieldRow[]>(() =>
+  parseArray<BodyFieldRow>(ext.http_request_body_fields)
+    .filter((f) => (f.name ?? '').trim()))
 const authObj = computed(() => parseObject(ext.http_auth))
 const settingsObj = computed(() => parseObject(ext.request_settings))
 const scriptObj = computed(() => parseObject(ext.http_script))
@@ -368,7 +401,8 @@ const assertRows = computed<NamedVal[]>(() => parseArray<NamedVal>(ext.script_as
 /** 各富字段段是否有内容（仅查看态、且非空时才出现在大纲/正文）。 */
 const hasBody = computed(() =>
   (!!ext.http_request_body_type && ext.http_request_body_type !== 'none') ||
-  !!ext.http_request_body || bodyFormRows.value.length > 0 || bodyDescRows.value.length > 0)
+  !!ext.http_request_body || bodyFormRows.value.length > 0 || bodyDescRows.value.length > 0 ||
+  bodyFieldRows.value.length > 0)
 const hasAuth = computed(() => !!str(authObj.value, 'type'))
 const hasSettings = computed(() =>
   !!ext.request_settings && Object.keys(settingsObj.value).length > 0)
@@ -412,6 +446,7 @@ async function load(): Promise<boolean> {
       http_return_type: a.http_return_type || 'JSON',
       status: a.status || 2,
       version: a.version ?? '',
+      http_request_summary: a.http_request_summary ?? '',
     })
     headerRows.value = headersToParams(parseArray<ApiHeader>(a.http_request_header))
     reqParams.value = parseArray<ApiParam>(a.http_request_params)
@@ -421,6 +456,7 @@ async function load(): Promise<boolean> {
       http_request_body: a.http_request_body ?? '',
       http_request_body_form: a.http_request_body_form ?? '',
       http_request_body_descs: a.http_request_body_descs ?? '',
+      http_request_body_fields: a.http_request_body_fields ?? '',
       http_auth: a.http_auth ?? '',
       request_settings: a.request_settings ?? '',
       http_script: a.http_script ?? '',
@@ -866,6 +902,18 @@ function exportApi(key: string): void {
         </div>
       </header>
 
+      <!-- API 概述：URL 上方一行；查看态为空则不占位 -->
+      <div v-if="editing || form.http_request_summary" class="req-summary">
+        <n-input
+          v-if="editing"
+          v-model:value="form.http_request_summary"
+          size="small"
+          :placeholder="t('detail.summaryPh')"
+          data-testid="detail.summary"
+        />
+        <p v-else class="req-summary-text" data-testid="detail.summaryText">{{ form.http_request_summary }}</p>
+      </div>
+
       <div class="req-url">
         <div class="url-box" :class="{ 'url-box--edit': editing }">
           <n-select
@@ -947,6 +995,30 @@ function exportApi(key: string): void {
             <span v-if="!editing && ext.http_request_body_type" class="meta"> · {{ ext.http_request_body_type }}</span>
           </div>
           <template v-if="!editing">
+            <!-- 请求体字段表格（客户端「生成数据表格」生成；5 列只读） -->
+            <template v-if="bodyFieldRows.length">
+              <p class="sec-sub meta">{{ t('detail.bodyFieldsTitle') }}</p>
+              <table class="bf-table" data-testid="detail.bodyFields">
+                <thead>
+                  <tr>
+                    <th>{{ t('detail.colName') }}</th>
+                    <th class="c">{{ t('detail.colRequired') }}</th>
+                    <th>{{ t('detail.colType') }}</th>
+                    <th>{{ t('detail.colExample') }}</th>
+                    <th>{{ t('detail.colDesc') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(f, i) in bodyFieldRows" :key="'bfr' + i">
+                    <td class="mono">{{ f.name }}</td>
+                    <td class="c">{{ f.required ? t('detail.yes') : t('detail.no') }}</td>
+                    <td>{{ f.type }}</td>
+                    <td class="mono">{{ f.example }}</td>
+                    <td>{{ f.description }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
             <dl v-if="bodyFormRows.length" class="kv">
               <div v-for="(r, i) in bodyFormRows" :key="i" class="kv-row">
                 <dt>{{ r.name }}<span v-if="r.type && r.type !== 'text'" class="meta">（{{ r.type }}）</span></dt>
@@ -988,6 +1060,26 @@ function exportApi(key: string): void {
                 {{ t('detail.addRow') }}
               </n-button>
             </template>
+            <p class="sec-sub meta ext-desc-hd">
+              {{ t('detail.bodyFieldsTitle') }}
+              <n-button
+                size="tiny"
+                data-testid="ext-field-add"
+                @click="extEdit.bodyFields.push({ name: '', type: '', required: false, example: '', description: '' })"
+              >
+                {{ t('detail.addRow') }}
+              </n-button>
+            </p>
+            <div v-for="(f, i) in extEdit.bodyFields" :key="'bfe' + i" class="ext-row">
+              <n-input v-model:value="f.name" size="small" class="ext-path" :placeholder="t('detail.bodyFieldName')" data-testid="ext-field-name" />
+              <n-input v-model:value="f.type" size="small" class="ext-type" :placeholder="t('detail.colType')" />
+              <n-checkbox v-model:checked="f.required" data-testid="ext-field-required">{{ t('detail.colRequired') }}</n-checkbox>
+              <n-input v-model:value="f.example" size="small" class="ext-type" :placeholder="t('detail.colExample')" />
+              <n-input v-model:value="f.description" size="small" :placeholder="t('detail.colDesc')" />
+              <n-button size="tiny" quaternary type="error" data-testid="ext-field-del" @click="extEdit.bodyFields.splice(i, 1)">
+                {{ t('common.delete') }}
+              </n-button>
+            </div>
             <p class="sec-sub meta ext-desc-hd">
               {{ t('detail.bodyDescsTitle') }}
               <n-button size="tiny" data-testid="ext-desc-add" @click="extEdit.bodyDescs.push({ path: '', note: '' })">
@@ -1549,6 +1641,52 @@ function exportApi(key: string): void {
   background: transparent;
   font-size: 13px;
   line-height: 1.7;
+}
+
+/* API 概述：URL 上方一行（查看态纯文本 / 编辑态输入框） */
+.req-summary {
+  flex: 0 0 auto;
+  padding: 10px 20px 0;
+}
+
+.req-summary-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-text);
+}
+
+/* 请求体字段表格（5 列只读） */
+.bf-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.bf-table th,
+.bf-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--app-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.bf-table th {
+  background: var(--app-surface-2, var(--app-panel));
+  color: var(--app-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.bf-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.bf-table .c {
+  text-align: center;
 }
 
 .kv {

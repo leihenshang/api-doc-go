@@ -153,6 +153,8 @@ type ApiCreateReq struct {
 	HttpRequestBody       string `json:"http_request_body"`
 	HttpRequestBodyForm   string `json:"http_request_body_form"`
 	HttpRequestBodyDescs  string `json:"http_request_body_descs"`
+	HttpRequestBodyFields string `json:"http_request_body_fields"`
+	HttpRequestSummary    string `json:"http_request_summary"`
 	HttpAuth              string `json:"http_auth"`
 	RequestSettings       string `json:"request_settings"`
 	HttpScript            string `json:"http_script"`

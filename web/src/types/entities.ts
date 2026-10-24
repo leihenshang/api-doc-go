@@ -71,6 +71,10 @@ export interface ApiDoc extends BaseEntity {
   http_request_body?: string
   http_request_body_form?: string
   http_request_body_descs?: string
+  /** 请求体字段表格（[BodyField] 的 JSON 数组串；客户端「生成数据表格」维护，Web 只读转可编辑） */
+  http_request_body_fields?: string
+  /** API 概述（纯文本一句话），随 form 原样回传 */
+  http_request_summary?: string
   http_auth?: string
   request_settings?: string
   http_script?: string

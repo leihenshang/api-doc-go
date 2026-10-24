@@ -41,10 +41,14 @@ type Api struct {
 	HttpReturnSample  string     `gorm:"column:http_return_sample;type:text" json:"http_return_sample"`
 	// —— 客户端富字段（S16 扩展）：以原始 JSON/文本列存储，服务端不解释语义、原样回传客户端；
 	// Web 详情按字段解析展示。键集与客户端 collection/sync_extra_fields.go 逐字一致。
-	HttpRequestBodyType   string `gorm:"column:http_request_body_type;size:100" json:"http_request_body_type"`
-	HttpRequestBody       string `gorm:"column:http_request_body;type:text" json:"http_request_body"`
-	HttpRequestBodyForm   string `gorm:"column:http_request_body_form;type:text" json:"http_request_body_form"`
-	HttpRequestBodyDescs  string `gorm:"column:http_request_body_descs;type:text" json:"http_request_body_descs"`
+	HttpRequestBodyType  string `gorm:"column:http_request_body_type;size:100" json:"http_request_body_type"`
+	HttpRequestBody      string `gorm:"column:http_request_body;type:text" json:"http_request_body"`
+	HttpRequestBodyForm  string `gorm:"column:http_request_body_form;type:text" json:"http_request_body_form"`
+	HttpRequestBodyDescs string `gorm:"column:http_request_body_descs;type:text" json:"http_request_body_descs"`
+	// HttpRequestBodyFields 请求体字段表格（[BodyField] 的 JSON 数组字符串），同步 extra 键 bodyFields。
+	HttpRequestBodyFields string `gorm:"column:http_request_body_fields;type:text" json:"http_request_body_fields"`
+	// HttpRequestSummary API 概述（纯文本一句话），同步 extra 键 summary。
+	HttpRequestSummary    string `gorm:"column:http_request_summary;type:text" json:"http_request_summary"`
 	HttpAuth              string `gorm:"column:http_auth;type:text" json:"http_auth"`
 	RequestSettings       string `gorm:"column:request_settings;type:text" json:"request_settings"`
 	HttpScript            string `gorm:"column:http_script;type:text" json:"http_script"`
