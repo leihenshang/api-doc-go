@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"apidoc/internal/model"
 )
@@ -80,6 +81,9 @@ func (s *Service) varSyncPayload(ctx context.Context, v *model.Variable, reveal 
 	enabled := v.Enabled == model.VarEnabled
 	p := SyncPayload{
 		Name: v.Name, Secret: v.IsSecret == model.VarSecret, Enabled: &enabled,
+		// 作用域随载荷下发：客户端据此把「全局变量」落到集合根的 globals.yml，
+		// 而不是环境文件（全局变量不属于任何环境）。
+		Scope: int(v.Scope),
 	}
 	p.Value, p.Redacted = syncVariableValue(v, reveal)
 	if v.EnvID > 0 {
@@ -117,6 +121,7 @@ func (s *Service) varSyncPayloadWith(v *model.Variable, envUID map[uint64]string
 	enabled := v.Enabled == model.VarEnabled
 	p := SyncPayload{
 		Name: v.Name, Secret: v.IsSecret == model.VarSecret, Enabled: &enabled,
+		Scope: int(v.Scope),
 	}
 	p.Value, p.Redacted = syncVariableValue(v, reveal)
 	p.EnvUID = envUID[v.EnvID]
@@ -204,6 +209,8 @@ func (s *Service) docSyncPayload(ctx context.Context, projectID uint64, extUID s
 	}
 	// name 与 title 都下发：客户端历史读 name，服务端历史按 title 写。
 	p := SyncPayload{Name: d.Title, Title: d.Title, Content: d.Content, Icon: d.Icon}
+	// 同层排序权重：服务端 priority ↔ 客户端 frontmatter 的 seq（同一数字空间）。
+	p.DocSeq = d.Priority
 	if d.GroupID > 0 {
 		p.GroupUID = s.repo.GroupExtUID(ctx, d.GroupID)
 	}
@@ -250,5 +257,12 @@ func (s *Service) apiSyncPayloadWith(ctx context.Context, a *model.Api, groupUID
 	}
 	eb, _ := json.Marshal(extra)
 	p.Extra = string(eb)
+	// 生命周期元数据（草稿/已发布/已废弃 + 版本 + 废弃时间）：服务端权威。
+	// 客户端一般不回推这三个键（缺键=不改），所以 Web 端标的状态不会被客户端同步抹掉。
+	p.ApiStatus = int(a.Status)
+	p.Version = a.Version
+	if a.DeprecatedAt != nil {
+		p.DeprecatedAt = a.DeprecatedAt.Format(time.RFC3339)
+	}
 	return p
 }

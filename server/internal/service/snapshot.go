@@ -14,12 +14,19 @@ import (
 	"apidoc/internal/dto"
 	"apidoc/internal/model"
 	"apidoc/internal/pkg/errcode"
+	"apidoc/internal/repository"
 )
 
 const revisionListLimit = 50
 
 // saveSnapshot 写入一份快照；失败只记日志语义（不阻断保存），revision 为 change_log id。
 func (s *Service) saveSnapshot(ctx context.Context, projectID uint64, entityType string, entityID uint64, revision int64, actor uint64, action string, payload any) {
+	s.saveSnapshotWith(ctx, s.repo, projectID, entityType, entityID, revision, actor, action, payload)
+}
+
+// saveSnapshotWith 与 saveSnapshot 同义，但可指定仓储句柄：同步落库场景传事务句柄，
+// 让快照与业务写入同生共死（否则事务未提交时快照已落库，revision 会指向不存在的变更流水）。
+func (s *Service) saveSnapshotWith(ctx context.Context, r *repository.Repository, projectID uint64, entityType string, entityID uint64, revision int64, actor uint64, action string, payload any) {
 	if revision <= 0 {
 		revision = time.Now().UnixNano()
 	}
@@ -27,7 +34,7 @@ func (s *Service) saveSnapshot(ctx context.Context, projectID uint64, entityType
 	if err != nil || len(data) == 0 {
 		return
 	}
-	if err := s.repo.CreateSnapshot(context.WithoutCancel(ctx), &model.ContentSnapshot{
+	if err := r.CreateSnapshot(context.WithoutCancel(ctx), &model.ContentSnapshot{
 		ProjectID: projectID, EntityType: entityType, EntityID: entityID,
 		Revision: revision, ActorID: actor, Action: action, Payload: string(data),
 	}); err != nil {

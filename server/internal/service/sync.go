@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"apidoc/internal/model"
+	"apidoc/internal/repository"
 
 	syncapi "github.com/leihenshang/api-doc-go-share/syncapi"
 )
@@ -113,6 +114,9 @@ func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, proj
 	}
 	reveal := s.canRevealValues(ctx, userID, typ, projectID)
 	items := s.changeItems(ctx, projectID, logs, reveal)
+	// R2：全局变量（scope=3）不属于任何项目，不在项目变更流里 —— 每次增量额外全量附带，
+	// 否则客户端解析 {{var}} 拿不到管理员配的全局变量，同一请求两端结果会不同。
+	items = append(items, s.globalVarItems(ctx, reveal)...)
 	s.auditSyncSecretReveal(ctx, userID, projectID, items)
 	cursor := since
 	if len(logs) > 0 {
@@ -128,6 +132,36 @@ func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, proj
 		cursor = cur
 	}
 	return &SyncChangesResp{Cursor: cursor, Items: items, HasMore: hasMore}, nil
+}
+
+// globalVarItems 全局变量条目（scope=3，project_id=0）。
+//
+// 为什么单独附带：全局变量不属于任何项目，既不在项目变更流（change_log 按项目过滤）里，
+// 也不在项目快照的按项目取数里。不同步的话，客户端解析 {{var}} 拿不到全局变量 ——
+// 同一请求在 Web 与客户端会跑出不同结果，这是最容易被忽略的一类「两端不一致」。
+//
+// 每次全量附带（全局变量通常个位数，成本可忽略）；客户端按 uid 幂等覆盖，重复下发无副作用。
+func (s *Service) globalVarItems(ctx context.Context, reveal bool) []SyncItem {
+	vars, err := s.repo.ListVariables(ctx, repository.VariableFilter{Scope: model.VarScopeGlobal})
+	if err != nil || len(vars) == 0 {
+		return nil
+	}
+	items := make([]SyncItem, 0, len(vars))
+	for i := range vars {
+		v := vars[i]
+		if v.ExtUID == "" {
+			continue
+		}
+		b, err := json.Marshal(s.varSyncPayload(ctx, &v, reveal))
+		if err != nil {
+			continue
+		}
+		items = append(items, SyncItem{
+			Type: model.SyncTypeVariable, UID: v.ExtUID, Op: model.SyncOpUpsert,
+			ItemRev: v.LastChangeID, Payload: b,
+		})
+	}
+	return items
 }
 
 // changeItems 把变更流水转成同步条目；秘密变量按调用方权限决定是否下发明文（H-11）。
@@ -199,6 +233,10 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 	if err != nil {
 		return nil, err
 	}
+	// R2：全局变量同样附带（客户端首次全量拉取时就能拿到，不必等下一轮增量）。
+	// 注意：附加行不计入分页序列，HasMore 必须按「真实行数」算，否则会提前结束分页、漏拉数据。
+	extra := s.globalVarItems(ctx, reveal)
+	rows = append(rows, extra...)
 	s.auditSyncSecretReveal(ctx, userID, projectID, rows)
 
 	// 3) 游标（P2-5：取不到就报错，不回落 0）
@@ -209,7 +247,7 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 	return &SyncSnapshotResp{
 		Cursor:  cur,
 		Items:   rows,
-		HasMore: int64(offset)+int64(len(rows)) < total,
+		HasMore: int64(offset)+int64(len(rows)-len(extra)) < total,
 		Offset:  offset,
 	}, nil
 }

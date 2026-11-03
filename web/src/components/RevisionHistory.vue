@@ -38,6 +38,8 @@ const restoring = ref(false)
 function actionLabel(action: string): string {
   if (action === 'create') return t('history.actionCreate')
   if (action === 'restore') return t('history.actionRestore')
+  // sync = 客户端同步写入留下的快照（与 Web 保存同构，可 diff、可回滚）
+  if (action === 'sync') return t('history.actionSync')
   return t('history.actionUpdate')
 }
 

@@ -10,6 +10,10 @@ const (
 	SnapshotActionCreate  = "create"
 	SnapshotActionUpdate  = "update"
 	SnapshotActionRestore = "restore"
+	// SnapshotActionSync 客户端同步写入（sync push 落库）留下的快照。
+	// 与 Web 保存同构（payload 是 model.Api / model.Doc），因此回滚逻辑完全复用；
+	// 单列一个动作值，是为了让 Web 端的历史列表能区分「谁改的」。
+	SnapshotActionSync = "sync"
 )
 
 // ContentSnapshot 保存接口/文档每次 Web 保存后的完整载荷，用于字段级 diff 与回滚。

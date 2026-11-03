@@ -180,6 +180,7 @@ export default {
     actionCreate: '创建',
     actionUpdate: '保存',
     actionRestore: '回滚',
+    actionSync: '客户端同步',
   },
   api: {
     nameRequired: '请输入接口名称',

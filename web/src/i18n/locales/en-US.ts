@@ -179,6 +179,7 @@ export default {
     actionCreate: 'Created',
     actionUpdate: 'Saved',
     actionRestore: 'Restored',
+    actionSync: 'Client sync',
   },
   api: {
     nameRequired: 'Please enter an API name',

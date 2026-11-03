@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"apidoc/internal/model"
 	"apidoc/internal/repository"
@@ -87,6 +88,18 @@ func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, use
 			e.GroupID = 0
 		}
 		applyApiExtra(e, p.Extra)
+		// 生命周期元数据：服务端权威，键缺失即不改（客户端一般不回推这三个键）。
+		if p.ApiStatus != 0 {
+			e.Status = int8(p.ApiStatus)
+		}
+		if p.Version != "" {
+			e.Version = p.Version
+		}
+		if p.DeprecatedAt != "" {
+			if t, perr := time.Parse(time.RFC3339, p.DeprecatedAt); perr == nil {
+				e.DeprecatedAt = &t
+			}
+		}
 		var err error
 		if e.ID == 0 {
 			err = r.CreateApi(ctx, e)
@@ -102,6 +115,10 @@ func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, use
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
 		e.LastChangeID = cid
+		// R1：客户端同步写入也要留历史快照。payload 与 Web 保存路径同构（model.Api），
+		// 因此 Web 端「历史修订 / 字段级 diff / 回滚」对客户端的改动同样成立 ——
+		// 否则 Web 回滚到旧版本会把客户端的改动一起吞掉。
+		s.saveSnapshotWith(ctx, r, req.ProjectID, model.SnapshotEntityAPI, e.ID, cid, userID, model.SnapshotActionSync, e)
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeDoc:
@@ -122,6 +139,10 @@ func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, use
 		}
 		e.Content = p.Content
 		e.Icon = p.Icon
+		// 同层排序权重（缺键不改：0 = 未设置）。
+		if p.DocSeq != 0 {
+			e.Priority = p.DocSeq
+		}
 		if p.GroupUID != "" {
 			if g, _ := r.FindGroupByExtUID(ctx, req.ProjectID, p.GroupUID); g != nil {
 				e.GroupID = g.ID
@@ -146,6 +167,8 @@ func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, use
 			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "变更流水写入失败"}
 		}
 		e.LastChangeID = cid
+		// R1：文档同样留快照（payload 为 model.Doc，与 Web 保存路径同构）。
+		s.saveSnapshotWith(ctx, r, req.ProjectID, model.SnapshotEntityDoc, e.ID, cid, userID, model.SnapshotActionSync, e)
 		return SyncOpOut{OpID: op.OpID, Status: "ok", ItemRev: cid}
 
 	case model.SyncTypeExample:
