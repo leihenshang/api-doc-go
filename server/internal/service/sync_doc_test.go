@@ -80,3 +80,62 @@ func TestSyncDocGroupPlacement(t *testing.T) {
 		t.Errorf("回传 GroupUID = %q, want %q", p.GroupUID, g.ExtUID)
 	}
 }
+
+// TestSyncDocNameRoundTrip 文档名双向兼容：
+// ① 新客户端只发 name（历史写法）→ 服务端要落到 title；
+// ② 旧客户端只发 title → 也要落到 title；
+// ③ 回传载荷同时带 name 与 title（客户端历史读 name）。
+func TestSyncDocNameRoundTrip(t *testing.T) {
+	t.Parallel()
+	f := newVarFixture(t)
+	ctx := context.Background()
+
+	out := pushDoc(t, f.s, f.admin.ID, f.proj.ID, "doc-by-name", "op-doc-name", SyncPayload{
+		Name: "项目说明", Content: "x",
+	})
+	if out.Status != "ok" {
+		t.Fatalf("只带 name 的文档应推送成功: %+v", out)
+	}
+	d, err := f.s.repo.FindDocByExtUID(ctx, f.proj.ID, "doc-by-name")
+	if err != nil || d == nil {
+		t.Fatalf("文档应已落库: %v", err)
+	}
+	if d.Title != "项目说明" {
+		t.Errorf("doc.title = %q，payload.Name 应落到 title", d.Title)
+	}
+
+	out = pushDoc(t, f.s, f.admin.ID, f.proj.ID, "doc-by-title", "op-doc-title", SyncPayload{
+		Title: "只给标题", Content: "x",
+	})
+	if out.Status != "ok" {
+		t.Fatalf("只带 title 的文档应推送成功: %+v", out)
+	}
+	d2, err := f.s.repo.FindDocByExtUID(ctx, f.proj.ID, "doc-by-title")
+	if err != nil || d2 == nil {
+		t.Fatalf("文档应已落库: %v", err)
+	}
+	if d2.Title != "只给标题" {
+		t.Errorf("doc.title = %q，payload.Title 应作为兜底", d2.Title)
+	}
+
+	p := f.s.docSyncPayload(ctx, f.proj.ID, "doc-by-name")
+	if p.Name != "项目说明" || p.Title != "项目说明" {
+		t.Errorf("回传载荷 name=%q title=%q，应两者都带（兼容按 name 读的客户端）", p.Name, p.Title)
+	}
+}
+
+// TestCreateDocReturnsChangeID Web 新建文档的返回体要带本次 revision：
+// DB 已由 SetLastChange 更新，但内存对象不赋值时返回 0，调用方据此算 base_rev 会失真。
+func TestCreateDocReturnsChangeID(t *testing.T) {
+	t.Parallel()
+	f := newVarFixture(t)
+	d, err := f.s.CreateDoc(context.Background(), f.admin.ID, f.admin.Type, dto.DocCreateReq{
+		ProjectID: f.proj.ID, Title: "带版本号", Content: "x",
+	})
+	if err != nil {
+		t.Fatalf("CreateDoc: %v", err)
+	}
+	if d.LastChangeID <= 0 {
+		t.Errorf("返回体 last_change_id = %d，应带本次变更流水 id", d.LastChangeID)
+	}
+}

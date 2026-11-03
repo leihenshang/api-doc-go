@@ -114,7 +114,12 @@ func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, use
 			e = &model.Doc{ProjectID: req.ProjectID, UserID: userID}
 		}
 		e.ExtUID = op.UID
-		e.Title = p.Title
+		// 文档名：客户端历史上发 name（group 才用 title）。name 优先、title 兜底，
+		// 与「新客户端（两个键都发）/ 旧客户端（只发 name）」双向兼容。
+		e.Title = p.Name
+		if e.Title == "" {
+			e.Title = p.Title
+		}
 		e.Content = p.Content
 		e.Icon = p.Icon
 		if p.GroupUID != "" {

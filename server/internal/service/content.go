@@ -217,6 +217,9 @@ func (s *Service) CreateApi(ctx context.Context, userID uint64, typ int8, req dt
 		return nil, err
 	}
 	cid := s.recordChange(model.SyncTypeAPI, a.ExtUID, a.ProjectID, a.ID, model.SyncOpUpsert, userID)
+	// 回写内存对象：DB 里的 last_change_id 已由 SetLastChange 更新，但返回体用的是这个对象，
+	// 不赋值会让调用方拿到 0（与 sync push 的处理保持一致）。
+	a.LastChangeID = cid
 	s.saveSnapshot(ctx, a.ProjectID, model.SnapshotEntityAPI, a.ID, cid, userID, model.SnapshotActionCreate, a)
 	s.recordOp(ctx, req.ProjectID, userID, a.ID, model.LogObjectAPI, "create", "接口:"+a.ApiName)
 	return a, nil
@@ -252,6 +255,7 @@ func (s *Service) UpdateApi(ctx context.Context, userID uint64, typ int8, req dt
 		return nil, err
 	}
 	cid := s.recordChange(model.SyncTypeAPI, updated.ExtUID, updated.ProjectID, updated.ID, model.SyncOpUpsert, userID)
+	updated.LastChangeID = cid // 返回体带最新 revision（同 CreateApi）
 	s.saveSnapshot(ctx, updated.ProjectID, model.SnapshotEntityAPI, updated.ID, cid, userID, model.SnapshotActionUpdate, updated)
 	return updated, nil
 }
@@ -608,6 +612,7 @@ func (s *Service) CreateDoc(ctx context.Context, userID uint64, typ int8, req dt
 		return nil, err
 	}
 	cid := s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpUpsert, userID)
+	d.LastChangeID = cid // 返回体带最新 revision（此前恒为 0，客户端据此算 base_rev 会失真）
 	s.saveSnapshot(ctx, d.ProjectID, model.SnapshotEntityDoc, d.ID, cid, userID, model.SnapshotActionCreate, d)
 	s.recordOp(ctx, req.ProjectID, userID, d.ID, model.LogObjectDoc, "create", "文档:"+d.Title)
 	return d, nil
@@ -639,6 +644,7 @@ func (s *Service) UpdateDoc(ctx context.Context, userID uint64, typ int8, req dt
 		return nil, err
 	}
 	cid := s.recordChange(model.SyncTypeDoc, d.ExtUID, d.ProjectID, d.ID, model.SyncOpUpsert, userID)
+	d.LastChangeID = cid // 返回体带最新 revision（同 CreateDoc）
 	s.saveSnapshot(ctx, d.ProjectID, model.SnapshotEntityDoc, d.ID, cid, userID, model.SnapshotActionUpdate, d)
 	return d, nil
 }

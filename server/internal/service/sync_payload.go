@@ -202,7 +202,8 @@ func (s *Service) docSyncPayload(ctx context.Context, projectID uint64, extUID s
 	if err != nil || d == nil {
 		return SyncPayload{}
 	}
-	p := SyncPayload{Title: d.Title, Content: d.Content, Icon: d.Icon}
+	// name 与 title 都下发：客户端历史读 name，服务端历史按 title 写。
+	p := SyncPayload{Name: d.Title, Title: d.Title, Content: d.Content, Icon: d.Icon}
 	if d.GroupID > 0 {
 		p.GroupUID = s.repo.GroupExtUID(ctx, d.GroupID)
 	}

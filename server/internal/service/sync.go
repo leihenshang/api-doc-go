@@ -365,7 +365,15 @@ func (s *Service) snapshotRows(ctx context.Context, projectID uint64, sl *snapsh
 		appendItem(model.SyncTypeAPI, a.ExtUID, a.LastChangeID, p)
 	}
 	for _, d := range sl.docs {
-		p := SyncPayload{Title: d.Title, Content: d.Content, Icon: d.Icon, Deleted: d.IsDeleted == model.IsDeletedYes}
+		// 文档名两个键都下发：客户端历史读 name、服务端历史按 title 写，
+		// 只发一个键会让另一端拿到空名（客户端落成「未命名文档」/ Web 标题为空）。
+		p := SyncPayload{
+			Name:    d.Title,
+			Title:   d.Title,
+			Content: d.Content,
+			Icon:    d.Icon,
+			Deleted: d.IsDeleted == model.IsDeletedYes,
+		}
 		p.GroupUID = groupUID[d.GroupID]
 		appendItem(model.SyncTypeDoc, d.ExtUID, d.LastChangeID, p)
 	}
