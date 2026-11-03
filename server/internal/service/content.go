@@ -781,7 +781,7 @@ func (s *Service) SortNodes(ctx context.Context, userID uint64, typ int8, req dt
 		return err
 	}
 	for _, it := range req.Items {
-		if err := s.sortNode(ctx, req, it); err != nil {
+		if err := s.sortNode(ctx, userID, req, it); err != nil {
 			return err
 		}
 	}
@@ -789,10 +789,20 @@ func (s *Service) SortNodes(ctx context.Context, userID uint64, typ int8, req dt
 }
 
 // sortNode 依据 kind 落库单个节点的新父级与同级顺序。
-func (s *Service) sortNode(ctx context.Context, req dto.SortReq, it dto.SortItem) error {
+//
+// 为什么每种类型都要 recordChange：拖拽改的不只是「顺序」，还有**归属**
+// （api/doc 的 group_id、group 的 p_id）。这些字段都在同步载荷里
+// （group_uid / parent_uid / priority / doc_seq），不记流水就等于「Web 端挪动了、
+// 客户端永远不知道」—— 而 Web 是这类操作的唯一入口（客户端没有跨目录拖拽到服务端的路径）。
+func (s *Service) sortNode(ctx context.Context, userID uint64, req dto.SortReq, it dto.SortItem) error {
 	switch req.Kind {
 	case "group":
-		return s.sortGroup(ctx, req.ProjectID, it)
+		g, err := s.sortGroup(ctx, req.ProjectID, it)
+		if err != nil {
+			return err
+		}
+		s.recordChange(model.SyncTypeGroup, g.ExtUID, req.ProjectID, g.ID, model.SyncOpUpsert, userID)
+		return nil
 	case "api":
 		a, err := s.repo.GetApi(ctx, it.ID)
 		if err != nil {
@@ -801,7 +811,11 @@ func (s *Service) sortNode(ctx context.Context, req dto.SortReq, it dto.SortItem
 		if a.ProjectID != req.ProjectID {
 			return newBiz(errcode.CodeParamError, "接口不属于该项目")
 		}
-		return s.repo.UpdateApiSort(ctx, it.ID, it.ParentID, it.Priority)
+		if err := s.repo.UpdateApiSort(ctx, it.ID, it.ParentID, it.Priority); err != nil {
+			return err
+		}
+		s.recordChange(model.SyncTypeAPI, a.ExtUID, req.ProjectID, a.ID, model.SyncOpUpsert, userID)
+		return nil
 	case "doc":
 		d, err := s.repo.GetDoc(ctx, it.ID)
 		if err != nil {
@@ -810,29 +824,36 @@ func (s *Service) sortNode(ctx context.Context, req dto.SortReq, it dto.SortItem
 		if d.ProjectID != req.ProjectID {
 			return newBiz(errcode.CodeParamError, "文档不属于该项目")
 		}
-		return s.repo.UpdateDocSort(ctx, it.ID, it.ParentID, it.Priority)
+		if err := s.repo.UpdateDocSort(ctx, it.ID, it.ParentID, it.Priority); err != nil {
+			return err
+		}
+		s.recordChange(model.SyncTypeDoc, d.ExtUID, req.ProjectID, d.ID, model.SyncOpUpsert, userID)
+		return nil
 	default:
 		return newBiz(errcode.CodeParamError, "未知排序类型")
 	}
 }
 
-// sortGroup 移动/排序分组；禁止挂到自身或后代下，避免成环。
-func (s *Service) sortGroup(ctx context.Context, projectID uint64, it dto.SortItem) error {
+// sortGroup 移动/排序分组；禁止挂到自身或后代下，避免成环。返回被移动的分组（供调用方记变更流水）。
+func (s *Service) sortGroup(ctx context.Context, projectID uint64, it dto.SortItem) (*model.Group, error) {
 	g, err := s.repo.GetGroup(ctx, it.ID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if g.ProjectID != projectID {
-		return newBiz(errcode.CodeParamError, "分组不属于该项目")
+		return nil, newBiz(errcode.CodeParamError, "分组不属于该项目")
 	}
 	cyclic, err := s.groupMoveCyclic(ctx, it.ID, it.ParentID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if cyclic {
-		return newBiz(errcode.CodeParamError, "不能把分组移动到其自身或子分组下")
+		return nil, newBiz(errcode.CodeParamError, "不能把分组移动到其自身或子分组下")
 	}
-	return s.repo.UpdateGroupSort(ctx, it.ID, it.ParentID, it.Priority)
+	if err := s.repo.UpdateGroupSort(ctx, it.ID, it.ParentID, it.Priority); err != nil {
+		return nil, err
+	}
+	return g, nil
 }
 
 // groupMoveCyclic 判断把 id 挂到 parentID 下是否成环（parentID 为 id 自身或其后代）。

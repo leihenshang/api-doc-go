@@ -62,7 +62,13 @@ func (s *Service) SyncState(ctx context.Context, userID uint64, typ int8, projec
 	if err != nil {
 		return nil, err
 	}
-	return &SyncStateResp{Cursor: cur, OldestAvailable: old}, nil
+	// 全局变量的最新变更 id：客户端据此判断「项目没变、但全局变量变了」也要拉一次增量。
+	// 读失败不阻断状态查询（回落 0 = 客户端只在项目游标前进时拉取，退化为旧行为）。
+	gc, gerr := s.repo.LatestGlobalChangeID(ctx)
+	if gerr != nil {
+		gc = 0
+	}
+	return &SyncStateResp{Cursor: cur, OldestAvailable: old, GlobalCursor: gc}, nil
 }
 
 // clampChangeLimit 增量拉取的 limit 收敛（审核 H-2）：与 repository 的上界保持一致（1000）。

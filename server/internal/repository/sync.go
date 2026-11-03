@@ -78,6 +78,18 @@ func (r *Repository) LatestChangeID(ctx context.Context, projectID uint64) (int6
 	return id, err
 }
 
+// LatestGlobalChangeID 全局变量（project_id=0）的最新变更 id。
+//
+// 全局变量不属于任何项目，不推进项目游标；但客户端要靠它判断「项目没变、全局变量变了」，
+// 否则管理员改了全局变量，客户端要等项目产生其它变更才会更新（两端取值不一致）。
+func (r *Repository) LatestGlobalChangeID(ctx context.Context) (int64, error) {
+	var id int64
+	err := r.db.WithContext(ctx).Model(&model.ChangeLog{}).
+		Where("project_id = 0").
+		Select("COALESCE(MAX(id), 0)").Scan(&id).Error
+	return id, err
+}
+
 // OldestChangeID 流水窗口下界（gap 判定用）。
 func (r *Repository) OldestChangeID(ctx context.Context, projectID uint64) (int64, error) {
 	var id int64
