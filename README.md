@@ -32,7 +32,7 @@ scripts/   check.sh 工程门禁（gofmt/build/vet/test/vue-tsc/eslint/vite buil
 
 ```bash
 cd server
-# 默认加载 bin/env.test：端口 2027、SQLite（data/apidoc.db）
+# 默认加载 bin/env.test：端口 9090、SQLite（data/apidoc.db）
 ./bin/run.sh start        # 启动；stop / restart / status / build 同理
 # 或直接运行源码
 go run ./cmd/server

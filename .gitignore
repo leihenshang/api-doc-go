@@ -28,3 +28,7 @@ go.work.sum
 
 server/config/config.yaml
 /.tmp.env
+
+# 本地环境变量（含口令）与临时产物，禁止入库
+.env
+.tmp/

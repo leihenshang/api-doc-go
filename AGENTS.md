@@ -39,7 +39,7 @@ database/  sql/   旧库脚本，仅作字段/关系参考
 依赖方向（单向）：`handler → service → repository → model`；`dto` 横切于边界；`pkg` 被复用不反依赖。
 
 ## 常用命令
-后端（在 `server/`，服务由 `bin/run.sh` 控制，默认加载 `bin/env.test` → **端口 2027、SQLite**）：
+后端（在 `server/`，服务由 `bin/run.sh` 控制，默认加载 `bin/env.test` → **端口 9090、SQLite**）：
 ```bash
 ./bin/run.sh start|stop|restart|status|build   # 启停/状态/仅构建
 go build ./... && go vet ./... && go test ./...  # 开发期校验
@@ -47,7 +47,7 @@ go build ./... && go vet ./... && go test ./...  # 开发期校验
 前端（在 `web/`）：
 ```bash
 npm install
-npm run dev            # Vite 前台，:5173，代理 /api、/uploads → VITE_PROXY_TARGET（默认 2027）
+npm run dev            # Vite 前台，:5173，代理 /api、/uploads → VITE_PROXY_TARGET（默认 9090）
 npm run dev:start      # 后台启动 dev（.dev.pid/.dev.log）；dev:stop / dev:status 配套
 npm run build          # vue-tsc 类型检查 + 构建
 npx vue-tsc --noEmit   # 仅类型检查（提交前必过）
@@ -55,7 +55,7 @@ npx vue-tsc --noEmit   # 仅类型检查（提交前必过）
 测试账号：启动时自动种子超管 `admin`（仅当不存在时创建）。**debug** 未配置 `ADMIN_PASSWORD` 时随机生成，并在首次创建超管时于日志提示一次；**release 必须显式配置 `ADMIN_PASSWORD`，否则拒绝启动**。需要重置已有口令时显式执行 `ADMIN_PASSWORD=... go run ./cmd/seed -force`（默认 seed 只保证存在、不重置）。
 
 ## 环境变量（后端）
-- `PORT`（默认 2027）、`GIN_MODE`（debug/release）；配置文件默认读 `config/config.yaml`（可用 `CONFIG_FILE` 覆盖），优先级：内置默认值 < 配置文件 < 环境变量
+- `PORT`（默认 9090）、`GIN_MODE`（debug/release）；配置文件默认读 `config/config.yaml`（可用 `CONFIG_FILE` 覆盖），优先级：内置默认值 < 配置文件 < 环境变量
 - `DB_DRIVER`：`sqlite`(默认) 或 `postgres`；`DB_DSN`：sqlite 为文件路径（默认 `data/apidoc.db`），postgres 为连接串
 - `JWT_SECRET`、`JWT_EXPIRE_HOURS`（默认 24）；**release 必须显式配置 `JWT_SECRET`**（否则拒绝启动，避免重启后全部 PAT 失效）
 - `TRUSTED_PROXIES`：可信反代 IP/CIDR（逗号分隔）；**留空 = 不信任 `X-Forwarded-For`/`X-Real-IP`**，只按 TCP 对端地址限流（审核 H-19）

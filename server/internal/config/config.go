@@ -29,7 +29,7 @@ const defaultJWTSecret = "change-me-in-prod-apidoc-jwt-secret"
 
 // Config 是应用运行期配置。
 type Config struct {
-	// HTTP 监听端口，默认 "2027"。
+	// HTTP 监听端口，默认 "9090"。
 	Port string `yaml:"port"`
 	// RunMode 为 gin 运行模式：debug / release / test。
 	RunMode string `yaml:"run_mode"`
@@ -224,7 +224,7 @@ func randomSecret() (string, error) {
 // defaults 返回内置默认值。
 func defaults() *Config {
 	return &Config{
-		Port:    "2027",
+		Port:    "9090",
 		RunMode: "debug",
 		DB:      DatabaseConfig{Driver: "sqlite"},
 		JWT: JWTConfig{

@@ -5,8 +5,8 @@ import { defineConfig, loadEnv } from 'vite'
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, process.cwd(), 'VITE_')
-    // 后端代理目标：与 server/bin/env.test 的 PORT 保持一致（默认 2027）。
-    const target = env.VITE_PROXY_TARGET || 'http://127.0.0.1:2027'
+    // 后端代理目标：与 server/bin/env.test 的 PORT 保持一致（默认 9090）。
+    const target = env.VITE_PROXY_TARGET || 'http://127.0.0.1:9090'
 
     return {
         plugins: [vue()],

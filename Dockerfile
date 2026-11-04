@@ -1,7 +1,7 @@
 # API 文档服务端（单容器：Go 服务 + 内置托管 Web 前端）
 #
 # 构建：docker build -t apidoc-go:latest .
-# 运行：docker run -d --name apidoc -p 8080:8080 \
+# 运行：docker run -d --name apidoc -p 9090:9090 \
 #         -e ADMIN_PASSWORD='换成你的口令' -e JWT_SECRET='换成随机长串' \
 #         -v apidoc-data:/app/data -v apidoc-uploads:/app/uploads apidoc-go:latest
 #
@@ -39,7 +39,7 @@ COPY --from=web /src/web/dist /app/web
 RUN mkdir -p /app/data /app/uploads && chown -R app:app /app
 USER app
 
-ENV PORT=8080 \
+ENV PORT=9090 \
     GIN_MODE=release \
     DB_DRIVER=sqlite \
     DB_DSN=/app/data/apidoc.db \
@@ -49,10 +49,10 @@ ENV PORT=8080 \
 
 # ADMIN_PASSWORD / JWT_SECRET 不设默认值：release 模式下服务端会拒绝启动，
 # 强制部署者显式传入（避免把演示口令带进内网）。
-EXPOSE 8080
+EXPOSE 9090
 VOLUME ["/app/data", "/app/uploads"]
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:8080/api/health >/dev/null 2>&1 || exit 1
+    CMD wget -qO- http://127.0.0.1:9090/api/health >/dev/null 2>&1 || exit 1
 
 ENTRYPOINT ["/app/apiserver"]
