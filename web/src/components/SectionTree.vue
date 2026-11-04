@@ -435,12 +435,16 @@ function clearSelection(): void {
 
 // ---- 拖拽排序（分组同级重排/移动；叶子同级重排/跨组移动） ----
 
-const canSort = computed(() => project.can(4) && props.section !== 'all')
+const canSort = computed(() => project.can(4))
 
-type SortKind = 'group' | 'api' | 'doc'
-interface DragNode { kind: 'group' | 'leaf'; id: number; container: number }
+type SortKind = 'group' | 'api' | 'doc' | 'mixed'
+/** 叶子在容器里的键：api 与 doc 是两张表，主键会撞号，必须带类型前缀。 */
+function leafKey(it: TreeItem): string {
+  return `${itemKind(it)}:${it.id}`
+}
+interface DragNode { kind: 'group' | 'leaf'; key: string; container: number }
 interface DropHint { key: string; pos: 'before' | 'after' | 'into' }
-interface RelocateMove { src: number; dst: number; id: number; targetId: number; pos: DropHint['pos'] }
+interface RelocateMove { src: number; dst: number; key: string; targetKey: string; pos: DropHint['pos'] }
 
 const dragNode = ref<DragNode | null>(null)
 const dropHint = ref<DropHint | null>(null)
@@ -462,23 +466,23 @@ function parentOf(gid: number): number {
   return groups.value.some((g) => g.id === pid) ? pid : 0
 }
 
-/** 分组有序容器：parentId -> 同级分组 id 列表。 */
-function groupContainers(): Map<number, number[]> {
-  const map = new Map<number, number[]>()
+/** 分组有序容器：parentId -> 同级分组键列表（统一用字符串键）。 */
+function groupContainers(): Map<number, string[]> {
+  const map = new Map<number, string[]>()
   for (const g of groups.value) {
     if (blankGroupIds.value.has(g.id)) continue
     const pid = parentOf(g.id)
-    map.set(pid, [...(map.get(pid) ?? []), g.id])
+    map.set(pid, [...(map.get(pid) ?? []), String(g.id)])
   }
   return map
 }
 
 /** 叶子有序容器：groupId -> 叶子 id 列表。 */
-function leafContainers(): Map<number, number[]> {
-  const map = new Map<number, number[]>()
+function leafContainers(): Map<number, string[]> {
+  const map = new Map<number, string[]>()
   for (const it of items.value) {
     const gid = groupKey(it)
-    map.set(gid, [...(map.get(gid) ?? []), it.id])
+    map.set(gid, [...(map.get(gid) ?? []), leafKey(it)])
   }
   return map
 }
@@ -486,9 +490,9 @@ function leafContainers(): Map<number, number[]> {
 /** 被拖行对应的节点；未分组行不可拖。 */
 function dragNodeOf(row: Row): DragNode | null {
   const g = rowGroup(row)
-  if (g) return g.id > 0 ? { kind: 'group', id: g.id, container: parentOf(g.id) } : null
+  if (g) return g.id > 0 ? { kind: 'group', key: String(g.id), container: parentOf(g.id) } : null
   const it = rowItem(row)
-  return it ? { kind: 'leaf', id: it.id, container: groupKey(it) } : null
+  return it ? { kind: 'leaf', key: leafKey(it), container: groupKey(it) } : null
 }
 
 /** 依据鼠标在目标行的纵向位置推断落点：上下边缘为前/后插入，中间为移入（仅分组行）。 */
@@ -500,11 +504,11 @@ function dropPos(row: Row, e: DragEvent): DropHint['pos'] | null {
   const g = rowGroup(row)
   if (g) {
     if (d.kind === 'leaf') return 'into'
-    if (g.id <= 0 || g.id === d.id) return null
+    if (g.id <= 0 || d.kind === 'group' && String(g.id) === d.key) return null
     return ratio < 0.3 ? 'before' : ratio > 0.7 ? 'after' : 'into'
   }
   const it = rowItem(row)
-  if (!it || d.kind !== 'leaf' || it.id === d.id) return null
+  if (!it || d.kind !== 'leaf' || leafKey(it) === d.key) return null
   return ratio < 0.5 ? 'before' : 'after'
 }
 
@@ -545,22 +549,32 @@ function resetDrag(): void {
   dropHint.value = null
 }
 
-/** 把 id 从 src 容器移到 dst 容器 targetId 的前/后，或末尾（into）。 */
-function relocate(containers: Map<number, number[]>, move: RelocateMove): void {
+/** 把 key 从 src 容器移到 dst 容器 targetKey 的前/后，或末尾（into）。 */
+function relocate(containers: Map<number, string[]>, move: RelocateMove): void {
   const from = containers.get(move.src) ?? []
-  const at = from.indexOf(move.id)
+  const at = from.indexOf(move.key)
   if (at >= 0) from.splice(at, 1)
   containers.set(move.src, from)
   const to = containers.get(move.dst) ?? []
-  const ti = move.pos !== 'into' && move.targetId > 0 ? to.indexOf(move.targetId) : -1
-  to.splice(ti < 0 ? to.length : move.pos === 'before' ? ti : ti + 1, 0, move.id)
+  const ti = move.pos !== 'into' && move.targetKey ? to.indexOf(move.targetKey) : -1
+  to.splice(ti < 0 ? to.length : move.pos === 'before' ? ti : ti + 1, 0, move.key)
   containers.set(move.dst, to)
 }
 
 /** 汇总被改动容器的新顺序（priority 即索引）。 */
-function sortPayload(containers: Map<number, number[]>, changed: number[], kind: SortKind): { kind: SortKind; project_id: number; items: SortItem[] } {
+function sortPayload(containers: Map<number, string[]>, changed: number[], kind: SortKind): { kind: SortKind; project_id: number; items: SortItem[] } {
   const items: SortItem[] = []
-  for (const cid of changed) (containers.get(cid) ?? []).forEach((id, i) => items.push({ id, parent_id: cid, priority: i }))
+  for (const cid of changed) {
+    (containers.get(cid) ?? []).forEach((key, i) => {
+      // 叶子键形如 `api:7`；分组键是纯数字（沿用 req.Kind=group）。
+      const cut = key.indexOf(':')
+      if (cut < 0) {
+        items.push({ id: Number(key), parent_id: cid, priority: i })
+        return
+      }
+      items.push({ id: Number(key.slice(cut + 1)), parent_id: cid, priority: i, kind: key.slice(0, cut) as 'api' | 'doc' })
+    })
+  }
   return { kind, project_id: props.projectId, items }
 }
 
@@ -568,20 +582,24 @@ async function dropLeaf(d: DragNode, row: Row, pos: DropHint['pos']): Promise<vo
   const g = rowGroup(row)
   const it = rowItem(row)
   const dst = g ? g.id : it ? groupKey(it) : 0
-  const targetId = it ? it.id : 0
+  const targetKey = it ? leafKey(it) : ''
   const containers = leafContainers()
-  relocate(containers, { src: d.container, dst, id: d.id, targetId, pos })
+  relocate(containers, { src: d.container, dst, key: d.key, targetKey, pos })
   const changed = d.container === dst ? [dst] : [d.container, dst]
-  await submitSort(sortPayload(containers, changed, props.section === 'apis' ? 'api' : 'doc'))
+  // 混排工作台里同一批可能既有接口又有文档，逐条带 kind（服务端按 mixed 处理）。
+  const kind: SortKind = props.section === 'all'
+    ? 'mixed'
+    : props.section === 'apis' ? 'api' : 'doc'
+  await submitSort(sortPayload(containers, changed, kind))
 }
 
 async function dropGroup(d: DragNode, row: Row, pos: DropHint['pos']): Promise<void> {
   const g = rowGroup(row)
   if (!g) return
   const dst = pos === 'into' ? g.id : parentOf(g.id)
-  if (dst === d.id) return
+  if (d.kind === 'group' && String(dst) === d.key) return
   const containers = groupContainers()
-  relocate(containers, { src: d.container, dst, id: d.id, targetId: pos === 'into' ? 0 : g.id, pos })
+  relocate(containers, { src: d.container, dst, key: d.key, targetKey: pos === 'into' ? '' : String(g.id), pos })
   const changed = d.container === dst ? [dst] : [d.container, dst]
   await submitSort(sortPayload(containers, changed, 'group'))
 }
@@ -607,7 +625,9 @@ function dropClass(row: Row): Record<string, boolean> {
 function isDragging(row: Row): boolean {
   const d = dragNode.value
   if (!d) return false
-  return d.kind === 'group' ? rowGroup(row)?.id === d.id : rowItem(row)?.id === d.id
+  if (d.kind === 'group') return String(rowGroup(row)?.id ?? '') === d.key
+  const it = rowItem(row)
+  return !!it && leafKey(it) === d.key
 }
 
 watch(() => props.projectId, () => void loadItems())

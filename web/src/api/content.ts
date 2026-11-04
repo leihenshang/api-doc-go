@@ -234,8 +234,15 @@ export interface SortItem {
   id: number
   parent_id: number
   priority: number
+  /** 混排拖拽时逐条指定类型（api / doc）；单类型请求可省略。 */
+  kind?: 'api' | 'doc'
 }
-export function sortNodes(payload: { project_id: number; kind: 'group' | 'api' | 'doc'; items: SortItem[] }): Promise<ApiResponse<null>> {
+export function sortNodes(payload: {
+  project_id: number
+  /** mixed = 同一批里同时有接口与文档（合并后的「文档」工作台）。 */
+  kind: 'group' | 'api' | 'doc' | 'mixed'
+  items: SortItem[]
+}): Promise<ApiResponse<null>> {
   return post<null>('/sort', payload)
 }
 

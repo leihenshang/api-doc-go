@@ -219,12 +219,18 @@ type SortItem struct {
 	ID       uint64 `json:"id" binding:"required"`
 	ParentID uint64 `json:"parent_id"`
 	Priority int    `json:"priority"`
+	// Kind 单条节点的类型（api / doc），仅混排拖拽时下发；
+	// 缺省时用 SortReq.Kind。接口与文档是两张表，主键会撞号，混排必须逐条说明。
+	Kind string `json:"kind"`
 }
 
 // SortReq 批量保存拖拽后的顺序；Kind 取 group / api / doc。
+//
+// Kind=mixed 表示这一批同时含接口与文档（合并后的「文档」工作台），
+// 此时每个 SortItem 必须自带 Kind。
 type SortReq struct {
 	ProjectID uint64     `json:"project_id" binding:"required"`
-	Kind      string     `json:"kind" binding:"required,oneof=group api doc"`
+	Kind      string     `json:"kind" binding:"required,oneof=group api doc mixed"`
 	Items     []SortItem `json:"items" binding:"required,min=1"`
 }
 

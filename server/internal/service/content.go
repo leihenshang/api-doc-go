@@ -795,7 +795,15 @@ func (s *Service) SortNodes(ctx context.Context, userID uint64, typ int8, req dt
 // （group_uid / parent_uid / priority / doc_seq），不记流水就等于「Web 端挪动了、
 // 客户端永远不知道」—— 而 Web 是这类操作的唯一入口（客户端没有跨目录拖拽到服务端的路径）。
 func (s *Service) sortNode(ctx context.Context, userID uint64, req dto.SortReq, it dto.SortItem) error {
-	switch req.Kind {
+	// 混排模式（Kind=mixed）下每条自带类型；单类型请求沿用 req.Kind（旧前端不带 Kind）。
+	kind := it.Kind
+	if kind == "" {
+		kind = req.Kind
+	}
+	if kind == "mixed" {
+		return newBiz(errcode.CodeParamError, "混排排序必须逐条指定类型")
+	}
+	switch kind {
 	case "group":
 		g, err := s.sortGroup(ctx, req.ProjectID, it)
 		if err != nil {
