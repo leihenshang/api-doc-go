@@ -394,3 +394,12 @@ body {
     max-width: 96vw !important;
   }
 }
+
+/* ---- md-editor-v3 层级修正 ----
+   组件自带的代码块头部是 position: sticky + z-index: 10000（内部还有目录侧栏 10002），
+   而 Naive UI 的弹窗容器只有 z-index: 2000 —— 打开弹窗时被代码块那条「语言 / 复制代码」
+   工具条压在上面。这两个值只服务于组件内部的兄弟层级，降到 2 足够。 */
+.md-editor-code-head,
+.md-editor-catalog-fixed {
+  z-index: 2 !important;
+}
