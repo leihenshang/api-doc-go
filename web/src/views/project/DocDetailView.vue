@@ -313,7 +313,8 @@ onMounted(() => {
 }
 
 .doc-card {
-    max-width: 1080px;
+    /* 宽屏铺满：宽度交给外层容器（左右留白由 .pane 的 padding 控制）。 */
+    width: 100%;
 }
 
 /* 图标编辑行：预览 + 输入 + 上传 */

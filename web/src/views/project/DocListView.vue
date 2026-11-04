@@ -462,6 +462,11 @@ onMounted(() => {
   margin-left: 8px;
 }
 
+/* 文档详情：宽屏铺满，左右各留 32px（与接口详情的 .req-body 一致）。 */
+.split-main :deep(.pane) {
+  padding: 16px 32px;
+}
+
 /* 回收站类型切换（文档 / 接口） */
 .trash-kind {
   display: flex;

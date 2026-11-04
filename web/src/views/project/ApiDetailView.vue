@@ -1370,7 +1370,7 @@ function exportApi(key: string): void {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 20px 0;
+  padding: 12px 32px 0;
 }
 
 .req-name {
@@ -1446,7 +1446,7 @@ function exportApi(key: string): void {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 20px;
+  padding: 12px 32px;
   border-bottom: 1px solid var(--app-border);
 }
 
@@ -1591,20 +1591,16 @@ function exportApi(key: string): void {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 16px 20px 24px;
+  padding: 20px 32px 28px;
 }
 
 .req-sec {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* 阅读限宽：1440 宽窗口下正文行宽接近 1100px，长 URL / 长描述读起来很累（UI-11）。
-     表格类（参数表）在 960 内仍够用，窄屏自动退化。
-     宽屏居中：限宽后若靠左，右侧会留出大片空白，视觉重心全压在左边（左右 auto 与
-     下面 `.req-sec + .req-sec` 的 margin-top 不冲突）。 */
-  max-width: 960px;
-  margin-left: auto;
-  margin-right: auto;
+  /* 宽屏铺满：不再限宽居中 —— 左右留白交给 .req-body 的 padding（32px）。
+     参数表/响应示例本来就该占满，限宽反而把右侧空出来一大块。 */
+  width: 100%;
 }
 
 /* 段间分隔：除首段外都加一条上分隔线 */
