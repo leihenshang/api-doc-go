@@ -1,7 +1,10 @@
 <script setup lang="ts">
 // 文档工作台：左侧树（分组 + 文档叶子 + 树上搜索），右侧仅承载
 // 文档详情（?doc=<id>，可 ?edit=1 编辑）、回收站（?trash=1）；无选中时显示占位提示创建。
-import { createDoc, listDocs, purgeDocsBatch, restoreDocsBatch } from '@/api/content'
+import {
+    createApi, createDoc, listApis, listDocs, purgeApisBatch, purgeDocsBatch, restoreApisBatch, restoreDocsBatch,
+} from '@/api/content'
+import ApiDetailView from '@/views/project/ApiDetailView.vue'
 import DocDetailView from '@/views/project/DocDetailView.vue'
 import EmptyHint from '@/components/EmptyHint.vue'
 import SectionTree from '@/components/SectionTree.vue'
@@ -11,11 +14,11 @@ import { useI18n } from 'vue-i18n'
 import { useUserNames } from '@/composables/userNames'
 import { useProjectStore } from '@/stores/project'
 import { ErrCode } from '@/types/api'
-import type { DocItem } from '@/types/entities'
 import { fmtTime } from '@/utils/format'
 import { DocumentTextOutline, SearchOutline } from '@vicons/ionicons5'
 import {
-    NButton, NCard, NCheckbox, NEmpty, NForm, NFormItem, NIcon, NInput, NModal, NSpin, NTable, useDialog, useMessage,
+    NButton, NCard, NCheckbox, NEmpty, NForm, NFormItem, NIcon, NInput, NModal, NSelect, NSpin, NTable, useDialog,
+    useMessage,
 } from 'naive-ui'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -32,6 +35,8 @@ const projectId = useNumParam('projectId')
 const trash = computed(() => route.query.trash === '1')
 /** 右侧视图：回收站 / 详情 / 空态占位。 */
 const docId = computed(() => Number(route.query.doc) || 0)
+/** 合并后同一个工作台也承载接口：?api=<id> 时右侧渲染接口详情。 */
+const apiId = computed(() => Number(route.query.api) || 0)
 /** B19：当前选中的文档分组（?group=<id>；0/缺省 = 不过滤）。 */
 const groupId = computed(() => Number(route.query.group) || 0)
 const groupTitle = computed(() => {
@@ -43,7 +48,9 @@ const groupTitle = computed(() => {
 const treeRef = ref<InstanceType<typeof SectionTree> | null>(null)
 
 // ---- 回收站列表（?trash=1） ----
-const rows = ref<DocItem[]>([])
+/** 回收站行（文档 / 接口共用一个最小结构）。 */
+interface TrashRow { id: number; title: string; update_time: string }
+const rows = ref<TrashRow[]>([])
 const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(20)
@@ -54,24 +61,72 @@ const keyword = ref('')
 const showCreate = ref(false)
 const form = reactive({ title: '' })
 
+// ---- 新建接口（合并工作台后不再有独立的「API接口」页，入口收在这里） ----
+const showCreateApi = ref(false)
+const METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
+const apiForm = reactive({ name: '', method: 'GET', url: '', groupId: 0 })
+
+function openCreateApi(): void {
+  apiForm.name = ''
+  apiForm.method = 'GET'
+  apiForm.url = ''
+  apiForm.groupId = groupId.value
+  showCreateApi.value = true
+}
+
+async function submitApi(): Promise<void> {
+  if (!apiForm.name.trim()) {
+    message.warning(t('api.nameRequired'))
+    return
+  }
+  const res = await createApi({
+    project_id: projectId.value,
+    api_name: apiForm.name.trim(),
+    http_method_type: apiForm.method,
+    url: apiForm.url.trim(),
+    group_id: apiForm.groupId,
+  })
+  if (res.code !== ErrCode.Success || !res.data) {
+    message.error(res.msg || t('common.createFailed'))
+    return
+  }
+  showCreateApi.value = false
+  message.success(t('api.created'))
+  void treeRef.value?.reload()
+  void router.replace({ name: 'projectDocs', params: { projectId: projectId.value }, query: { api: String(res.data.id) } })
+}
+
 const canCreate = computed(() => project.can(2))
 const canDelete = computed(() => project.can(8))
+
+/** 回收站类型：合并后接口与文档都要能还原（接口原来在「API接口」页的回收站里）。 */
+const trashKind = computed<'doc' | 'api'>(() => (route.query.kind === 'api' ? 'api' : 'doc'))
 
 async function loadTrash(): Promise<void> {
   loading.value = true
   // 翻页/搜索后原勾选已不在当前页，直接清空避免误操作。
   selected.value = []
   try {
-    const res = await listDocs({
+    const common = {
       project_id: projectId.value,
-      group_id: groupId.value || undefined,
       deleted: 1,
       keyword: keyword.value.trim() || undefined,
       page_num: pageNum.value,
       page_size: pageSize.value,
-    })
+    }
+    if (trashKind.value === 'api') {
+      const res = await listApis(common)
+      if (res.code === ErrCode.Success && res.data) {
+        rows.value = res.data.items.map((a) => ({ id: a.id, title: a.api_name, update_time: a.update_time }))
+        total.value = res.data.total
+      } else {
+        message.error(res.msg || t('common.loadFailed'))
+      }
+      return
+    }
+    const res = await listDocs({ ...common, group_id: groupId.value || undefined })
     if (res.code === ErrCode.Success && res.data) {
-      rows.value = res.data.items
+      rows.value = res.data.items.map((d) => ({ id: d.id, title: d.title, update_time: d.update_time }))
       total.value = res.data.total
     } else {
       message.error(res.msg || t('common.loadFailed'))
@@ -79,6 +134,15 @@ async function loadTrash(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+/** 切换回收站类型（文档 / 接口）：只改 query，重新加载由 trashKind 的 watch 触发。 */
+function switchTrashKind(kind: 'doc' | 'api'): void {
+  void router.push({
+    name: 'projectDocs',
+    params: { projectId: projectId.value },
+    query: { trash: '1', ...(kind === 'api' ? { kind: 'api' } : {}) },
+  })
 }
 
 /** 回收站可选每页条数（后端上限 200）：批量还原时一页勾选更省事。 */
@@ -97,6 +161,11 @@ function reload(num = 1): void {
 
 watch(trash, (v) => {
   if (v) reload(1)
+})
+
+// 回收站里切换「文档 / 接口」：query 变化后重新取数（切换本身只改 query）。
+watch(trashKind, () => {
+  if (trash.value) reload(1)
 })
 
 async function submit(): Promise<void> {
@@ -144,13 +213,17 @@ async function restoreSelected(): Promise<void> {
   if (!selected.value.length) return
   acting.value = true
   try {
-    const res = await restoreDocsBatch([...selected.value])
+    const res = trashKind.value === 'api' ? await restoreApisBatch([...selected.value]) : await restoreDocsBatch([...selected.value])
     if (res.code !== ErrCode.Success || !res.data) {
       message.error(res.msg || t('doc.restoreFailed'))
       return
     }
-    const extra = res.data.groups > 0 ? t('common.restoreExtra', { n: res.data.groups }) : ''
-    message.success(t('doc.restored', { n: res.data.restored }) + extra)
+    const groups = Number((res.data as { groups?: number }).groups ?? 0)
+    const extra = groups > 0 ? t('common.restoreExtra', { n: groups }) : ''
+    const done = trashKind.value === 'api'
+      ? t('api.restored', { n: res.data.restored })
+      : t('doc.restored', { n: res.data.restored })
+    message.success(done + extra)
     selected.value = []
     await loadTrash()
     void treeRef.value?.reload()
@@ -169,24 +242,24 @@ function purgeSelected(): void {
     positiveText: t('common.purge'),
     negativeText: t('common.cancel'),
     onPositiveClick: async () => {
-      const res = await purgeDocsBatch([...selected.value])
+      const res = trashKind.value === 'api' ? await purgeApisBatch([...selected.value]) : await purgeDocsBatch([...selected.value])
       if (res.code !== ErrCode.Success) {
         message.error(res.msg || t('common.deleteFailed'))
         return false
       }
-      message.success(t('doc.purged', { n: count }))
+      message.success(trashKind.value === 'api' ? t('api.purged', { n: count }) : t('doc.purged', { n: count }))
       selected.value = []
       await loadTrash()
     },
   })
 }
 
-async function restoreOne(d: DocItem): Promise<void> {
+async function restoreOne(d: TrashRow): Promise<void> {
   selected.value = [d.id]
   await restoreSelected()
 }
 
-function purgeOne(d: DocItem): void {
+function purgeOne(d: TrashRow): void {
   selected.value = [d.id]
   purgeSelected()
 }
@@ -197,6 +270,8 @@ function clearGroupFilter(): void {
 }
 
 onMounted(() => {
+  // 树上的「新建接口」经 ?new=1 打开弹窗（projectApis 已重定向到这里）。
+  if (route.query.new === '1') openCreateApi()
   void ensureUsers()
   if (trash.value) void loadTrash()
 })
@@ -206,14 +281,15 @@ onMounted(() => {
   <div class="split">
     <!-- 回收站态覆盖整个内容区：隐藏左侧树 -->
     <aside v-if="!trash" class="split-tree">
-      <section-tree ref="treeRef" :project-id="projectId" :type="3" section="docs" />
+      <!-- 合并工作台：接口与文档共用一棵目录树（与客户端的单目录组织一致） -->
+      <section-tree ref="treeRef" :project-id="projectId" :type="1" section="all" />
     </aside>
     <!-- 回收站搜索：经 Teleport 注入到面包屑行右侧 -->
     <teleport to="#crumb-actions" defer>
       <template v-if="trash">
         <n-input
           v-model:value="keyword"
-          :placeholder="t('doc.searchTrashPlaceholder')"
+          :placeholder="trashKind === 'api' ? t('api.searchTrashPlaceholder') : t('doc.searchTrashPlaceholder')"
           clearable
           class="search"
           @keyup.enter="reload(1)"
@@ -237,6 +313,14 @@ onMounted(() => {
       <n-card v-if="trash" :bordered="true" class="pane-card table-card" content-style="padding: 0">
         <!-- 批量操作条：勾选后一键还原（服务端会一并恢复所属分组） -->
         <div class="trash-bar">
+          <div class="trash-kind">
+            <n-button size="tiny" :type="trashKind === 'doc' ? 'primary' : 'default'" @click="switchTrashKind('doc')">
+              {{ t('tree.doc') }}
+            </n-button>
+            <n-button size="tiny" :type="trashKind === 'api' ? 'primary' : 'default'" @click="switchTrashKind('api')">
+              {{ t('tree.api') }}
+            </n-button>
+          </div>
           <n-checkbox :checked="allChecked" :indeterminate="someChecked" @update:checked="toggleAll">{{ t('common.selectAllPage') }}</n-checkbox>
           <span class="meta">{{ t('common.selected', { n: selected.length, total: rows.length }) }}</span>
           <div class="row-actions">
@@ -288,6 +372,14 @@ onMounted(() => {
         />
       </n-card>
 
+      <!-- 接口详情（查看/编辑） -->
+      <api-detail-view
+        v-else-if="apiId"
+        :key="`api-${apiId}`"
+        :api-id="apiId"
+        @changed="treeRef?.reload()"
+      />
+
       <!-- 文档详情（查看/编辑） -->
       <doc-detail-view
         v-else-if="docId"
@@ -310,6 +402,7 @@ onMounted(() => {
         ]"
       >
         <n-button v-if="canCreate" type="primary" @click="showCreate = true">{{ t('doc.create') }}</n-button>
+        <n-button v-if="canCreate" class="ml" @click="openCreateApi">{{ t('api.createTitle') }}</n-button>
       </empty-hint>
     </div>
 
@@ -323,6 +416,27 @@ onMounted(() => {
         <div class="foot">
           <n-button size="small" @click="showCreate = false">{{ t('common.cancel') }}</n-button>
           <n-button type="primary" size="small" @click="submit">{{ t('doc.createAndEdit') }}</n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- 新建接口：合并后接口的创建入口（原来在独立的「API接口」页） -->
+    <n-modal v-model:show="showCreateApi" preset="card" :title="t('api.createTitle')" style="width: 460px">
+      <n-form label-placement="left" label-width="72">
+        <n-form-item :label="t('api.name')">
+          <n-input v-model:value="apiForm.name" :placeholder="t('api.namePlaceholder')" @keyup.enter="submitApi" />
+        </n-form-item>
+        <n-form-item :label="t('api.method')">
+          <n-select v-model:value="apiForm.method" :options="METHODS.map((m) => ({ label: m, value: m }))" />
+        </n-form-item>
+        <n-form-item label="URL">
+          <n-input v-model:value="apiForm.url" placeholder="/api/user" @keyup.enter="submitApi" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <div class="foot">
+          <n-button size="small" @click="showCreateApi = false">{{ t('common.cancel') }}</n-button>
+          <n-button type="primary" size="small" @click="submitApi">{{ t('common.create') }}</n-button>
         </div>
       </template>
     </n-modal>
@@ -342,6 +456,18 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.ml {
+  margin-left: 8px;
+}
+
+/* 回收站类型切换（文档 / 接口） */
+.trash-kind {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
 }
 
 /* B19：分组过滤条 */

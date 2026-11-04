@@ -131,6 +131,9 @@ export default {
     expand: 'Expand',
     collapse: 'Collapse',
     noContent: 'No content',
+    newDoc: 'New doc',
+    contentSet: 'Content',
+    searchAll: 'Search requests / docs',
   },
   contract: {
     title: 'Contract check',
@@ -382,7 +385,7 @@ export default {
     searchTrashPlaceholder: 'Search docs in the recycle bin',
     deleteTitle: 'Delete doc',
     deleteConfirm: 'Delete doc "{title}"? It can be restored from the recycle bin.',
-    emptyHint: 'Select a document from the collection on the left',
+    emptyHint: 'Select a request or doc from the collection on the left',
     hintView: 'View a doc',
     hintViewV: 'Click a doc in the collection',
     hintCreate: 'New doc',

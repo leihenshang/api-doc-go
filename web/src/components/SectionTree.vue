@@ -32,12 +32,20 @@ interface TreeItem {
   url?: string
   /** 文档图标（emoji 或图片 URL）。 */
   icon?: string
+  /** all 模式必填：api 与 doc 是两张表，各自的主键会撞号，必须靠它区分。 */
+  kind?: 'api' | 'doc'
+}
+
+/** 叶子的真实类型；旧模式（apis/docs）没有 kind 字段，按 section 兜底。 */
+function itemKind(it: TreeItem): 'api' | 'doc' {
+  return it.kind ?? (props.section === 'apis' ? 'api' : 'doc')
 }
 
 const props = defineProps<{
   projectId: number
   type: number
-  section: 'apis' | 'docs'
+  /** all = 接口与文档混排在同一棵树里（对应客户端的单目录组织）。 */
+  section: 'apis' | 'docs' | 'all'
   /** 是否显示「收起左栏」按钮（由容器提供收起后的展开入口）。 */
   collapsible?: boolean
 }>()
@@ -51,7 +59,10 @@ const dialog = useDialog()
 const { t } = useI18n()
 const project = useProjectStore()
 
-const groups = computed(() => (props.section === 'apis' ? project.apiGroups : project.docGroups))
+const groups = computed(() => {
+  if (props.section === 'all') return project.allGroups
+  return props.section === 'apis' ? project.apiGroups : project.docGroups
+})
 
 /** 空标题分组属无效数据（如导入产生）：自身不渲染为「空文件夹」，其叶子并入「未分组」。 */
 const blankGroupIds = computed(() => new Set(groups.value.filter((g) => !(g.title ?? '').trim()).map((g) => g.id)))
@@ -97,7 +108,12 @@ function toggleAll(): void {
 }
 
 /** 当前选中叶子 id（来自路由 query）。 */
+const selectedKind = computed<'api' | 'doc'>(() => {
+  if (props.section === 'all') return Number(route.query.api) ? 'api' : 'doc'
+  return props.section === 'apis' ? 'api' : 'doc'
+})
 const selectedId = computed(() => {
+  if (props.section === 'all') return Number(route.query.api) || Number(route.query.doc) || 0
   const key = props.section === 'apis' ? 'api' : 'doc'
   return Number(route.query[key]) || 0
 })
@@ -118,17 +134,26 @@ const filteredItems = computed(() => {
 async function loadItems(): Promise<void> {
   const all: TreeItem[] = []
   const pageSize = 200
-  for (let page = 1; page <= 20; page++) {
-    if (props.section === 'apis') {
+  // all 模式：两套叶子各拉各的。注意不能共用一个「拉满就 break」的循环 ——
+  // 接口在第一页就拉满时会直接跳出，文档永远拿不到（曾经踩过）。
+  if (props.section === 'apis' || props.section === 'all') {
+    for (let page = 1; page <= 20; page++) {
       const res = await listApis({ project_id: props.projectId, page_num: page, page_size: pageSize })
       if (res.code !== ErrCode.Success || !res.data) break
-      res.data.items.forEach((a) => all.push({ id: a.id, groupId: a.group_id, title: a.api_name || t('tree.unnamedApi'), method: a.http_method_type, url: a.url }))
+      res.data.items.forEach((a) => all.push({
+        id: a.id, groupId: a.group_id, title: a.api_name || t('tree.unnamedApi'),
+        method: a.http_method_type, url: a.url, kind: 'api',
+      }))
       if (all.length >= res.data.total) break
-    } else {
+    }
+  }
+  if (props.section === 'docs' || props.section === 'all') {
+    const base = all.length
+    for (let page = 1; page <= 20; page++) {
       const res = await listDocs({ project_id: props.projectId, page_num: page, page_size: pageSize })
       if (res.code !== ErrCode.Success || !res.data) break
-      res.data.items.forEach((d) => all.push({ id: d.id, groupId: d.group_id, title: d.title, icon: d.icon }))
-      if (all.length >= res.data.total) break
+      res.data.items.forEach((d) => all.push({ id: d.id, groupId: d.group_id, title: d.title, icon: d.icon, kind: 'doc' }))
+      if (all.length - base >= res.data.total) break
     }
   }
   items.value = all
@@ -206,8 +231,9 @@ const rows = computed<Row[]>(() => {
 })
 
 function goItem(it: TreeItem): void {
+  // 合并后只有「文档」一个工作台：接口用 ?api=，文档用 ?doc=，各自带 kind 避免同号串台。
   const name = props.section === 'apis' ? 'projectApis' : 'projectDocs'
-  const key = props.section === 'apis' ? 'api' : 'doc'
+  const key = itemKind(it)
   void router.push({ name, params: { projectId: props.projectId }, query: { [key]: String(it.id) } })
 }
 
@@ -232,7 +258,7 @@ function expandOne(id: number): void {
 
 /** 选中项来自外部（如新建后跳转）时，逐级展开其所属分组，避免叶子不可见。 */
 watch([selectedId, items], () => {
-  const it = items.value.find((x) => x.id === selectedId.value)
+  const it = items.value.find((x) => x.id === selectedId.value && (props.section !== 'all' || itemKind(x) === selectedKind.value))
   if (!it?.groupId) return
   const next = new Set(expanded.value)
   for (let gid: number | undefined = it.groupId; gid; gid = groups.value.find((g) => g.id === gid)?.p_id) {
@@ -342,6 +368,10 @@ function groupActions(row: Row): DropdownOption[] {
     { label: t('tree.newSub'), key: 'sub', disabled: row.level >= MAX_LEVEL },
   ]
   if (props.section === 'apis') options.push({ label: t('tree.newApi'), key: 'api' })
+  if (props.section === 'all') {
+    options.push({ label: t('tree.newApi'), key: 'api' })
+    options.push({ label: t('tree.newDoc'), key: 'doc' })
+  }
   return options
 }
 
@@ -353,14 +383,24 @@ function onGroupAction(row: Row, key: string | number): void {
     return
   }
   if (key === 'api') createApiIn(g.id)
+  if (key === 'doc') createDocIn(g.id)
 }
 
-/** 跳到「新建接口」面板并预选该目录（ApiListView 读 ?group 预填所属分组）。 */
+/** 打开「新建接口」面板并预选该目录（合并后的工作台读 ?new=1&group= 预填）。 */
 function createApiIn(groupId: number): void {
   void router.push({
-    name: 'projectApis',
+    name: 'projectDocs',
     params: { projectId: props.projectId },
     query: { new: '1', group: String(groupId) },
+  })
+}
+
+/** 跳到「新建文档」面板并预选该目录。 */
+function createDocIn(groupId: number): void {
+  void router.push({
+    name: 'projectDocs',
+    params: { projectId: props.projectId },
+    query: { newDoc: '1', group: String(groupId) },
   })
 }
 
@@ -368,20 +408,20 @@ function createApiIn(groupId: number): void {
 
 /** 删除接口/文档（进回收站）；删掉当前选中项后回到空态占位。 */
 function askDeleteItem(it: TreeItem): void {
-  const label = props.section === 'apis' ? t('tree.api') : t('tree.doc')
+  const label = itemKind(it) === 'api' ? t('tree.api') : t('tree.doc')
   dialog.warning({
     title: t('tree.deleteItem', { kind: label }),
     content: t('tree.deleteItemConfirm', { kind: label, title: it.title }),
     positiveText: t('common.delete'),
     negativeText: t('common.cancel'),
     onPositiveClick: async () => {
-      const res = props.section === 'apis' ? await deleteApi(it.id) : await deleteDoc(it.id)
+      const res = itemKind(it) === 'api' ? await deleteApi(it.id) : await deleteDoc(it.id)
       if (res.code !== ErrCode.Success) {
         message.error(res.msg || t('common.deleteFailed'))
         return
       }
       message.success(t('common.deleted'))
-      if (selectedId.value === it.id) clearSelection()
+      if (selectedId.value === it.id && (props.section !== 'all' || selectedKind.value === itemKind(it))) clearSelection()
       await refresh()
     },
   })
@@ -395,7 +435,7 @@ function clearSelection(): void {
 
 // ---- 拖拽排序（分组同级重排/移动；叶子同级重排/跨组移动） ----
 
-const canSort = computed(() => project.can(4))
+const canSort = computed(() => project.can(4) && props.section !== 'all')
 
 type SortKind = 'group' | 'api' | 'doc'
 interface DragNode { kind: 'group' | 'leaf'; id: number; container: number }
@@ -581,7 +621,7 @@ defineExpose({ reload: refresh })
 <template>
   <div class="gtree">
     <div class="gtree-hd">
-      <span class="gtree-title">{{ section === 'apis' ? t('tree.apiSet') : t('tree.docSet') }}</span>
+      <span class="gtree-title">{{ section === 'apis' ? t('tree.apiSet') : section === 'all' ? t('tree.contentSet') : t('tree.docSet') }}</span>
       <span v-if="items.length" class="gtree-count">{{ items.length }}</span>
       <n-button
         quaternary
@@ -601,7 +641,7 @@ defineExpose({ reload: refresh })
     </div>
 
     <div class="gtree-search">
-      <n-input v-model:value="keyword" size="small" clearable :placeholder="section === 'apis' ? t('tree.searchApis') : t('tree.searchDocs')">
+      <n-input v-model:value="keyword" size="small" clearable :placeholder="section === 'apis' ? t('tree.searchApis') : section === 'all' ? t('tree.searchAll') : t('tree.searchDocs')">
         <template #prefix><n-icon :component="SearchOutline" /></template>
       </n-input>
     </div>
@@ -695,7 +735,7 @@ defineExpose({ reload: refresh })
         <div
           v-else-if="row.kind === 'item' && row.item"
           class="gn gn--leaf"
-          :class="[dropClass(row), { 'gn--dragging': isDragging(row), 'gn--active': selectedId === row.item.id && !trashActive }]"
+          :class="[dropClass(row), { 'gn--dragging': isDragging(row), 'gn--active': selectedId === row.item.id && (section !== 'all' || selectedKind === itemKind(row.item)) && !trashActive }]"
           :style="{ paddingLeft: 6 + (row.level - 1) * 14 + 16 + 'px' }"
           :draggable="canSort"
           @click="goItem(row.item)"
@@ -704,14 +744,14 @@ defineExpose({ reload: refresh })
           @drop="onDrop(row, $event)"
           @dragend="resetDrag"
         >
-          <method-tag v-if="section === 'apis'" :method="row.item.method ?? ''" class="gn-method" />
+          <method-tag v-if="itemKind(row.item) === 'api'" :method="row.item.method ?? ''" class="gn-method" />
           <img v-else-if="isImageIcon(row.item.icon)" class="gn-icon-img" :src="row.item.icon ?? ''" alt="" />
           <span v-else class="gn-icon">{{ row.item.icon || DEFAULT_DOC_ICON }}</span>
           <span class="gn-name ellipsis" :title="row.item.title">{{ row.item.title }}</span>
 
           <!-- 删除收在名称后：悬停出现 -->
           <span v-if="canDelete && !trashActive" class="gn-actions">
-            <button :title="section === 'apis' ? t('tree.delApi') : t('tree.delDoc')" @click.stop="askDeleteItem(row.item)">
+            <button :title="itemKind(row.item) === 'api' ? t('tree.delApi') : t('tree.delDoc')" @click.stop="askDeleteItem(row.item)">
               <n-icon :component="TrashOutline" />
             </button>
           </span>

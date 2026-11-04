@@ -16,6 +16,11 @@ export const useProjectStore = defineStore('project', {
         /** 当前项目的接口分组（type=1）与文档分组（type=3），供侧导航子菜单使用。 */
         apiGroups: [] as Group[],
         docGroups: [] as Group[],
+        /**
+         * 全部类型的分组（type=-1 查询）：合并后的「文档」页用它建一棵树，
+         * 接口与文档共用同一套目录 —— 与客户端「一个集合里混排」的组织方式一致。
+         */
+        allGroups: [] as Group[],
         /** B19：分组 id → 文档数；ungroupedDocs = 未分组文档数（用于树上的「未分组」节点）。 */
         docGroupCounts: {} as Record<number, number>,
         ungroupedDocs: 0,
@@ -57,8 +62,12 @@ export const useProjectStore = defineStore('project', {
             }
             // B19：接口分组仍按 type=1；文档分组改用 /doc/groups（含文档的分组，不分 type），
             // 这样客户端把文档放进请求分组后，Web 文档树也能看到（方案 A）。
-            const [apis, docs] = await Promise.all([listGroups(projectId, 1), listDocGroups(projectId)])
+            const [apis, docs, all] = await Promise.all([
+                listGroups(projectId, 1), listDocGroups(projectId), listGroups(projectId, -1),
+            ])
             this.apiGroups = apis.code === ErrCode.Success && apis.data ? apis.data : []
+            // -1 = 不分 type：合并后的「文档」页用这一套目录承载接口与文档。
+            this.allGroups = all.code === ErrCode.Success && all.data ? all.data : []
             // /doc/groups 只回展示所需字段，补齐 Group 形状（SectionTree 仍按 Group[] 消费）
             this.docGroups = (docs.code === ErrCode.Success ? docs.data?.groups ?? [] : []).map((g) => ({
                 id: g.id, p_id: g.p_id, project_id: projectId, title: g.title,

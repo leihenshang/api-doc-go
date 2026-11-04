@@ -10,8 +10,7 @@ import {
   GridOutline,
   HomeOutline,
   OptionsOutline,
-  PeopleOutline,
-  PulseOutline
+  PeopleOutline
 } from '@vicons/ionicons5'
 import type { Component } from 'vue'
 import { computed } from 'vue'
@@ -25,9 +24,10 @@ export type TabItem = { key: string; label: string; icon: Component }
 /** 页签定义：存 labelKey 而非文案，切语言时由 tabs 重新解析；adminOnly 仅管理员可见。 */
 type TabDef = { key: string; labelKey: string; icon: Component; adminOnly?: boolean }
 
+// 接口与文档合并为一个「文档」工作台（左侧一棵树同时承载两者），tab 只留一项。
+// 旧路由 projectApis 仍保留为 redirect，深链接（?api=<id>）不会失效。
 const API_TABS: TabDef[] = [
   { key: 'projectOverview', labelKey: 'nav.overview', icon: HomeOutline },
-  { key: 'projectApis', labelKey: 'nav.apis', icon: PulseOutline },
   { key: 'projectDocs', labelKey: 'nav.docs', icon: BookOutline },
   { key: 'projectFields', labelKey: 'nav.fields', icon: GitCompareOutline },
   { key: 'projectVariables', labelKey: 'nav.variables', icon: CodeSlashOutline },
@@ -94,10 +94,10 @@ export function useProjectNav() {
     void router.push({ name: key, params })
   }
 
-  /** 切换当前项目：默认进入 API接口（分组树为其左侧面板）。 */
+  /** 切换当前项目：默认进入「文档」工作台（接口与文档共用同一棵树）。 */
   function switchProject(id: number): void {
     if (!id || id === projectId.value) return
-    void router.push({ name: 'projectApis', params: { projectId: id } })
+    void router.push({ name: 'projectDocs', params: { projectId: id } })
   }
 
   return { projectId, inProject, tabs, activeTab, trashActive, onTab, switchProject }

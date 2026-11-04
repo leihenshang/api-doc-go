@@ -37,10 +37,12 @@ const routes: RouteRecordRaw[] = [
                 meta: { title: '项目概况', requiresAuth: true },
             },
             {
+                // 接口与文档已合并到「文档」工作台：旧链接（含 ?api=<id> 深链接）一律重定向过去，
+                // query 原样保留，避免外部书签/搜索结果失效。
                 path: 'projects/:projectId/apis',
                 name: 'projectApis',
-                component: () => import('@/views/project/ApiListView.vue'),
-                meta: { title: 'API接口', requiresAuth: true },
+                redirect: (to) => ({ name: 'projectDocs', params: to.params, query: to.query }),
+                meta: { title: '项目文档', requiresAuth: true },
             },
             {
                 path: 'projects/:projectId/docs',
