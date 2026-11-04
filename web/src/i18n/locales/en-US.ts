@@ -324,6 +324,8 @@ export default {
     sampleDeleted: 'Example deleted',
     docEmpty: 'No docs yet — click “Edit” to add Markdown docs for this API.',
     backToTop: 'Back to top',
+    bodyFieldsHint: 'Same shape as the server doc; all 5 columns editable',
+    bodyFieldsEmpty: 'No fields yet — click “Add row” below',
   },
   tryIt: {
     open: 'Try it',

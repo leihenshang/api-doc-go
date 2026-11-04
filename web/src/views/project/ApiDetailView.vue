@@ -4,6 +4,7 @@
 // 请求头直接以 ApiParam[] 承载编辑（与 ApiParamTable 同构），只在载入/保存时与 ApiHeader[] 互转，避免中间态丢输入。
 import { deleteApiSample, getApi, getCode, listApiSamples, listGroups, saveApiSample, updateApi, type ApiReturnSample } from '@/api/content'
 import ApiParamTable from '@/components/ApiParamTable.vue'
+import BodyFieldsEditTable from '@/components/BodyFieldsEditTable.vue'
 import EnvPicker from '@/components/EnvPicker.vue'
 import JsonBlock from '@/components/JsonBlock.vue'
 import MethodTag from '@/components/MethodTag.vue'
@@ -28,7 +29,7 @@ import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
 import {
-    NButton, NCheckbox, NDropdown, NIcon, NInput, NInputNumber, NModal, NSelect, NSpin, NTag, useDialog, useMessage,
+    NButton, NDropdown, NIcon, NInput, NInputNumber, NModal, NSelect, NSpin, NTag, useDialog, useMessage,
     type DropdownOption,
 } from 'naive-ui'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -609,6 +610,21 @@ async function save(): Promise<void> {
       }
       return
     }
+    // 响应示例并入这次保存：编辑态只有一个「保存」，示例文本改了也一起提交，
+    // 不再让用户跑去示例区另点一次（很容易忘记，改了等于没改）。
+    if (sampleId.value && sampleText.value.trim()) {
+      const cur = samples.value.find((x) => x.id === sampleId.value)
+      if (cur && cur.sample_text !== sampleText.value) {
+        const sres = await saveApiSample({
+          id: cur.id, api_id: apiId.value, name: cur.name, sample_text: sampleText.value,
+          status: cur.status, content_type: cur.content_type, seq: cur.seq,
+        })
+        if (sres.code !== ErrCode.Success) {
+          message.error(sres.msg || t('common.saveFailed'))
+          return
+        }
+      }
+    }
     message.success(t('common.saved'))
     draft = null
     editing.value = false
@@ -1060,26 +1076,8 @@ function exportApi(key: string): void {
                 {{ t('detail.addRow') }}
               </n-button>
             </template>
-            <p class="sec-sub meta ext-desc-hd">
-              {{ t('detail.bodyFieldsTitle') }}
-              <n-button
-                size="tiny"
-                data-testid="ext-field-add"
-                @click="extEdit.bodyFields.push({ name: '', type: '', required: false, example: '', description: '' })"
-              >
-                {{ t('detail.addRow') }}
-              </n-button>
-            </p>
-            <div v-for="(f, i) in extEdit.bodyFields" :key="'bfe' + i" class="ext-row">
-              <n-input v-model:value="f.name" size="small" class="ext-path" :placeholder="t('detail.bodyFieldName')" data-testid="ext-field-name" />
-              <n-input v-model:value="f.type" size="small" class="ext-type" :placeholder="t('detail.colType')" />
-              <n-checkbox v-model:checked="f.required" data-testid="ext-field-required">{{ t('detail.colRequired') }}</n-checkbox>
-              <n-input v-model:value="f.example" size="small" class="ext-type" :placeholder="t('detail.colExample')" />
-              <n-input v-model:value="f.description" size="small" :placeholder="t('detail.colDesc')" />
-              <n-button size="tiny" quaternary type="error" data-testid="ext-field-del" @click="extEdit.bodyFields.splice(i, 1)">
-                {{ t('common.delete') }}
-              </n-button>
-            </div>
+            <!-- 请求体字段：5 列表格，与客户端「生成数据表格」同构 -->
+            <body-fields-edit-table v-model="extEdit.bodyFields" />
             <p class="sec-sub meta ext-desc-hd">
               {{ t('detail.bodyDescsTitle') }}
               <n-button size="tiny" data-testid="ext-desc-add" @click="extEdit.bodyDescs.push({ path: '', note: '' })">
@@ -1195,7 +1193,7 @@ function exportApi(key: string): void {
             />
             <template v-if="canUpdate">
               <n-button size="small" @click="sampleName = ''; showSampleModal = true">{{ t('detail.sampleAdd') }}</n-button>
-              <n-button v-if="sampleId" size="small" :loading="sampleSaving" @click="persistSample">{{ t('common.save') }}</n-button>
+              <n-button v-if="sampleId && !editing" size="small" :loading="sampleSaving" @click="persistSample">{{ t('common.save') }}</n-button>
               <n-button v-if="sampleId" size="small" quaternary type="error" @click="removeSample">{{ t('detail.sampleDelete') }}</n-button>
             </template>
           </div>

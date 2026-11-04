@@ -325,6 +325,8 @@ export default {
     sampleDeleted: '示例已删除',
     docEmpty: '暂无文档，点击「编辑」可补充该接口的 Markdown 文档。',
     backToTop: '返回顶部',
+    bodyFieldsHint: '与服务端接口文档同构，5 列可直接编辑',
+    bodyFieldsEmpty: '暂无字段，点下方「新增行」添加',
   },
   tryIt: {
     open: '调试',
