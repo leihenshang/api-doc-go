@@ -144,6 +144,8 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler, entitySeg string) {
 		a.POST("/purge-batch", h.PurgeApis)
 		a.POST("/import", h.ImportOpenAPI)
 		a.POST("/import-bruno", h.ImportBruno)
+
+		a.POST("/import-apidocgo", h.ImportBundle)
 		a.GET("/export", h.ExportOpenAPI)
 		a.GET("/curl", h.ExportCurl)
 		a.GET("/code", h.CodeSnippet)

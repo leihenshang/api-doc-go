@@ -2,7 +2,7 @@
 // 项目概况：基本信息 + 接口导入/导出 + 成员管理 + 操作日志（原独立页已合并至此）。
 import { listUsers } from '@/api/auth'
 import {
-    exportOpenApi, exportPostman, importBruno, importOpenApi, importPostman, listApis, listDocs, listGroups,
+    exportOpenApi, exportPostman, importApiDocGo, importBruno, importOpenApi, importPostman, listApis, listDocs, listGroups,
     type ImportResult,
 } from '@/api/content'
 import { listLogs } from '@/api/misc'
@@ -131,9 +131,10 @@ function onLogType(v: number | null): void {
 const showImport = ref(false)
 const showContract = ref(false)
 const importing = ref(false)
-const importSrc = ref<'openapi' | 'bruno' | 'postman'>('openapi')
+const importSrc = ref<'openapi' | 'bruno' | 'postman' | 'apidocgo'>('openapi')
 const importStrategy = ref<'append' | 'overwrite'>('append')
 const openapiFile = ref<File | null>(null)
+const apidocgoFile = ref<File | null>(null)
 const postmanFile = ref<File | null>(null)
 const brunoFiles = ref<{ path: string; content: string }[]>([])
 const brunoReading = ref(false)
@@ -142,14 +143,15 @@ let readTimer: ReturnType<typeof setTimeout> | undefined
 
 const showResult = ref(false)
 const importResult = ref<ImportResult>({ imported: 0, skipped: 0, failed: 0 })
-const resultSrc = ref<'openapi' | 'bruno' | 'postman'>('openapi')
+const resultSrc = ref<'openapi' | 'bruno' | 'postman' | 'apidocgo'>('openapi')
 const resultStrategy = ref<'append' | 'overwrite'>('append')
 
 /** 导入来源的中文名（结果弹窗展示）。 */
-const SOURCE_LABEL: Record<'openapi' | 'bruno' | 'postman', string> = {
+const SOURCE_LABEL: Record<'openapi' | 'bruno' | 'postman' | 'apidocgo', string> = {
     openapi: 'OpenAPI 文件',
     bruno: 'Bruno 集合目录',
     postman: 'Postman 集合文件',
+    apidocgo: 'api-doc-go 集合包',
 }
 
 function onOpenApiFile(list: UploadFileInfo[]): void {
@@ -158,6 +160,9 @@ function onOpenApiFile(list: UploadFileInfo[]): void {
 
 function onPostmanFile(list: UploadFileInfo[]): void {
     postmanFile.value = list[0]?.file ?? null
+}
+function onApiDocGoFile(files: UploadFileInfo[]): void {
+    apidocgoFile.value = files.length ? (files[0].file ?? null) : null
 }
 
 function onBrunoDir(list: UploadFileInfo[]): void {
@@ -215,6 +220,13 @@ async function doImport(): Promise<void> {
                 return
             }
             res = await importPostman(projectId.value, doc, importStrategy.value)
+        } else if (importSrc.value === 'apidocgo') {
+            if (!apidocgoFile.value) {
+                message.warning('请选择 api-doc-go 集合包（.apidocgo.json）')
+                return
+            }
+            // 原文直接交给服务端解析与校验（format/version 由服务端判断，前端不猜）
+            res = await importApiDocGo(projectId.value, await apidocgoFile.value.text(), importStrategy.value)
         } else {
             if (!brunoFiles.value.length) {
                 message.warning('请选择 Bruno 集合目录')
@@ -233,6 +245,7 @@ async function doImport(): Promise<void> {
         showResult.value = true
         openapiFile.value = null
         postmanFile.value = null
+        apidocgoFile.value = null
         brunoFiles.value = []
         await load()
     } finally {
@@ -547,6 +560,7 @@ onMounted(() => {
                         <n-radio value="openapi">OpenAPI 文件（JSON / YAML）</n-radio>
                         <n-radio value="bruno">Bruno 集合目录</n-radio>
                         <n-radio value="postman">Postman 集合文件（JSON）</n-radio>
+                        <n-radio value="apidocgo">api-doc-go 集合包（.apidocgo.json）</n-radio>
                     </n-radio-group>
                 </n-form-item>
                 <n-form-item label="导入策略">
@@ -563,6 +577,10 @@ onMounted(() => {
                     <n-upload v-else-if="importSrc === 'postman'" :max="1" :default-upload="false" accept=".json"
                         @update:file-list="onPostmanFile">
                         <n-button>选择 Postman 集合文件</n-button>
+                    </n-upload>
+                    <n-upload v-else-if="importSrc === 'apidocgo'" :max="1" :default-upload="false" accept=".json"
+                        @update:file-list="onApiDocGoFile">
+                        <n-button>选择 api-doc-go 集合包</n-button>
                     </n-upload>
                     <n-upload v-else :max="1" :default-upload="false" accept=".json,.yaml,.yml"
                         @update:file-list="onOpenApiFile">
@@ -588,6 +606,9 @@ onMounted(() => {
             </p>
             <p v-else-if="importSrc === 'postman'" class="meta">
                 选择 Postman 导出的 Collection（v2.x JSON），目录映射为接口分组，请求映射为接口；查询参数与 JSON 请求体会展平为请求参数。
+            </p>
+            <p v-else-if="importSrc === 'apidocgo'" class="meta">
+                选择桌面客户端「导出 api-doc-go 集合」得到的 .apidocgo.json：目录结构、顺序与请求富字段（脚本/断言/认证/请求设置/响应文档）都会保留。
             </p>
             <p class="meta warn">
                 「完全覆盖」会先清空当前项目的全部接口与接口目录，再导入所选内容，不可恢复，请谨慎操作。

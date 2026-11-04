@@ -261,6 +261,26 @@ func (h *Handler) ImportOpenAPI(c *gin.Context) {
 	response.OK(c, res)
 }
 
+// ImportBundle 处理 POST /api/api/import-apidocgo，body 为客户端导出的 .apidocgo.json 整包。
+//
+// 与 ImportOpenAPI 同一入参风格（body 直接是文件内容），差别只在解析器与字段映射。
+func (h *Handler) ImportBundle(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImportBodyBytes)
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil || len(body) == 0 {
+		response.Fail(c, errcode.CodeParamError, "请求体为空")
+		return
+	}
+	p := principal(c)
+	res, err := h.svc.ImportBundle(c.Request.Context(), p.UserID, p.Type,
+		idQuery(c, "project_id"), idQuery(c, "group_id"), c.Query("strategy"), body)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
 // ImportBruno 处理 POST /api/api/import-bruno，body 为 Bruno 集合目录内的文本文件（相对路径 + 内容）。
 func (h *Handler) ImportBruno(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImportBodyBytes)

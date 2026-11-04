@@ -98,6 +98,12 @@ export function importOpenApi(projectId: number, doc: unknown, groupId = 0, stra
 }
 
 /** 导入 Bruno 集合目录：files 为集合内 yml 文本文件（相对集合根目录路径 + 内容）。 */
+/** 导入 api-doc-go 桌面端导出的集合整包（.apidocgo.json 原文，服务端负责校验与解析） */
+export function importApiDocGo(projectId: number, text: string, strategy: string) {
+  // 直接发原文：axios 对 string body 原样发送，服务端读原始 body 后自己解析
+  return post<ImportResult>(`/api/import-apidocgo?project_id=${projectId}&strategy=${strategy}`, text)
+}
+
 export function importBruno(
   projectId: number,
   files: { path: string; content: string }[],
