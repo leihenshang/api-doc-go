@@ -175,3 +175,39 @@ func TestPostmanRoundTrip(t *testing.T) {
 		t.Fatalf("非法 JSON 应报参数错误，got %v", err)
 	}
 }
+
+// TestListShareLinksReveal 列表默认脱敏、reveal=true 回原文。
+//
+// 这条是「分享链接复制出来变星号」的回归防线：前端复制时依赖 reveal 拿原文，
+// 若把 reveal 分支去掉，用户会再次复制到 e8f0c1******** 这种不可访问的地址。
+func TestListShareLinksReveal(t *testing.T) {
+	t.Parallel()
+	f := newVarFixture(t)
+	ctx := context.Background()
+
+	link, err := f.s.CreateShareLink(ctx, f.admin.ID, f.admin.Type, dto.ShareLinkReq{
+		ProjectID: f.proj.ID, Remark: "复制用",
+	})
+	if err != nil {
+		t.Fatalf("CreateShareLink: %v", err)
+	}
+
+	masked, err := f.s.ListShareLinks(ctx, f.admin.ID, f.admin.Type, f.proj.ID, false)
+	if err != nil {
+		t.Fatalf("ListShareLinks(masked): %v", err)
+	}
+	if len(masked) != 1 {
+		t.Fatalf("应有 1 条分享链接，got %d", len(masked))
+	}
+	if masked[0].Token == link.Token || !strings.Contains(masked[0].Token, "*") {
+		t.Fatalf("默认应脱敏，got %q", masked[0].Token)
+	}
+
+	revealed, err := f.s.ListShareLinks(ctx, f.admin.ID, f.admin.Type, f.proj.ID, true)
+	if err != nil {
+		t.Fatalf("ListShareLinks(reveal): %v", err)
+	}
+	if revealed[0].Token != link.Token {
+		t.Fatalf("reveal=true 应回原文令牌：want %q got %q", link.Token, revealed[0].Token)
+	}
+}

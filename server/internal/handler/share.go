@@ -27,10 +27,11 @@ func (h *Handler) CreateShareLink(c *gin.Context) {
 	response.OK(c, res)
 }
 
-// ListShareLinks 处理 GET /api/share?project_id=（需登录 + 项目读权限；令牌脱敏）。
+// ListShareLinks 处理 GET /api/share?project_id=[&reveal=1]（需登录 + 项目读权限）。
+// 默认回掩码令牌；reveal=1 回原文，仅供前端「复制链接」使用。
 func (h *Handler) ListShareLinks(c *gin.Context) {
 	p := principal(c)
-	res, err := h.svc.ListShareLinks(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"))
+	res, err := h.svc.ListShareLinks(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"), c.Query("reveal") == "1")
 	if err != nil {
 		fail(c, err)
 		return

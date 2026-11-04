@@ -51,8 +51,20 @@ function expireText(link: ShareLink): string {
     return `${fmtTime(link.expire_time)}${expired(link) ? '（已过期）' : ''}`
 }
 
+/** 复制用的完整地址：列表里的令牌是掩码（如 e2e0e0****），必须向服务端要一次原文。 */
+async function fullShareURL(link: ShareLink): Promise<string> {
+    if (!link.token.includes('*')) return shareURL(link)
+    const res = await listShareLinks(props.projectId, true)
+    const hit = res.code === ErrCode.Success && res.data ? res.data.find((x) => x.id === link.id) : undefined
+    return hit ? `${location.origin}/share/${hit.token}` : ''
+}
+
 async function copy(link: ShareLink): Promise<void> {
-    const url = shareURL(link)
+    const url = await fullShareURL(link)
+    if (!url) {
+        message.error('获取分享链接失败，请刷新后重试')
+        return
+    }
     try {
         await navigator.clipboard.writeText(url)
         message.success('分享链接已复制')
@@ -136,7 +148,7 @@ onMounted(load)
                         <td class="muted nowrap">{{ fmtTime(s.create_time) }}</td>
                         <td>
                             <div class="row-actions">
-                                <n-button text size="small" @click="copy(s)">复制</n-button>
+                                <n-button text size="small" data-testid="share.copy" @click="copy(s)">复制</n-button>
                                 <n-button v-if="canManage" text type="error" size="small" @click="remove(s)">失效</n-button>
                             </div>
                         </td>

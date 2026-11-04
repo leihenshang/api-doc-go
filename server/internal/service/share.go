@@ -57,9 +57,12 @@ func (s *Service) CreateShareLink(ctx context.Context, userID uint64, typ int8, 
 	return link, nil
 }
 
-// ListShareLinks 项目下的分享链接（P0-2：需项目读权限，且令牌不回原文）。
-// 令牌只回掩码：列表场景不需要原文，回原文等于把「可访问该项目的凭据」交给任何能读到接口的人。
-func (s *Service) ListShareLinks(ctx context.Context, userID uint64, typ int8, projectID uint64) ([]model.ShareLink, error) {
+// ListShareLinks 项目下的分享链接（P0-2：需项目读权限）。
+//
+// 默认回掩码：列表场景不需要原文，回原文等于把「可访问该项目的凭据」交给任何能读到接口的人。
+// reveal=true 时才回原文 —— 供「复制分享链接」使用（否则复制到的是星号，链接根本无法分发）。
+// 走同一条接口而不是新开一个，是为了避免 /share/:token 公共路由与静态段冲突。
+func (s *Service) ListShareLinks(ctx context.Context, userID uint64, typ int8, projectID uint64, reveal bool) ([]model.ShareLink, error) {
 	if projectID == 0 {
 		return nil, newBiz(errcode.CodeParamError, "缺少 project_id")
 	}
@@ -70,8 +73,10 @@ func (s *Service) ListShareLinks(ctx context.Context, userID uint64, typ int8, p
 	if err != nil {
 		return nil, err
 	}
-	for i := range links {
-		links[i].Token = maskToken(links[i].Token)
+	if !reveal {
+		for i := range links {
+			links[i].Token = maskToken(links[i].Token)
+		}
 	}
 	return links, nil
 }

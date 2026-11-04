@@ -11,8 +11,12 @@ export function createShareLink(payload: {
 }): Promise<ApiResponse<ShareLink>> {
   return post<ShareLink>('/share', payload)
 }
-export function listShareLinks(projectId: number): Promise<ApiResponse<ShareLink[]>> {
-  return get<ShareLink[]>('/share', { project_id: projectId })
+/**
+ * 分享链接列表。默认令牌脱敏（防截屏/旁观泄露）；
+ * reveal=true 时回原文 —— 仅供复制链接使用，否则复制出来的是星号。
+ */
+export function listShareLinks(projectId: number, reveal = false): Promise<ApiResponse<ShareLink[]>> {
+  return get<ShareLink[]>('/share', reveal ? { project_id: projectId, reveal: 1 } : { project_id: projectId })
 }
 export function deleteShareLink(id: number): Promise<ApiResponse<null>> {
   return del<null>('/share', { id })
