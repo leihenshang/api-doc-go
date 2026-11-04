@@ -4,10 +4,12 @@ import "time"
 
 // 同步实体类型（change_log.entity_type / sync ops.type）。
 const (
-	SyncTypeGroup   = "group"
-	SyncTypeAPI     = "api"
-	SyncTypeDoc     = "doc"
-	SyncTypeExample = "example" // 响应示例（api_return_sample）
+	SyncTypeGroup = "group"
+	SyncTypeAPI   = "api"
+	SyncTypeDoc   = "doc"
+	// SyncTypeDefaults 集合级公共参数（项目级单例，服务端权威、客户端只读镜像）。
+	SyncTypeDefaults = "defaults"
+	SyncTypeExample  = "example" // 响应示例（api_return_sample）
 	// 变量类同步（S16）：secret 值以客户端密文（enc:v1: 前缀）入库，服务端只存储不解析。
 	SyncTypeVarEnv   = "variable_env" // 环境（variable_env 表）
 	SyncTypeVariable = "variable"     // 变量（variable 表，scope=项目级）

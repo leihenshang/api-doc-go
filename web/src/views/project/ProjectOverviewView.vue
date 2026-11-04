@@ -2,7 +2,8 @@
 // 项目概况：基本信息 + 接口导入/导出 + 成员管理 + 操作日志（原独立页已合并至此）。
 import { listUsers } from '@/api/auth'
 import {
-    exportOpenApi, exportPostman, importApiDocGo, importBruno, importOpenApi, importPostman, listApis, listDocs, listGroups,
+    exportOpenApi, exportPostman, getProjectDefaults, importApiDocGo, importBruno, importOpenApi, importPostman, listApis, listDocs, listGroups,
+    setProjectDefaults,
     type ImportResult,
 } from '@/api/content'
 import { listLogs } from '@/api/misc'
@@ -253,6 +254,45 @@ async function doImport(): Promise<void> {
     }
 }
 
+// ---- 集合级公共参数（服务端权威；桌面客户端同步后发送时套用）----
+const showDefaults = ref(false)
+const defaultsText = ref('')
+const savingDefaults = ref(false)
+
+async function openDefaults(): Promise<void> {
+    const res = await getProjectDefaults(projectId.value)
+    if (res.code !== ErrCode.Success) {
+        message.error(res.msg || '读取公共参数失败')
+        return
+    }
+    defaultsText.value = res.data?.defaults || ''
+    showDefaults.value = true
+}
+
+async function saveDefaults(): Promise<void> {
+    const raw = defaultsText.value.trim()
+    if (raw) {
+        try {
+            JSON.parse(raw)
+        } catch {
+            message.error('公共参数必须是合法 JSON')
+            return
+        }
+    }
+    savingDefaults.value = true
+    try {
+        const res = await setProjectDefaults({ project_id: projectId.value, defaults: raw })
+        if (res.code !== ErrCode.Success) {
+            message.error(res.msg || '保存失败')
+            return
+        }
+        message.success('公共参数已保存（客户端下次同步后生效）')
+        showDefaults.value = false
+    } finally {
+        savingDefaults.value = false
+    }
+}
+
 async function doExport(): Promise<void> {
     const res = await exportOpenApi(projectId.value, 0)
     if (res.code !== ErrCode.Success || !res.data) {
@@ -420,6 +460,7 @@ onMounted(() => {
                             <n-button size="small">导出文档</n-button>
                         </n-dropdown>
                         <n-button size="small" @click="openEdit">编辑</n-button>
+                        <n-button size="small" data-testid="overview.httpDefaults" @click="openDefaults">公共参数</n-button>
                         <n-button v-if="!userStore.isAdmin" size="small" tertiary @click="quit">退出项目</n-button>
                     </div>
                 </div>
@@ -622,6 +663,21 @@ onMounted(() => {
         </n-modal>
 
         <!-- 导入结果：成功 / 跳过 / 失败 + 失败明细，确认后关闭 -->
+        <n-modal v-model:show="showDefaults" preset="card" title="集合公共参数" style="width: 620px">
+            <p class="meta">
+                公共请求头与认证在「请求自己没有配置」时套用；保存后由服务端下发，桌面客户端同步后自动生效。
+                形如 <code>{"headers":[{"name":"X-Token","value":"TOKEN","enabled":true}],"auth":{"type":"bearer","token":"TOKEN"}}</code>，留空表示清空。
+            </p>
+            <n-input v-model:value="defaultsText" type="textarea" :autosize="{ minRows: 8, maxRows: 18 }"
+                placeholder="{}" data-testid="overview.httpDefaultsText" />
+            <template #footer>
+                <div class="foot">
+                    <n-button size="small" @click="showDefaults = false">取消</n-button>
+                    <n-button type="primary" size="small" :loading="savingDefaults" data-testid="overview.httpDefaultsSave"
+                        @click="saveDefaults">保存</n-button>
+                </div>
+            </template>
+        </n-modal>
         <n-modal v-model:show="showResult" preset="card" title="导入结果" style="width: 520px">
             <p class="res-src meta">
                 来源：{{ SOURCE_LABEL[resultSrc] }} · 策略：{{ resultStrategy === 'overwrite' ? '完全覆盖' : '只新增' }}

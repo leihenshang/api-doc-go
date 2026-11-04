@@ -106,7 +106,7 @@ func (s *Service) applyOp(ctx context.Context, r *repository.Repository, userID 
 	}
 	switch op.Type {
 	case model.SyncTypeGroup, model.SyncTypeAPI, model.SyncTypeDoc, model.SyncTypeExample,
-		model.SyncTypeVarEnv, model.SyncTypeVariable, model.SyncTypeFieldMapping:
+		model.SyncTypeVarEnv, model.SyncTypeVariable, model.SyncTypeFieldMapping, model.SyncTypeDefaults:
 	default:
 		return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
 	}
@@ -118,6 +118,9 @@ func (s *Service) applyOp(ctx context.Context, r *repository.Repository, userID 
 	var curRev int64
 	var exists bool
 	switch op.Type {
+	case model.SyncTypeDefaults:
+		// 项目级单例、没有独立 revision：按「总是可覆盖」处理（服务端权威）。
+		exists, curRev = false, 0
 	case model.SyncTypeGroup:
 		e, lerr := r.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖

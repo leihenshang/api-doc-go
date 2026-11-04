@@ -117,6 +117,8 @@ func registerRoutes(g *gin.RouterGroup, h *handler.Handler, entitySeg string) {
 		g.PUT("/project/permission", h.SetPermission)
 		g.GET("/project/permission", h.MyPermission)
 		g.POST("/project/quit", h.QuitProject)
+		g.GET("/project/defaults", h.GetProjectDefaults)
+		g.PUT("/project/defaults", h.SetProjectDefaults)
 	}
 	// 分组
 	{

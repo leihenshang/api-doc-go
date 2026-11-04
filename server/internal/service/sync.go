@@ -7,7 +7,9 @@ import (
 	"apidoc/internal/model"
 	"apidoc/internal/repository"
 
+	"fmt"
 	syncapi "github.com/leihenshang/api-doc-go-share/syncapi"
+	"strings"
 )
 
 // SyncProto 当前同步协议版本（能力协商）；真源在 syncapi。
@@ -123,6 +125,9 @@ func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, proj
 	// R2：全局变量（scope=3）不属于任何项目，不在项目变更流里 —— 每次增量额外全量附带，
 	// 否则客户端解析 {{var}} 拿不到管理员配的全局变量，同一请求两端结果会不同。
 	items = append(items, s.globalVarItems(ctx, reveal)...)
+	// U6：集合级公共参数（项目级单例）同样不是「变更流里的一条」：它没有 uid，
+	// 改一次不会产生 api/doc 那条流水，所以每轮附带当前值。
+	items = append(items, s.projectDefaultsItem(ctx, projectID)...)
 	s.auditSyncSecretReveal(ctx, userID, projectID, items)
 	cursor := since
 	if len(logs) > 0 {
@@ -138,6 +143,25 @@ func (s *Service) SyncChanges(ctx context.Context, userID uint64, typ int8, proj
 		cursor = cur
 	}
 	return &SyncChangesResp{Cursor: cursor, Items: items, HasMore: hasMore}, nil
+}
+
+// projectDefaultsItem 集合级公共参数条目（项目级单例，服务端权威）。
+//
+// 为什么不走 change_log：defaults 没有 uid、也不参与客户端推送，
+// 「Web 改了公共头」不会产生 api/doc 那种流水；每轮全量附带当前值最省事也最不会漏。
+func (s *Service) projectDefaultsItem(ctx context.Context, projectID uint64) []SyncItem {
+	p, err := s.repo.ProjectByID(ctx, projectID)
+	if err != nil || strings.TrimSpace(p.Defaults) == "" {
+		return nil
+	}
+	b, err := json.Marshal(SyncPayload{Defaults: p.Defaults})
+	if err != nil {
+		return nil
+	}
+	return []SyncItem{{
+		Type: model.SyncTypeDefaults, UID: fmt.Sprintf("project-%d", projectID),
+		Op: model.SyncOpUpsert, Payload: b,
+	}}
 }
 
 // globalVarItems 全局变量条目（scope=3，project_id=0）。
@@ -242,6 +266,7 @@ func (s *Service) SyncSnapshot(ctx context.Context, userID uint64, typ int8, pro
 	// R2：全局变量同样附带（客户端首次全量拉取时就能拿到，不必等下一轮增量）。
 	// 注意：附加行不计入分页序列，HasMore 必须按「真实行数」算，否则会提前结束分页、漏拉数据。
 	extra := s.globalVarItems(ctx, reveal)
+	extra = append(extra, s.projectDefaultsItem(ctx, projectID)...)
 	rows = append(rows, extra...)
 	s.auditSyncSecretReveal(ctx, userID, projectID, rows)
 

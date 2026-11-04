@@ -395,3 +395,10 @@ type BrunoFile struct {
 type BrunoImportReq struct {
 	Files []BrunoFile `json:"files" binding:"required,min=1,max=2000,dive"`
 }
+
+// ProjectDefaultsReq 集合级公共参数（公共请求头/认证）。Defaults 为 JSON 文本：
+// {"headers":[{"name","value","enabled"}],"auth":{"type","token",...}}。
+type ProjectDefaultsReq struct {
+	ProjectID uint64 `json:"project_id" binding:"required"`
+	Defaults  string `json:"defaults"`
+}

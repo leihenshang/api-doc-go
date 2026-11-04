@@ -11,6 +11,9 @@ type Project struct {
 	Type        string `gorm:"column:type;size:100" json:"type"`
 	// ClientWriteEnabled 关闭后 /api/sync/push 一律 rejected.readonly（S14）。
 	ClientWriteEnabled *bool `gorm:"column:client_write_enabled;not null;default:true" json:"client_write_enabled"`
+	// Defaults 集合级公共请求头/认证（JSON 文本，形如 {"headers":[{name,value,enabled}],"auth":{...}}）。
+	// 服务端是唯一权威（客户端只读镜像）：客户端发送时在「请求未覆盖」的前提下套用。
+	Defaults string `gorm:"column:defaults;type:text" json:"defaults"`
 }
 
 // TableName 指定表名。

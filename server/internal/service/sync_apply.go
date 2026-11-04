@@ -10,6 +10,7 @@ import (
 
 	"apidoc/internal/model"
 	"apidoc/internal/repository"
+	"strings"
 )
 
 func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, userID uint64, req *SyncPushReq, op SyncOpIn) SyncOpOut {
@@ -27,6 +28,23 @@ func (s *Service) applyUpsert(ctx context.Context, r *repository.Repository, use
 	}
 
 	switch op.Type {
+	case model.SyncTypeDefaults:
+		// 集合级公共参数：项目级单例、服务端权威。客户端一般不回推；
+		// 若载荷带了 defaults（Web / 其它端），按原文落库（服务端不解释结构）。
+		if strings.TrimSpace(p.Defaults) == "" {
+			return SyncOpOut{OpID: op.OpID, Status: "ok"}
+		}
+		proj, perr := r.ProjectByID(ctx, req.ProjectID)
+		if perr != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "project_missing"}
+		}
+		proj.Defaults = p.Defaults
+		if perr := r.UpdateProject(ctx, proj); perr != nil {
+			return SyncOpOut{OpID: op.OpID, Status: "rejected", Reason: "invalid"}
+		}
+		// 不写 change_log：defaults 没有独立实体表（SetLastChange 无从落 revision），
+		// 而且它的下发本来就是「每轮附带当前值」，不需要游标参与。
+		return SyncOpOut{OpID: op.OpID, Status: "ok"}
 	case model.SyncTypeGroup:
 		e, lerr := r.FindGroupByExtUID(ctx, req.ProjectID, op.UID)
 		// P1-3：查询出错（非「不存在」）必须中止，否则会被当成新建导致重复/覆盖

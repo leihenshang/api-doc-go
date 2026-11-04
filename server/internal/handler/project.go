@@ -145,3 +145,28 @@ func (h *Handler) MyPermission(c *gin.Context) {
 	perm := h.svc.MyPermission(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"))
 	response.OK(c, gin.H{"permission": perm})
 }
+
+// GetProjectDefaults 处理 GET /api/project/defaults?project_id=。
+func (h *Handler) GetProjectDefaults(c *gin.Context) {
+	p := principal(c)
+	raw, err := h.svc.GetProjectDefaults(c.Request.Context(), p.UserID, p.Type, idQuery(c, "project_id"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, map[string]string{"defaults": raw})
+}
+
+// SetProjectDefaults 处理 PUT /api/project/defaults（body: {project_id, defaults}）。
+func (h *Handler) SetProjectDefaults(c *gin.Context) {
+	var req dto.ProjectDefaultsReq
+	if !bindJSON(c, &req) {
+		return
+	}
+	p := principal(c)
+	if err := h.svc.SetProjectDefaults(c.Request.Context(), p.UserID, p.Type, req.ProjectID, req.Defaults); err != nil {
+		fail(c, err)
+		return
+	}
+	response.OK(c, nil)
+}

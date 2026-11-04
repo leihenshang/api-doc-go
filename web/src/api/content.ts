@@ -252,3 +252,12 @@ export function updateFieldMapping(payload: { id: number; project_id: number; fi
 export function deleteFieldMapping(id: number): Promise<ApiResponse<null>> {
   return del<null>('/field-mapping', { id })
 }
+
+/** 集合级公共参数（公共请求头/认证），原文 JSON 文本；空串表示未设置。 */
+export function getProjectDefaults(projectId: number): Promise<ApiResponse<{ defaults: string }>> {
+    return get<{ defaults: string }>(`/api/project/defaults?project_id=${projectId}`)
+}
+
+export function setProjectDefaults(payload: { project_id: number; defaults: string }): Promise<ApiResponse<null>> {
+    return put<null>('/api/project/defaults', payload)
+}
