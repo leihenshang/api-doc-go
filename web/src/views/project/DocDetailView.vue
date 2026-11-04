@@ -12,6 +12,7 @@ import type { DocItem } from '@/types/entities'
 import { fmtTime } from '@/utils/format'
 import { DEFAULT_DOC_ICON, isImageIcon } from '@/utils/icon'
 import { ArrowBackOutline, TimeOutline } from '@vicons/ionicons5'
+import { stripDuplicateTitle } from '@/lib/docContent'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
@@ -45,6 +46,9 @@ const editing = ref(route.query.edit === '1')
 const historyShow = ref(false)
 /** icon：文档图标（emoji 或上传后的图片 URL）。 */
 const form = reactive({ title: '', content: '', icon: '', group_id: 0 })
+
+/** 预览用正文：开头与标题同名的 H1 会被剥掉（原文与编辑态不受影响）。 */
+const previewContent = computed(() => stripDuplicateTitle(form.content, form.title))
 const iconUploading = ref(false)
 
 /** B19：文档所属分组下拉（未分组 + 文档分组树里的分组）。 */
@@ -292,7 +296,7 @@ onMounted(() => {
                         <span class="sep">·</span>{{ t('docDetail.views', { n: doc?.view_count ?? 0 }) }}
                         <span class="sep">·</span>{{ t('docDetail.likes', { n: doc?.like_count ?? 0 }) }}
                     </p>
-                    <md-preview id="doc-preview" v-model:model-value="form.content" theme="light"
+                    <md-preview id="doc-preview" v-model:model-value="previewContent" theme="light"
                         preview-theme="default" />
                 </template>
             </n-card>
