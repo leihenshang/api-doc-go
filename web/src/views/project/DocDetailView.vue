@@ -17,7 +17,7 @@ import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
 import {
-    NButton, NCard, NForm, NFormItem, NIcon, NInput, NSpin, NUpload, useDialog, useMessage,
+    NButton, NCard, NForm, NFormItem, NIcon, NInput, NSelect, NSpin, NUpload, useDialog, useMessage,
     type UploadFileInfo,
 } from 'naive-ui'
 import { computed, onMounted, reactive, ref } from 'vue'
