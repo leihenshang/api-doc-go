@@ -326,6 +326,11 @@ export default {
     backToTop: 'Back to top',
     bodyFieldsHint: 'Same shape as the server doc; all 5 columns editable',
     bodyFieldsEmpty: 'No fields yet — click “Add row” below',
+    settingsHint: 'Timeout / redirects / SSL / URL encoding are saved with this edit.',
+    formatJson: 'Format JSON',
+    formatJsonHint: 'Re-indent with 2 spaces, content unchanged',
+    formatJsonDone: 'Formatted',
+    formatJsonFail: 'Invalid JSON, cannot format',
   },
   tryIt: {
     open: 'Try it',

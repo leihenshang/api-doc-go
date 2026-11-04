@@ -327,6 +327,11 @@ export default {
     backToTop: '返回顶部',
     bodyFieldsHint: '与服务端接口文档同构，5 列可直接编辑',
     bodyFieldsEmpty: '暂无字段，点下方「新增行」添加',
+    settingsHint: '超时 / 重定向 / SSL / URL 编码随本次编辑一起保存。',
+    formatJson: '格式化 JSON',
+    formatJsonHint: '按 2 空格缩进重排，不修改内容',
+    formatJsonDone: '已格式化',
+    formatJsonFail: 'JSON 语法有误，无法格式化',
   },
   tryIt: {
     open: '调试',

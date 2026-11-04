@@ -21,10 +21,7 @@ import { headersToParams, paramsToHeaders } from '@/utils/api-params'
 import {
     apiToMarkdown, apiToStandaloneHtml, downloadText, safeName, type ApiExportInput,
 } from '@/utils/export-doc'
-import {
-    ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, PlayOutline,
-    RefreshOutline, TimeOutline,
-} from '@vicons/ionicons5'
+import { ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, PlayOutline, RefreshOutline, SettingsOutline, TimeOutline } from '@vicons/ionicons5'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
@@ -54,6 +51,8 @@ const loading = ref(false)
 const saving = ref(false)
 const editing = ref(route.query.edit === '1')
 const tryItShow = ref(false)
+/** 接口设置弹窗（超时/重定向/SSL/URL 编码）：原来挤在正文底部，现在收进右上角齿轮。 */
+const showSettings = ref(false)
 const groups = ref<Group[]>([])
 
 // ---- 历史版本（RM-05） ----
@@ -641,6 +640,18 @@ function onSampleJson(text: string): void {
   if (!sample.value.trim()) sample.value = text.trim()
 }
 
+/** 请求体 JSON 一键格式化：解析失败只提示，绝不覆盖原文（避免把用户内容弄丢）。 */
+function formatBodyJSON(): void {
+  const raw = extEdit.bodyRaw.trim()
+  if (!raw) return
+  try {
+    extEdit.bodyRaw = JSON.stringify(JSON.parse(raw), null, 2)
+    message.success(t('detail.formatJsonDone'))
+  } catch {
+    message.error(t('detail.formatJsonFail'))
+  }
+}
+
 // ---- 响应示例（多示例，与客户端保存的响应示例互通） ----
 const samples = ref<ApiReturnSample[]>([])
 const sampleId = ref(0)
@@ -895,6 +906,10 @@ function exportApi(key: string): void {
             <template #icon><n-icon :component="PlayOutline" /></template>
             {{ t('tryIt.open') }}
           </n-button>
+          <n-button size="small" quaternary :title="t('detail.secSettings')" data-testid="detail.settings"
+            @click="showSettings = true">
+            <template #icon><n-icon :component="SettingsOutline" /></template>
+          </n-button>
           <n-button size="small" quaternary :title="t('history.title')" data-testid="detail.history" @click="historyShow = true">
             <template #icon><n-icon :component="TimeOutline" /></template>
             {{ t('history.btn') }}
@@ -1042,12 +1057,6 @@ function exportApi(key: string): void {
               </div>
             </dl>
             <json-block v-else :raw="ext.http_request_body" :empty="t('detail.bodyEmpty')" />
-            <template v-if="bodyDescRows.length">
-              <p class="sec-sub meta">{{ t('detail.bodyDescsTitle') }}</p>
-              <dl class="kv">
-                <div v-for="(d, i) in bodyDescRows" :key="'d' + i" class="kv-row"><dt>{{ d.path }}</dt><dd>{{ d.note }}</dd></div>
-              </dl>
-            </template>
           </template>
           <template v-else>
             <div class="ext-row">
@@ -1063,6 +1072,12 @@ function exportApi(key: string): void {
               data-testid="ext-body-raw"
               placeholder=""
             />
+            <div v-if="extEdit.bodyType === 'json'" class="ext-row">
+              <n-button size="tiny" secondary data-testid="ext-body-format" @click="formatBodyJSON">
+                {{ t('detail.formatJson') }}
+              </n-button>
+              <span class="meta">{{ t('detail.formatJsonHint') }}</span>
+            </div>
             <template v-else-if="extEdit.bodyType === 'form' || extEdit.bodyType === 'multipart'">
               <div v-for="(r, i) in extEdit.bodyForm" :key="'bf' + i" class="ext-row">
                 <n-input v-model:value="r.name" size="small" :placeholder="t('varForm.name')" data-testid="ext-form-name" />
@@ -1078,19 +1093,6 @@ function exportApi(key: string): void {
             </template>
             <!-- 请求体字段：5 列表格，与客户端「生成数据表格」同构 -->
             <body-fields-edit-table v-model="extEdit.bodyFields" />
-            <p class="sec-sub meta ext-desc-hd">
-              {{ t('detail.bodyDescsTitle') }}
-              <n-button size="tiny" data-testid="ext-desc-add" @click="extEdit.bodyDescs.push({ path: '', note: '' })">
-                {{ t('detail.addRow') }}
-              </n-button>
-            </p>
-            <div v-for="(d, i) in extEdit.bodyDescs" :key="'bd' + i" class="ext-row">
-              <n-input v-model:value="d.path" size="small" class="ext-path" :placeholder="t('detail.descPath')" data-testid="ext-desc-path" />
-              <n-input v-model:value="d.note" size="small" :placeholder="t('detail.descNote')" />
-              <n-button size="tiny" quaternary type="error" data-testid="ext-desc-del" @click="extEdit.bodyDescs.splice(i, 1)">
-                {{ t('common.delete') }}
-              </n-button>
-            </div>
           </template>
         </section>
 
@@ -1221,35 +1223,6 @@ function exportApi(key: string): void {
           </n-modal>
         </section>
 
-        <section v-if="hasSettings || editing" class="req-sec" data-sec="settings">
-          <div class="sec-hd"><span class="sec-title">{{ t('detail.secSettings') }}</span></div>
-          <dl v-if="!editing" class="kv">
-            <div v-if="settingsObj.timeout" class="kv-row"><dt>{{ t('detail.setTimeout') }}</dt><dd>{{ settingsObj.timeout }}s</dd></div>
-            <div class="kv-row"><dt>{{ t('detail.setFollowRedirects') }}</dt><dd>{{ triLabel(settingsObj.followRedirects) }}</dd></div>
-            <div v-if="settingsObj.maxRedirects" class="kv-row"><dt>{{ t('detail.setMaxRedirects') }}</dt><dd>{{ settingsObj.maxRedirects }}</dd></div>
-            <div class="kv-row"><dt>{{ t('detail.setInsecureSsl') }}</dt><dd>{{ triLabel(settingsObj.insecureSsl) }}</dd></div>
-            <div v-if="settingsObj.encodeUrl != null" class="kv-row"><dt>{{ t('detail.setEncodeUrl') }}</dt><dd>{{ settingsObj.encodeUrl ? t('detail.triOn') : t('detail.triOff') }}</dd></div>
-          </dl>
-          <template v-else>
-            <div class="ext-row">
-              <span class="ext-lb">{{ t('detail.setTimeout') }}</span>
-              <n-input-number v-model:value="extEdit.timeout" size="small" class="ext-num" :min="0" :show-button="false" data-testid="ext-timeout" />
-              <span class="meta">s</span>
-              <span class="ext-lb">{{ t('detail.setMaxRedirects') }}</span>
-              <n-input-number v-model:value="extEdit.maxRedirects" size="small" class="ext-num" :min="0" :show-button="false" data-testid="ext-maxred" />
-            </div>
-            <div class="ext-row">
-              <span class="ext-lb">{{ t('detail.setFollowRedirects') }}</span>
-              <n-select v-model:value="extEdit.followRedirects" size="small" class="ext-w" :options="triStateOptions" data-testid="ext-follow" />
-              <span class="ext-lb">{{ t('detail.setInsecureSsl') }}</span>
-              <n-select v-model:value="extEdit.insecureSsl" size="small" class="ext-w" :options="triStateOptions" data-testid="ext-insecure" />
-            </div>
-            <div class="ext-row">
-              <span class="ext-lb">{{ t('detail.setEncodeUrl') }}</span>
-              <n-select v-model:value="extEdit.encodeUrl" size="small" class="ext-w" :options="encodeUrlOptions" data-testid="ext-encode" />
-            </div>
-          </template>
-        </section>
 
         <section v-if="!editing && hasScript" class="req-sec" data-sec="script">
           <div class="sec-hd"><span class="sec-title">{{ t('detail.secScript') }}</span></div>
@@ -1295,6 +1268,38 @@ function exportApi(key: string): void {
           <p v-else class="meta">{{ t('detail.docEmpty') }}</p>
         </section>
       </div>
+
+      <!-- 接口设置：从正文底部移到右上角齿轮，弹窗内编辑（同一次整体保存） -->
+      <n-modal v-model:show="showSettings" preset="card" :title="t('detail.secSettings')" style="width: 560px"
+        data-testid="detail.settingsDialog">
+          <dl v-if="!editing" class="kv">
+            <div v-if="settingsObj.timeout" class="kv-row"><dt>{{ t('detail.setTimeout') }}</dt><dd>{{ settingsObj.timeout }}s</dd></div>
+            <div class="kv-row"><dt>{{ t('detail.setFollowRedirects') }}</dt><dd>{{ triLabel(settingsObj.followRedirects) }}</dd></div>
+            <div v-if="settingsObj.maxRedirects" class="kv-row"><dt>{{ t('detail.setMaxRedirects') }}</dt><dd>{{ settingsObj.maxRedirects }}</dd></div>
+            <div class="kv-row"><dt>{{ t('detail.setInsecureSsl') }}</dt><dd>{{ triLabel(settingsObj.insecureSsl) }}</dd></div>
+            <div v-if="settingsObj.encodeUrl != null" class="kv-row"><dt>{{ t('detail.setEncodeUrl') }}</dt><dd>{{ settingsObj.encodeUrl ? t('detail.triOn') : t('detail.triOff') }}</dd></div>
+          </dl>
+          <template v-else>
+            <div class="ext-row">
+              <span class="ext-lb">{{ t('detail.setTimeout') }}</span>
+              <n-input-number v-model:value="extEdit.timeout" size="small" class="ext-num" :min="0" :show-button="false" data-testid="ext-timeout" />
+              <span class="meta">s</span>
+              <span class="ext-lb">{{ t('detail.setMaxRedirects') }}</span>
+              <n-input-number v-model:value="extEdit.maxRedirects" size="small" class="ext-num" :min="0" :show-button="false" data-testid="ext-maxred" />
+            </div>
+            <div class="ext-row">
+              <span class="ext-lb">{{ t('detail.setFollowRedirects') }}</span>
+              <n-select v-model:value="extEdit.followRedirects" size="small" class="ext-w" :options="triStateOptions" data-testid="ext-follow" />
+              <span class="ext-lb">{{ t('detail.setInsecureSsl') }}</span>
+              <n-select v-model:value="extEdit.insecureSsl" size="small" class="ext-w" :options="triStateOptions" data-testid="ext-insecure" />
+            </div>
+            <div class="ext-row">
+              <span class="ext-lb">{{ t('detail.setEncodeUrl') }}</span>
+              <n-select v-model:value="extEdit.encodeUrl" size="small" class="ext-w" :options="encodeUrlOptions" data-testid="ext-encode" />
+            </div>
+          </template>
+        <p v-if="!editing" class="meta">{{ t('detail.settingsHint') }}</p>
+      </n-modal>
 
       <!-- 长页一键返回顶部 -->
       <button v-if="showTop" class="req-top" :title="t('detail.backToTop')" @click="scrollToTop">
