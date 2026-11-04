@@ -48,6 +48,9 @@ type Config struct {
 	Log LogConfig `yaml:"log"`
 	// Admin 初始超管账号（种子）。
 	Admin AdminConfig `yaml:"admin"`
+	// WebDir Web 前端构建产物目录（web/dist）。非空时由本服务直接托管，
+	// 便于「单容器/单端口」部署（Docker、内网小规模）；留空则只提供 API。
+	WebDir string `yaml:"web_dir"`
 }
 
 // LogConfig 操作日志清理配置。
@@ -303,6 +306,7 @@ func applyEnvOverrides(cfg *Config) {
 	overrideInt(&cfg.Backup.Retention, "BACKUP_RETENTION")
 	overrideStr(&cfg.Admin.Name, "ADMIN_NAME")
 	overrideStr(&cfg.Admin.Password, "ADMIN_PASSWORD")
+	overrideStr(&cfg.WebDir, "WEB_DIR")
 }
 
 // getEnv 读取环境变量，为空时返回默认值 def。

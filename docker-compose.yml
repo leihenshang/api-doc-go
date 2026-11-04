@@ -1,0 +1,23 @@
+# 一键起服务端：docker compose up -d --build
+# 访问 http://localhost:8080 ，用 .env 里的 admin / ADMIN_PASSWORD 登录。
+services:
+  apidoc:
+    build: .
+    image: apidoc-go:latest
+    container_name: apidoc
+    ports:
+      - "8080:8080"
+    environment:
+      ADMIN_NAME: ${ADMIN_NAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env 或环境变量里设置 ADMIN_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?请设置一个随机长串 JWT_SECRET}
+      GIN_MODE: release
+      TZ: Asia/Shanghai
+    volumes:
+      - apidoc-data:/app/data
+      - apidoc-uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  apidoc-data:
+  apidoc-uploads:

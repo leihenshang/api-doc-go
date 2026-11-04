@@ -3,6 +3,9 @@ package router
 
 import (
 	"log"
+	"net/http"
+	"path/filepath"
+	"strings"
 
 	"apidoc/internal/config"
 	"apidoc/internal/handler"
@@ -79,6 +82,23 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			auth.POST("/item/contract-diff", h.ContractDiff)
 		}
 	}
+	// WebDir 非空时顺带托管前端构建产物（单容器/单端口部署，Docker 场景不用再挂 nginx）：
+	//   /assets/* 静态资源；其余非 /api 路径回落 index.html（SPA 前端路由）；
+	//   /api/* 未命中仍回 JSON 404，避免把「接口写错」静默变成一张 HTML 页面。
+	if dir := strings.TrimSpace(cfg.WebDir); dir != "" {
+		index := filepath.Join(dir, "index.html")
+		engine.Static("/assets", filepath.Join(dir, "assets"))
+		engine.StaticFile("/favicon.ico", filepath.Join(dir, "favicon.ico"))
+		engine.NoRoute(func(c *gin.Context) {
+			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+				c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "接口不存在"})
+				return
+			}
+			c.File(index)
+		})
+		log.Printf("router: 托管前端静态文件 %s", dir)
+	}
+
 	return engine
 }
 
