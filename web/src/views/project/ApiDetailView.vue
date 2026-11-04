@@ -1599,8 +1599,12 @@ function exportApi(key: string): void {
   flex-direction: column;
   gap: 8px;
   /* 阅读限宽：1440 宽窗口下正文行宽接近 1100px，长 URL / 长描述读起来很累（UI-11）。
-     表格类（参数表）在 960 内仍够用，窄屏自动退化。 */
+     表格类（参数表）在 960 内仍够用，窄屏自动退化。
+     宽屏居中：限宽后若靠左，右侧会留出大片空白，视觉重心全压在左边（左右 auto 与
+     下面 `.req-sec + .req-sec` 的 margin-top 不冲突）。 */
   max-width: 960px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* 段间分隔：除首段外都加一条上分隔线 */
