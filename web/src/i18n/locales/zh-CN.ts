@@ -332,6 +332,7 @@ export default {
     formatJsonHint: '按 2 空格缩进重排，不修改内容',
     formatJsonDone: '已格式化',
     formatJsonFail: 'JSON 语法有误，无法格式化',
+    settingsBtn: '设置',
   },
   tryIt: {
     open: '调试',

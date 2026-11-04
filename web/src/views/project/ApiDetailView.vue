@@ -909,6 +909,7 @@ function exportApi(key: string): void {
           <n-button size="small" quaternary :title="t('detail.secSettings')" data-testid="detail.settings"
             @click="showSettings = true">
             <template #icon><n-icon :component="SettingsOutline" /></template>
+            {{ t('detail.settingsBtn') }}
           </n-button>
           <n-button size="small" quaternary :title="t('history.title')" data-testid="detail.history" @click="historyShow = true">
             <template #icon><n-icon :component="TimeOutline" /></template>

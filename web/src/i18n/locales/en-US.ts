@@ -331,6 +331,7 @@ export default {
     formatJsonHint: 'Re-indent with 2 spaces, content unchanged',
     formatJsonDone: 'Formatted',
     formatJsonFail: 'Invalid JSON, cannot format',
+    settingsBtn: 'Settings',
   },
   tryIt: {
     open: 'Try it',
