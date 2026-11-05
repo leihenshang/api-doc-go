@@ -5,6 +5,7 @@ import { sendProxy } from '@/api/content'
 import ApiParamTable from '@/components/ApiParamTable.vue'
 import EnvPicker from '@/components/EnvPicker.vue'
 import { useVariableStore } from '@/stores/variable'
+import { rowEnabled } from '@/utils/api-params'
 import { ErrCode } from '@/types/api'
 import type {
   ApiParam, ProxyAuth, ProxyFormRow, ProxySendResp,
@@ -158,10 +159,10 @@ async function send(): Promise<void> {
       method: reqMethod.value,
       url: u,
       headers: headerRows.value
-        .filter((r) => r.fieldName.trim())
+        .filter((r) => r.fieldName.trim() && rowEnabled(r))
         .map((r) => ({ name: r.fieldName, value: r.example || '', enabled: true })),
       query: queryRows.value
-        .filter((r) => r.fieldName.trim())
+        .filter((r) => r.fieldName.trim() && rowEnabled(r))
         .map((r) => ({ name: r.fieldName, value: r.example || '', enabled: true })),
       body_type: reqBodyType.value,
       body: bodyText.value,

@@ -1,11 +1,13 @@
 <script setup lang="ts">
-// 请求体字段表（编辑态）：与客户端 `BodyFieldsTable` 同构 —— 5 列全可编辑
+// 请求体字段表：与客户端 `BodyFieldsTable` 同构 —— 5 列全可编辑
 // （字段名 / 类型 / 必填 / 示例值 / 说明）+ 行尾删除 + 底部「新增行」。
 //
 // 真源是 `http_request_body_fields`（客户端「生成数据表格」派生，或 Web 手工增行）。
 // 本组件不持有状态：所有修改通过 v-model 写回父级的 bodyFields，由父级随整体保存提交。
+// 样式走全局 `.rg-*`（styles/row-grid.css）：grid 列宽、sticky 表头、行 hover 与客户端一致。
+import { computed } from 'vue'
 import { NButton, NCheckbox, NIcon, NInput, NSelect } from 'naive-ui'
-import { AddOutline, TrashOutline } from '@vicons/ionicons5'
+import { AddOutline, SparklesOutline, TrashOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 
 export interface BodyFieldRow {
@@ -16,10 +18,16 @@ export interface BodyFieldRow {
   description?: string
 }
 
+const props = withDefaults(defineProps<{ showGenerate?: boolean }>(), { showGenerate: true })
+const emit = defineEmits<{ (e: 'generate'): void }>()
 const rows = defineModel<BodyFieldRow[]>({ required: true })
 const { t } = useI18n()
 
 const TYPE_OPTIONS = ['string', 'integer', 'number', 'boolean', 'array', 'object', 'null']
+/** 列宽与客户端一致：名称/示例/说明按 fr，类型 108px、必填 40px、操作 32px。 */
+const GRID = 'minmax(0,1.3fr) 108px 40px minmax(0,1fr) minmax(0,1.4fr) 32px'
+
+const filled = computed(() => rows.value.filter((f) => (f.name ?? '').trim()).length)
 
 function addRow(): void {
   rows.value = [...rows.value, { name: '', type: 'string', required: false, example: '', description: '' }]
@@ -34,50 +42,65 @@ function removeRow(i: number): void {
   <div class="bfe">
     <div class="bfe-hd">
       <span class="bfe-title">{{ t('detail.bodyFieldsTitle') }}</span>
+      <span v-if="filled" class="rg-num">{{ filled }}</span>
       <span class="bfe-hint meta">{{ t('detail.bodyFieldsHint') }}</span>
+      <n-button
+        v-if="props.showGenerate"
+        size="tiny"
+        class="bfe-gen"
+        data-testid="detail.bodyFieldGenerate"
+        @click="emit('generate')"
+      >
+        <template #icon><n-icon :component="SparklesOutline" /></template>
+        {{ t('detail.bodyFieldsGen') }}
+      </n-button>
     </div>
 
-    <div class="bfe-table">
-      <div class="bfe-tr bfe-th">
-        <span>{{ t('detail.colName') }}</span>
-        <span>{{ t('detail.colType') }}</span>
-        <span class="c">{{ t('detail.colRequired') }}</span>
-        <span>{{ t('detail.colExample') }}</span>
-        <span>{{ t('detail.colDesc') }}</span>
-        <span />
-      </div>
+    <div class="rg-wrap" :style="`--rg-cols: ${GRID}`">
+      <template v-if="rows.length">
+        <div class="rg-tr rg-th">
+          <span>{{ t('detail.colFieldName') }}</span>
+          <span>{{ t('detail.colType') }}</span>
+          <span class="rg-c">{{ t('detail.colRequired') }}</span>
+          <span>{{ t('detail.colExample') }}</span>
+          <span>{{ t('detail.colDesc') }}</span>
+          <span />
+        </div>
 
-      <div v-for="(f, i) in rows" :key="i" class="bfe-tr" data-testid="detail.bodyFieldRow" :data-path="f.name">
-        <n-input v-model:value="f.name" size="small" :placeholder="t('detail.colName')" data-testid="detail.bodyFieldName" />
-        <n-select
-          v-model:value="f.type"
-          size="small"
-          filterable
-          tag
-          clearable
-          :options="TYPE_OPTIONS.map((v) => ({ label: v, value: v }))"
-          :placeholder="t('detail.colType')"
-          data-testid="detail.bodyFieldType"
-        />
-        <span class="c">
-          <n-checkbox v-model:checked="f.required" data-testid="detail.bodyFieldRequired" />
-        </span>
-        <n-input v-model:value="f.example" size="small" :placeholder="t('detail.colExample')" data-testid="detail.bodyFieldExample" />
-        <n-input v-model:value="f.description" size="small" :placeholder="t('detail.colDesc')" data-testid="detail.bodyFieldDesc" />
-        <n-button size="tiny" quaternary type="error" :title="t('common.delete')" data-testid="detail.bodyFieldRemove" @click="removeRow(i)">
-          <template #icon><n-icon :component="TrashOutline" /></template>
+        <div v-for="(f, i) in rows" :key="i" class="rg-tr" data-testid="detail.bodyFieldRow" :data-path="f.name">
+          <n-input v-model:value="f.name" size="small" :placeholder="t('detail.colFieldName')" data-testid="detail.bodyFieldName" />
+          <n-select
+            v-model:value="f.type"
+            size="small"
+            filterable
+            tag
+            clearable
+            :options="TYPE_OPTIONS.map((v) => ({ label: v, value: v }))"
+            :placeholder="t('detail.colType')"
+            data-testid="detail.bodyFieldType"
+          />
+          <span class="rg-c">
+            <n-checkbox v-model:checked="f.required" size="small" data-testid="detail.bodyFieldRequired" />
+          </span>
+          <n-input v-model:value="f.example" size="small" :placeholder="t('detail.colExample')" data-testid="detail.bodyFieldExample" />
+          <n-input v-model:value="f.description" size="small" :placeholder="t('detail.colDesc')" data-testid="detail.bodyFieldDesc" />
+          <span class="rg-ops">
+            <n-button size="tiny" quaternary type="error" :title="t('common.delete')" data-testid="detail.bodyFieldRemove" @click="removeRow(i)">
+              <template #icon><n-icon :component="TrashOutline" /></template>
+            </n-button>
+          </span>
+        </div>
+      </template>
+
+      <p v-else class="rg-empty">{{ t('detail.bodyFieldsEmpty') }}</p>
+
+      <div class="rg-foot">
+        <n-button size="tiny" secondary data-testid="detail.bodyFieldAdd" @click="addRow">
+          <template #icon><n-icon :component="AddOutline" /></template>
+          {{ t('detail.addRow') }}
         </n-button>
       </div>
-
-      <div v-if="!rows.length" class="bfe-empty meta">
-        {{ t('detail.bodyFieldsEmpty') }}
-      </div>
     </div>
-
-    <n-button size="tiny" secondary class="bfe-add" data-testid="detail.bodyFieldAdd" @click="addRow">
-      <template #icon><n-icon :component="AddOutline" /></template>
-      {{ t('detail.addRow') }}
-    </n-button>
   </div>
 </template>
 
@@ -90,60 +113,21 @@ function removeRow(i: number): void {
 
 .bfe-hd {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .bfe-title {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
 .bfe-hint {
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
-.bfe-table {
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.bfe-tr {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr 56px 1.2fr 1.4fr 34px;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--app-border);
-}
-
-.bfe-tr:last-child {
-  border-bottom: none;
-}
-
-.bfe-tr:nth-child(even):not(.bfe-th) {
-  background: var(--app-surface-2, transparent);
-}
-
-.bfe-th {
-  font-size: 12px;
-  color: var(--app-muted);
-  background: var(--app-surface-3, transparent);
-}
-
-.c {
-  display: flex;
-  justify-content: center;
-}
-
-.bfe-empty {
-  padding: 14px;
-  text-align: center;
-  font-size: 12px;
-}
-
-.bfe-add {
-  align-self: flex-start;
+.bfe-gen {
+  margin-left: auto;
 }
 </style>

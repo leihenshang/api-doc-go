@@ -4,10 +4,36 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"apidoc/internal/model"
 )
+
+// TestExportSkipsDisabledRows 停用行（enabled:false）不进代码片段 / 请求体 / OpenAPI / 契约：
+// 它们与客户端发送时的跳过口径一致，缺键仍按启用处理。
+func TestExportSkipsDisabledRows(t *testing.T) {
+	t.Parallel()
+	const raw = `[{"fieldName":"a","example":"1"},{"fieldName":"b","example":"2","enabled":false}]`
+
+	if params := openAPIParams(raw); len(params) != 1 || params[0].Name != "a" {
+		t.Fatalf("OpenAPI 参数应只剩启用行, got %+v", params)
+	}
+	if body := paramsBody(raw); strings.Contains(body, `"b"`) {
+		t.Fatalf("请求体不应包含停用参数: %s", body)
+	}
+	if rows := parseRows(`[{"name":"H","enabled":false}]`); len(rows) != 0 {
+		t.Fatalf("停用请求头应被丢弃, got %+v", rows)
+	}
+
+	a := &model.Api{
+		HttpRequestParams: `[{"fieldName":"a","type":"string"},{"fieldName":"b","type":"string","enabled":false}]`,
+		HttpRequestHeader: `[{"name":"X-Off","enabled":false}]`,
+	}
+	if got := currentContractParams(a); len(got) != 1 || got["a"].Name != "a" {
+		t.Fatalf("契约只应包含启用行, got %+v", got)
+	}
+}
 
 func TestOpenAPIExportBeyondPageSize(t *testing.T) {
 	t.Parallel()

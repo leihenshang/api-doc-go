@@ -1,6 +1,6 @@
 // 文档导出（T14）：把接口/项目导出为 Markdown 或**自包含单文件 HTML**，用于对外交付与归档。
 // 说明：纯前端生成（数据来自既有接口），Markdown 正文用 markdown-it 渲染；不新增后端依赖。
-import { headersToParams } from '@/utils/api-params'
+import { headersToParams, rowEnabled } from '@/utils/api-params'
 import type { ApiHeader, ApiParam, DocItem, Group } from '@/types/entities'
 import MarkdownIt from 'markdown-it'
 
@@ -41,19 +41,19 @@ export interface ApiExportInput {
 
 // ---- 数据整理 ----
 
-/** 请求头 JSON → 参数行。 */
+/** 请求头 JSON → 参数行（停用行不进导出，与客户端发送时的跳过口径一致）。 */
 export function apiHeaders(api: ApiExportInput): ApiParam[] {
   try {
-    return headersToParams(JSON.parse(api.http_request_header || '[]') as ApiHeader[])
+    return headersToParams(JSON.parse(api.http_request_header || '[]') as ApiHeader[]).filter(rowEnabled)
   } catch {
     return []
   }
 }
 
-/** 参数 JSON → 参数行。 */
+/** 参数 JSON → 参数行（停用行不进导出）。 */
 export function apiParams(raw: string): ApiParam[] {
   try {
-    return JSON.parse(raw || '[]') as ApiParam[]
+    return (JSON.parse(raw || '[]') as ApiParam[]).filter(rowEnabled)
   } catch {
     return []
   }

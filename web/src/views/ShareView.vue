@@ -37,7 +37,7 @@ const token = computed(() => String(route.params.token ?? ''))
 const filteredApis = computed<ApiDoc[]>(() => {
     const list = data.value?.apis ?? []
     const kw = keyword.value.trim().toLowerCase()
-    return kw ? list.filter((a) => `${a.api_name} ${a.url}`.toLowerCase().includes(kw)) : list
+    return kw ? list.filter((a) => `${a.api_name} ${a.url} ${a.http_request_summary ?? ''}`.toLowerCase().includes(kw)) : list
 })
 
 const filteredDocs = computed<DocItem[]>(() => {
@@ -194,6 +194,8 @@ onMounted(async () => {
                             <span class="meta">{{ currentApi.protocol_type || 'HTTP' }}</span>
                         </div>
                         <div class="api-url row-mono">{{ currentApi.url }}</div>
+                        <!-- API 概述：与客户端分享浏览页一致，接口名下补一行概要 -->
+                        <p v-if="currentApi.http_request_summary" class="api-sum">{{ currentApi.http_request_summary }}</p>
 
                         <section class="sec">
                             <api-param-table :model-value="headersOf(currentApi)" kind="header" />
@@ -391,6 +393,14 @@ onMounted(async () => {
     background: #fafbfc;
     font-size: 13px;
     word-break: break-all;
+}
+
+/* API 概述：接口名/URL 下的一行说明 */
+.api-sum {
+    margin: 0 0 16px;
+    color: var(--app-muted);
+    font-size: 13px;
+    line-height: 1.6;
 }
 
 .sec + .sec {

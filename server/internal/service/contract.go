@@ -143,13 +143,18 @@ func compareContractParams(op shopenapi.Operation, a *model.Api) []dto.ContractC
 // currentContractParams 把接口的请求参数与请求头归一为 name -> 参数。
 func currentContractParams(a *model.Api) map[string]contractParam {
 	out := map[string]contractParam{}
+	// Enabled 缺键 = 启用：停用的行不会真正发出，因此不算进对外契约（避免误报「参数被删除」）。
 	var params []struct {
 		FieldName string `json:"fieldName"`
 		Type      string `json:"type"`
 		Required  bool   `json:"required"`
+		Enabled   *bool  `json:"enabled"`
 	}
 	if json.Unmarshal([]byte(a.HttpRequestParams), &params) == nil {
 		for _, p := range params {
+			if p.Enabled != nil && !*p.Enabled {
+				continue
+			}
 			if name := strings.TrimSpace(p.FieldName); name != "" {
 				out[name] = contractParam{Name: name, In: "query", Type: p.Type, Required: p.Required}
 			}
@@ -158,9 +163,13 @@ func currentContractParams(a *model.Api) map[string]contractParam {
 	var headers []struct {
 		Name     string `json:"name"`
 		Required bool   `json:"required"`
+		Enabled  *bool  `json:"enabled"`
 	}
 	if json.Unmarshal([]byte(a.HttpRequestHeader), &headers) == nil {
 		for _, h := range headers {
+			if h.Enabled != nil && !*h.Enabled {
+				continue
+			}
 			if name := strings.TrimSpace(h.Name); name != "" {
 				if _, exists := out[name]; !exists {
 					out[name] = contractParam{Name: name, In: "header", Required: h.Required}

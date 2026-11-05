@@ -25,6 +25,9 @@ type apiHeaderRow struct {
 	Name        string `json:"name"`
 	Value       string `json:"value"`
 	Description string `json:"description"`
+	// Enabled 行级启用位（Web 详情页的勾选列）：nil 表示启用，只有显式 false 才停用。
+	// 客户端同步载荷同口径（缺键 = 启用），不写 true 以免老数据多出不必要字段。
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 type apiParamRow struct {
@@ -33,6 +36,8 @@ type apiParamRow struct {
 	Required    bool   `json:"required"`
 	Description string `json:"description"`
 	Example     string `json:"example"`
+	// Enabled 同 apiHeaderRow：nil = 启用，显式 false = 停用（不参与导出/调试发送）。
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // ImportBruno 导入 Bruno 集合目录。files 为集合内的 yml 文本文件（相对路径 + 内容），

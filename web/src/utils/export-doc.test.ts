@@ -34,6 +34,11 @@ describe('参数解析容错', () => {
     ])
     expect(apiParams(api.http_request_params)).toHaveLength(1)
   })
+
+  it('停用行不进导出（缺键仍算启用）', () => {
+    expect(apiParams('[{"fieldName":"a","enabled":false},{"fieldName":"b"}]')).toHaveLength(1)
+    expect(apiHeaders({ ...api, http_request_header: '[{"name":"H","value":"v","enabled":false}]' })).toEqual([])
+  })
 })
 
 describe('groupPath', () => {

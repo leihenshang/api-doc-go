@@ -6,6 +6,7 @@ import { setUnauthorizedHandler } from './api/http'
 import { i18n } from './i18n'
 import router from './router'
 import './styles/app.css'
+import './styles/row-grid.css'
 
 const app = createApp(App)
 

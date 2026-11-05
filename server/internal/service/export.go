@@ -68,12 +68,10 @@ func openAPIOperation(a *model.Api, groupTitle string) shopenapi.Operation {
 }
 
 // openAPIParams 存储的 JSON 参数数组 → OpenAPI parameters；解析失败返回 nil。
+// 停用行（enabled:false）由 parseRows 统一丢弃：它们不会被真正发出，也不该出现在对外文档里。
 func openAPIParams(raw string) []shopenapi.Param {
-	if raw == "" {
-		return nil
-	}
-	var items []map[string]any
-	if err := json.Unmarshal([]byte(raw), &items); err != nil || len(items) == 0 {
+	items := parseRows(raw)
+	if len(items) == 0 {
 		return nil
 	}
 	out := make([]shopenapi.Param, 0, len(items))
@@ -118,7 +116,16 @@ func parseRows(raw string) []map[string]any {
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		return nil
 	}
-	return out
+	// 丢掉停用行（enabled:false）：语义与客户端发送时跳过一致，
+	// 因此代码片段、请求体与 OpenAPI 导出都不该带上它们。缺键按启用处理。
+	kept := out[:0]
+	for _, it := range out {
+		if v, ok := it["enabled"].(bool); ok && !v {
+			continue
+		}
+		kept = append(kept, it)
+	}
+	return kept
 }
 
 // paramsBody 以参数行的 example（缺省用类型占位）构造请求体 JSON。

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-// 接口详情（Postman 请求编辑器样式）：名称栏 + URL 栏，下方按「请求头部 / 请求参数 / 返回参数 / 响应样例 / 基本信息(有值时) / 文档」垂直排列。
-// 右侧悬浮大纲（收起为小格子、悬停展开、点击跳段）与长页「返回顶部」；文档一节用 MdEditor/MdPreview 承载 Markdown。
-// 请求头直接以 ApiParam[] 承载编辑（与 ApiParamTable 同构），只在载入/保存时与 ApiHeader[] 互转，避免中间态丢输入。
+// 接口详情（Postman 请求编辑器样式）：名称栏 + URL 栏，下方按客户端 RequestEditor 的分段顺序竖排：
+// 请求参数 / 请求体 / 请求头 / 认证 / 响应字段 / 响应示例 / 变量脚本断言(只读) / 文档。
+// 不做 tab：横向页签竖排成长页，右侧悬浮大纲（收起为小格子、悬停展开、点击跳段）与「返回顶部」。
+// 文档一节用 MdEditor/MdPreview 承载 Markdown；请求头直接以 ApiParam[] 承载编辑（与 ApiParamTable 同构），
+// 只在载入/保存时与 ApiHeader[] 互转，避免中间态丢输入。
 import { deleteApiSample, getApi, getCode, listApiSamples, listGroups, saveApiSample, updateApi, type ApiReturnSample } from '@/api/content'
 import ApiParamTable from '@/components/ApiParamTable.vue'
 import BodyFieldsEditTable from '@/components/BodyFieldsEditTable.vue'
@@ -17,19 +19,20 @@ import { useProjectStore } from '@/stores/project'
 import { useVariableStore } from '@/stores/variable'
 import { ErrCode } from '@/types/api'
 import type { ApiHeader, ApiParam, Group, ProxyAuth } from '@/types/entities'
-import { headersToParams, paramsToHeaders } from '@/utils/api-params'
+import { cleanParams, headersToParams, paramsToHeaders } from '@/utils/api-params'
+import { jsonToParams } from '@/utils/json-params'
 import {
     apiToMarkdown, apiToStandaloneHtml, downloadText, safeName, type ApiExportInput,
 } from '@/utils/export-doc'
-import { ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, PlayOutline, RefreshOutline, SettingsOutline, TimeOutline } from '@vicons/ionicons5'
+import { ArrowUpOutline, CodeSlashOutline, CopyOutline, CreateOutline, DownloadOutline, PlayOutline, RefreshOutline, SettingsOutline, TimeOutline, TrashOutline } from '@vicons/ionicons5'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import 'md-editor-v3/lib/style.css'
 import {
-    NButton, NDropdown, NIcon, NInput, NInputNumber, NModal, NSelect, NSpin, NTag, useDialog, useMessage,
+    NButton, NCheckbox, NDropdown, NIcon, NInput, NInputNumber, NModal, NSelect, NSpin, NTag, useDialog, useMessage,
     type DropdownOption,
 } from 'naive-ui'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -125,23 +128,23 @@ const activeSec = ref('headers')
 const bodyScrollTop = ref(0)
 const showTop = computed(() => bodyScrollTop.value > 240)
 
-/** 当前可见的章节（与模板中的 data-sec 一一对应）。 */
+/**
+ * 当前可见的章节（与模板中的 data-sec 一一对应）。
+ * 顺序沿用客户端 RequestEditor 的 tab 顺序，仅把「请求头」提到「请求参数」之前（Web 阅读习惯）：
+ * 请求头 → 请求参数 → 请求体 → 认证 → 响应字段 → …；
+ * 客户端把「变量 / 脚本 / 断言」三个 tab 合并成本页一个只读段；响应示例与文档是 Web 专有段。
+ */
 const sections = computed(() => {
-  const list = [
-    { key: 'headers', label: t('param.headerTitle') },
-    { key: 'params', label: t('param.requestTitle') },
-  ]
-  // 客户端富字段：查看态有内容才出现；编辑态常显（可从零补齐），与模板 data-sec 一一对应。
+  const list = [{ key: 'headers', label: t('param.headerTitle') }]
+  list.push({ key: 'params', label: t('param.requestTitle') })
+  // 客户端富字段：查看态有内容才出现；编辑态常显（可从零补齐）。
   if (!editing.value && hasBody.value) list.push({ key: 'body', label: t('detail.secBody') })
   if (editing.value) list.push({ key: 'body', label: t('detail.secBody') })
   if (!editing.value && hasAuth.value) list.push({ key: 'auth', label: t('detail.secAuth') })
   if (editing.value) list.push({ key: 'auth', label: t('detail.secAuth') })
   list.push({ key: 'result', label: t('param.responseTitle') })
   list.push({ key: 'sample', label: t('detail.secSample') })
-  if (!editing.value && hasSettings.value) list.push({ key: 'settings', label: t('detail.secSettings') })
-  if (editing.value) list.push({ key: 'settings', label: t('detail.secSettings') })
-  if (!editing.value && hasScript.value) list.push({ key: 'script', label: t('detail.secScript') })
-  if (!editing.value && form.develop_language) list.push({ key: 'info', label: t('detail.secInfo') })
+  if (hasScript.value) list.push({ key: 'runtime', label: t('detail.secRuntime') })
   list.push({ key: 'doc', label: t('detail.secDoc') })
   return list
 })
@@ -279,6 +282,29 @@ const debugAuth = computed<ProxyAuth | null>(() => {
   }
 })
 
+/** 请求体字段表列宽（只读态与 BodyFieldsEditTable 共用一套，保证查看/编辑不跳动）。 */
+const BODY_FIELD_GRID = 'minmax(0,1.3fr) 108px 40px minmax(0,1fr) minmax(0,1.4fr) 32px'
+/** 表单体行 grid（对齐客户端 KeyValueTable：启用 / 名称 / 值 / [类型] / 说明 / 删除）。 */
+const FORM_GRID = '24px minmax(0,1.1fr) minmax(0,1.4fr) minmax(0,1.4fr) 24px'
+const FORM_GRID_TYPED = '24px minmax(0,1.1fr) minmax(0,1.4fr) 88px minmax(0,1.4fr) 24px'
+const bodyFormGrid = computed(() => (extEdit.bodyType === 'multipart' ? FORM_GRID_TYPED : FORM_GRID))
+
+/** 表单体只读请求数据示例（对齐客户端 formExample）：不新增字段、只按启用行拼出来。 */
+const bodyFormExample = computed(() => {
+  const rows = extEdit.bodyForm.filter((r) => r.enabled !== false && (r.name ?? '').trim())
+  if (!rows.length) return ''
+  if (extEdit.bodyType === 'form') {
+    return rows.map((r) => `${encodeURIComponent(r.name ?? '')}=${encodeURIComponent(r.value ?? '')}`).join('&')
+  }
+  const boundary = '<boundary>'
+  const parts = rows.map((r) => {
+    const filename = r.type === 'file' ? `; filename="${r.value ?? ''}"` : ''
+    const body = r.type === 'file' ? '<file>' : (r.value ?? '')
+    return `--${boundary}\nContent-Disposition: form-data; name="${r.name ?? ''}"${filename}\n\n${body}`
+  })
+  return `${parts.join('\n')}\n--${boundary}--`
+})
+
 const bodyTypeOptions = BODY_TYPES.map((v) => ({ label: v, value: v }))
 const authTypeOptions = AUTH_TYPES.map((v) => ({ label: v, value: v }))
 const authInOptions = [{ label: 'header', value: 'header' }, { label: 'query', value: 'query' }]
@@ -404,8 +430,6 @@ const hasBody = computed(() =>
   !!ext.http_request_body || bodyFormRows.value.length > 0 || bodyDescRows.value.length > 0 ||
   bodyFieldRows.value.length > 0)
 const hasAuth = computed(() => !!str(authObj.value, 'type'))
-const hasSettings = computed(() =>
-  !!ext.request_settings && Object.keys(settingsObj.value).length > 0)
 const hasScript = computed(() =>
   !!(str(scriptObj.value, 'preRequest') || str(scriptObj.value, 'postResponse')) ||
   varsRows.value.length > 0 || assertRows.value.length > 0)
@@ -545,6 +569,18 @@ function startEdit(): void {
   editing.value = true
 }
 
+/**
+ * 概述输入框：查看态点「概要」文本或「添加概要…」直接进编辑态并聚焦，
+ * 与客户端 RequestBar「点文本即编辑」一致（不用先点右上角「编辑」）。
+ */
+const summaryInput = ref<{ focus: () => void } | null>(null)
+
+function editSummary(): void {
+  if (!canUpdate.value) return
+  if (!editing.value) startEdit()
+  void nextTick(() => summaryInput.value?.focus())
+}
+
 function cancelEdit(): void {
   if (draft) {
     groupId.value = draft.groupId
@@ -570,6 +606,8 @@ async function save(): Promise<void> {
       sampleVal = JSON.parse(sample.value)
     } catch {
       message.error(t('api.sampleInvalid'))
+      // 报错归属在「响应示例」段：滚过去，避免用户在别的段落找不到问题。
+      scrollToSection('sample')
       return
     }
   }
@@ -584,9 +622,10 @@ async function save(): Promise<void> {
       ...form,
       // 富字段原样回传：整条覆盖式更新，缺省会把同步来的这些列清空。
       ...ext,
-      http_request_header: paramsToHeaders(headerRows.value),
-      http_request_params: reqParams.value,
-      http_return_params: resParams.value,
+      // 清洗：去掉编辑态末尾的占位空行；停用行只在 false 时写 enabled 键（缺省 = 启用）。
+      http_request_header: paramsToHeaders(cleanParams(headerRows.value)),
+      http_request_params: cleanParams(reqParams.value),
+      http_return_params: cleanParams(resParams.value),
       http_return_sample: sampleVal,
       // 乐观锁：他人已保存时服务端会拒绝覆盖。
       expected_update_time: loadedUpdateTime.value,
@@ -650,6 +689,85 @@ function formatBodyJSON(): void {
   } catch {
     message.error(t('detail.formatJsonFail'))
   }
+}
+
+/** JSON 体语法检查：含 {{变量}} 时不判断（待解析后再看），只做提示、不阻断保存（与客户端一致）。 */
+const bodyJsonBroken = computed(() => {
+  const raw = extEdit.bodyRaw.trim()
+  if (extEdit.bodyType !== 'json' || !raw || raw.includes('{{')) return false
+  try {
+    JSON.parse(raw)
+    return false
+  } catch {
+    return true
+  }
+})
+
+/** 复制请求体原文（对齐客户端「复制 / 已复制」短暂切换）。 */
+const bodyCopied = ref(false)
+let bodyCopyTimer: ReturnType<typeof setTimeout> | null = null
+async function copyBody(): Promise<void> {
+  const raw = extEdit.bodyRaw
+  if (!raw.trim()) return
+  try {
+    await navigator.clipboard.writeText(raw)
+    bodyCopied.value = true
+    if (bodyCopyTimer) clearTimeout(bodyCopyTimer)
+    bodyCopyTimer = setTimeout(() => { bodyCopied.value = false }, 1200)
+  } catch {
+    message.warning(t('detail.copyBodyFail'))
+  }
+}
+
+// ---- 「生成数据表格」：按请求体 JSON 派生 5 列（纯前端，与客户端 deriveBodyFields 同口径） ----
+const genFieldsShow = ref(false)
+const genFields = ref<BodyFieldRow[]>([])
+
+/** JSON 体 → 字段行（对象逐层展开、数组按首元素推断，路径形如 data.list[].id）。 */
+function deriveBodyFields(): BodyFieldRow[] {
+  const { rows, error } = jsonToParams(extEdit.bodyRaw)
+  if (error || !rows.length) return []
+  return rows.map((r) => ({
+    name: r.fieldName,
+    type: r.type,
+    required: r.required === true,
+    example: r.example ?? '',
+    description: r.description ?? '',
+  }))
+}
+
+/** 空表直接生成；已有行时弹「新增 / 覆盖」二选一（对齐客户端）。 */
+function onGenerateFields(): void {
+  const derived = deriveBodyFields()
+  if (!derived.length) {
+    message.warning(t('detail.bodyFieldsGenInvalid'))
+    return
+  }
+  if (!extEdit.bodyFields.length) {
+    extEdit.bodyFields = derived
+    message.success(t('detail.bodyFieldsGenDone', { n: derived.length }))
+    return
+  }
+  genFields.value = derived
+  genFieldsShow.value = true
+}
+
+/** 应用生成结果：新增只补缺失路径；覆盖按本次派生重建，同路径沿用已填说明。 */
+function applyGeneratedFields(mode: 'append' | 'overwrite'): void {
+  const derived = genFields.value
+  if (mode === 'overwrite') {
+    const prev = new Map(extEdit.bodyFields.map((f) => [f.name, f]))
+    extEdit.bodyFields = derived.map((f) => ({
+      ...f,
+      description: prev.get(f.name)?.description || f.description,
+    }))
+  } else {
+    const known = new Set(extEdit.bodyFields.map((f) => f.name))
+    extEdit.bodyFields = [...extEdit.bodyFields, ...derived.filter((f) => !known.has(f.name))]
+  }
+  genFieldsShow.value = false
+  genFields.value = []
+  message.success(t('detail.bodyFieldsGenDone', { n: derived.length }))
 }
 
 // ---- 响应示例（多示例，与客户端保存的响应示例互通） ----
@@ -829,10 +947,10 @@ function currentExportInput(): ApiExportInput {
         http_method_type: form.http_method_type,
         url: form.url,
         description: form.description,
-        http_request_header: JSON.stringify(paramsToHeaders(headerRows.value)),
-        http_request_params: JSON.stringify(reqParams.value),
+        http_request_header: JSON.stringify(paramsToHeaders(cleanParams(headerRows.value))),
+        http_request_params: JSON.stringify(cleanParams(reqParams.value)),
         http_return_type: form.http_return_type,
-        http_return_params: JSON.stringify(resParams.value),
+        http_return_params: JSON.stringify(cleanParams(resParams.value)),
         http_return_sample: sample.value,
         develop_language: form.develop_language,
         update_time: loadedUpdateTime.value,
@@ -881,6 +999,7 @@ function exportApi(key: string): void {
             {{ statusLabel }}
           </n-tag>
           <span v-if="form.version" class="req-meta">{{ form.version }}</span>
+          <span v-if="form.develop_language" class="req-meta">{{ form.develop_language }}</span>
           <span class="req-meta">{{ groupName }}</span>
         </template>
         <template v-if="editing">
@@ -934,16 +1053,28 @@ function exportApi(key: string): void {
         </div>
       </header>
 
-      <!-- API 概述：URL 上方一行；查看态为空则不占位 -->
-      <div v-if="editing || form.http_request_summary" class="req-summary">
+      <!-- API 概述：URL 上方一行；与客户端一致，空值也给「添加概要…」入口（点它直接进编辑态并聚焦） -->
+      <div v-if="editing || canUpdate || form.http_request_summary" class="req-summary">
         <n-input
           v-if="editing"
+          ref="summaryInput"
           v-model:value="form.http_request_summary"
           size="small"
           :placeholder="t('detail.summaryPh')"
           data-testid="detail.summary"
         />
-        <p v-else class="req-summary-text" data-testid="detail.summaryText">{{ form.http_request_summary }}</p>
+        <button
+          v-else
+          type="button"
+          class="req-summary-text req-summary-btn"
+          :class="{ 'req-summary-btn--ph': !form.http_request_summary }"
+          :disabled="!canUpdate"
+          :title="t('detail.summaryPh')"
+          data-testid="detail.summaryText"
+          @click="editSummary"
+        >
+          {{ form.http_request_summary || t('detail.summaryAdd') }}
+        </button>
       </div>
 
       <div class="req-url">
@@ -1024,32 +1155,30 @@ function exportApi(key: string): void {
         <section v-if="hasBody || editing" class="req-sec" data-sec="body">
           <div class="sec-hd">
             <span class="sec-title">{{ t('detail.secBody') }}</span>
-            <span v-if="!editing && ext.http_request_body_type" class="meta"> · {{ ext.http_request_body_type }}</span>
+            <span v-if="ext.http_request_body_type" class="sec-badge">{{ ext.http_request_body_type }}</span>
           </div>
           <template v-if="!editing">
             <!-- 请求体字段表格（客户端「生成数据表格」生成；5 列只读） -->
             <template v-if="bodyFieldRows.length">
               <p class="sec-sub meta">{{ t('detail.bodyFieldsTitle') }}</p>
-              <table class="bf-table" data-testid="detail.bodyFields">
-                <thead>
-                  <tr>
-                    <th>{{ t('detail.colName') }}</th>
-                    <th class="c">{{ t('detail.colRequired') }}</th>
-                    <th>{{ t('detail.colType') }}</th>
-                    <th>{{ t('detail.colExample') }}</th>
-                    <th>{{ t('detail.colDesc') }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(f, i) in bodyFieldRows" :key="'bfr' + i">
-                    <td class="mono">{{ f.name }}</td>
-                    <td class="c">{{ f.required ? t('detail.yes') : t('detail.no') }}</td>
-                    <td>{{ f.type }}</td>
-                    <td class="mono">{{ f.example }}</td>
-                    <td>{{ f.description }}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="rg-wrap" :style="`--rg-cols: ${BODY_FIELD_GRID}`" data-testid="detail.bodyFields">
+                <div class="rg-tr rg-th">
+                  <span>{{ t('detail.colFieldName') }}</span>
+                  <span>{{ t('detail.colType') }}</span>
+                  <span class="rg-c">{{ t('detail.colRequired') }}</span>
+                  <span>{{ t('detail.colExample') }}</span>
+                  <span>{{ t('detail.colDesc') }}</span>
+                  <span />
+                </div>
+                <div v-for="(f, i) in bodyFieldRows" :key="'bfr' + i" class="rg-tr">
+                  <span class="row-mono">{{ f.name }}</span>
+                  <span>{{ f.type }}</span>
+                  <span class="rg-c">{{ f.required ? t('detail.yes') : t('detail.no') }}</span>
+                  <span class="row-mono">{{ f.example }}</span>
+                  <span>{{ f.description }}</span>
+                  <span />
+                </div>
+              </div>
             </template>
             <dl v-if="bodyFormRows.length" class="kv">
               <div v-for="(r, i) in bodyFormRows" :key="i" class="kv-row">
@@ -1060,9 +1189,34 @@ function exportApi(key: string): void {
             <json-block v-else :raw="ext.http_request_body" :empty="t('detail.bodyEmpty')" />
           </template>
           <template v-else>
-            <div class="ext-row">
-              <span class="ext-lb">{{ t('detail.bodyType') }}</span>
-              <n-select v-model:value="extEdit.bodyType" size="small" class="ext-w" :options="bodyTypeOptions" data-testid="ext-body-type" />
+            <!-- 类型 + 格式化 / 复制 / 语法提示：与客户端 body 分段同一行 -->
+            <div class="body-bar">
+              <n-select
+                v-model:value="extEdit.bodyType"
+                size="small"
+                class="body-type"
+                :options="bodyTypeOptions"
+                data-testid="ext-body-type"
+              />
+              <n-button
+                v-if="extEdit.bodyType === 'json' || extEdit.bodyType === 'text'"
+                size="tiny"
+                :disabled="!extEdit.bodyRaw.trim()"
+                data-testid="ext-body-format"
+                @click="formatBodyJSON"
+              >
+                {{ t('detail.formatJson') }}
+              </n-button>
+              <n-button
+                v-if="extEdit.bodyType === 'json' || extEdit.bodyType === 'text'"
+                size="tiny"
+                :disabled="!extEdit.bodyRaw.trim()"
+                data-testid="ext-body-copy"
+                @click="copyBody"
+              >
+                {{ bodyCopied ? t('detail.bodyCopied') : t('detail.copyBody') }}
+              </n-button>
+              <span v-if="bodyJsonBroken" class="fmtbad" data-testid="ext-body-broken">{{ t('detail.bodyJsonBroken') }}</span>
             </div>
             <n-input
               v-if="extEdit.bodyType === 'json' || extEdit.bodyType === 'text'"
@@ -1073,27 +1227,61 @@ function exportApi(key: string): void {
               data-testid="ext-body-raw"
               placeholder=""
             />
-            <div v-if="extEdit.bodyType === 'json'" class="ext-row">
-              <n-button size="tiny" secondary data-testid="ext-body-format" @click="formatBodyJSON">
-                {{ t('detail.formatJson') }}
-              </n-button>
-              <span class="meta">{{ t('detail.formatJsonHint') }}</span>
-            </div>
             <template v-else-if="extEdit.bodyType === 'form' || extEdit.bodyType === 'multipart'">
-              <div v-for="(r, i) in extEdit.bodyForm" :key="'bf' + i" class="ext-row">
-                <n-input v-model:value="r.name" size="small" :placeholder="t('varForm.name')" data-testid="ext-form-name" />
-                <n-input v-model:value="r.value" size="small" :placeholder="t('varForm.value')" />
-                <n-input v-model:value="r.type" size="small" class="ext-type" :placeholder="t('detail.colType')" />
-                <n-button size="tiny" quaternary type="error" data-testid="ext-form-del" @click="extEdit.bodyForm.splice(i, 1)">
-                  {{ t('common.delete') }}
-                </n-button>
+              <div class="rg-wrap" :style="`--rg-cols: ${bodyFormGrid}`">
+                <div class="rg-tr rg-th">
+                  <span class="rg-c" />
+                  <span>{{ t('varForm.name') }}</span>
+                  <span>{{ t('varForm.value') }}</span>
+                  <span v-if="extEdit.bodyType === 'multipart'">{{ t('detail.colType') }}</span>
+                  <span>{{ t('detail.colDesc') }}</span>
+                  <span />
+                </div>
+                <div v-for="(r, i) in extEdit.bodyForm" :key="'bf' + i" class="rg-tr">
+                  <span class="rg-c">
+                    <n-checkbox
+                      :checked="r.enabled !== false"
+                      size="small"
+                      :title="t('param.disabledHint')"
+                      @update:checked="(v: boolean) => (r.enabled = v)"
+                    />
+                  </span>
+                  <n-input v-model:value="r.name" size="small" :placeholder="t('varForm.name')" data-testid="ext-form-name" />
+                  <n-input v-model:value="r.value" size="small" :placeholder="t('varForm.value')" />
+                  <n-select
+                    v-if="extEdit.bodyType === 'multipart'"
+                    v-model:value="r.type"
+                    size="small"
+                    :options="[{ label: 'text', value: 'text' }, { label: 'file', value: 'file' }]"
+                  />
+                  <n-input v-model:value="r.description" size="small" :placeholder="t('common.optional')" />
+                  <span class="rg-ops">
+                    <n-button size="tiny" quaternary type="error" :title="t('common.delete')" data-testid="ext-form-del"
+                      @click="extEdit.bodyForm.splice(i, 1)">
+                      <template #icon><n-icon :component="TrashOutline" /></template>
+                    </n-button>
+                  </span>
+                </div>
+                <p v-if="!extEdit.bodyForm.length" class="rg-empty">{{ t('detail.bodyFormEmpty') }}</p>
+                <div class="rg-foot">
+                  <n-button size="tiny" data-testid="ext-form-add"
+                    @click="extEdit.bodyForm.push({ name: '', value: '', enabled: true, type: 'text', description: '' })">
+                    {{ t('detail.addRow') }}
+                  </n-button>
+                </div>
               </div>
-              <n-button size="tiny" data-testid="ext-form-add" @click="extEdit.bodyForm.push({ name: '', value: '', enabled: true, type: 'text' })">
-                {{ t('detail.addRow') }}
-              </n-button>
+              <!-- 按启用行拼出的只读请求数据示例（对齐客户端 formExample，不新增字段） -->
+              <template v-if="bodyFormExample">
+                <p class="sec-sub meta">{{ t('detail.formExample') }}</p>
+                <pre class="body-example mono" data-testid="body.formExample">{{ bodyFormExample }}</pre>
+              </template>
             </template>
             <!-- 请求体字段：5 列表格，与客户端「生成数据表格」同构 -->
-            <body-fields-edit-table v-model="extEdit.bodyFields" />
+            <body-fields-edit-table
+              v-if="extEdit.bodyType === 'json'"
+              v-model="extEdit.bodyFields"
+              @generate="onGenerateFields"
+            />
           </template>
         </section>
 
@@ -1111,38 +1299,41 @@ function exportApi(key: string): void {
             </dl>
           </template>
           <template v-else>
-            <div class="ext-row">
-              <span class="ext-lb">{{ t('detail.authType') }}</span>
-              <n-select v-model:value="extEdit.authType" size="small" class="ext-w" clearable :options="authTypeOptions" data-testid="ext-auth-type" />
+            <!-- 尺寸对齐客户端 auth 分段：最大宽 560，标签列 90px，类型下拉 160px -->
+            <div class="auth-pane">
+              <div class="arow">
+                <span class="albl">{{ t('detail.authType') }}</span>
+                <n-select v-model:value="extEdit.authType" size="small" class="atype" clearable :options="authTypeOptions" data-testid="ext-auth-type" />
+              </div>
+              <template v-if="extEdit.authType === 'basic'">
+                <div class="arow">
+                  <span class="albl">{{ t('detail.authUsername') }}</span>
+                  <n-input v-model:value="extEdit.authUser" size="small" data-testid="ext-auth-user" />
+                </div>
+                <div class="arow">
+                  <span class="albl">{{ t('detail.authPassword') }}</span>
+                  <n-input v-model:value="extEdit.authPass" size="small" type="password" show-password-on="click" data-testid="ext-auth-pass" />
+                </div>
+              </template>
+              <div v-if="extEdit.authType === 'bearer'" class="arow">
+                <span class="albl">{{ t('detail.authToken') }}</span>
+                <n-input v-model:value="extEdit.authToken" size="small" type="password" show-password-on="click" data-testid="ext-auth-token" />
+              </div>
+              <template v-if="extEdit.authType === 'apikey'">
+                <div class="arow">
+                  <span class="albl">{{ t('detail.authKey') }}</span>
+                  <n-input v-model:value="extEdit.authKey" size="small" data-testid="ext-auth-key" />
+                </div>
+                <div class="arow">
+                  <span class="albl">{{ t('detail.authValue') }}</span>
+                  <n-input v-model:value="extEdit.authValue" size="small" type="password" show-password-on="click" data-testid="ext-auth-value" />
+                </div>
+                <div class="arow">
+                  <span class="albl">{{ t('detail.authIn') }}</span>
+                  <n-select v-model:value="extEdit.authIn" size="small" class="atype" :options="authInOptions" />
+                </div>
+              </template>
             </div>
-            <template v-if="extEdit.authType === 'basic'">
-              <div class="ext-row">
-                <span class="ext-lb">{{ t('detail.authUsername') }}</span>
-                <n-input v-model:value="extEdit.authUser" size="small" class="ext-w" data-testid="ext-auth-user" />
-              </div>
-              <div class="ext-row">
-                <span class="ext-lb">{{ t('detail.authPassword') }}</span>
-                <n-input v-model:value="extEdit.authPass" size="small" type="password" show-password-on="click" class="ext-w" data-testid="ext-auth-pass" />
-              </div>
-            </template>
-            <div v-if="extEdit.authType === 'bearer'" class="ext-row">
-              <span class="ext-lb">{{ t('detail.authToken') }}</span>
-              <n-input v-model:value="extEdit.authToken" size="small" type="password" show-password-on="click" class="ext-w" data-testid="ext-auth-token" />
-            </div>
-            <template v-if="extEdit.authType === 'apikey'">
-              <div class="ext-row">
-                <span class="ext-lb">{{ t('detail.authKey') }}</span>
-                <n-input v-model:value="extEdit.authKey" size="small" class="ext-w" data-testid="ext-auth-key" />
-              </div>
-              <div class="ext-row">
-                <span class="ext-lb">{{ t('detail.authValue') }}</span>
-                <n-input v-model:value="extEdit.authValue" size="small" type="password" show-password-on="click" class="ext-w" data-testid="ext-auth-value" />
-              </div>
-              <div class="ext-row">
-                <span class="ext-lb">{{ t('detail.authIn') }}</span>
-                <n-select v-model:value="extEdit.authIn" size="small" class="ext-w" :options="authInOptions" />
-              </div>
-            </template>
           </template>
         </section>
 
@@ -1152,26 +1343,29 @@ function exportApi(key: string): void {
             kind="response"
             :editable="editing"
             :json-source="sample"
-            :title-extra="resultTitleExtra"
+            :title-extra="editing ? '' : resultTitleExtra"
             :project-id="projectId"
             :api-id="apiId"
             @json-applied="onSampleJson"
             @edit="editing = true"
-          />
-          <div v-if="editing" class="ext-row">
-            <span class="ext-lb">{{ t('detail.retContentType') }}</span>
-            <n-select
-              v-model:value="extEdit.retContentType"
-              size="small"
-              class="ext-w"
-              filterable
-              tag
-              clearable
-              :options="retContentTypeOptions"
-              data-testid="ext-ret-ct"
-              @update:value="(v: string | null) => (extEdit.retContentType = v ?? '')"
-            />
-          </div>
+          >
+            <!-- 响应内容类型：对齐客户端，放在段标题行右侧，不再单独占一行 -->
+            <template #actions>
+              <n-select
+                v-if="editing"
+                v-model:value="extEdit.retContentType"
+                size="tiny"
+                class="ret-ct"
+                filterable
+                tag
+                clearable
+                :placeholder="t('detail.retContentType')"
+                :options="retContentTypeOptions"
+                data-testid="ext-ret-ct"
+                @update:value="(v: string | null) => (extEdit.retContentType = v ?? '')"
+              />
+            </template>
+          </api-param-table>
         </section>
 
         <section class="req-sec" data-sec="sample">
@@ -1194,11 +1388,13 @@ function exportApi(key: string): void {
               :placeholder="t('detail.samplePick')"
               @update:value="pickSample"
             />
-            <template v-if="canUpdate">
+            <!-- 编辑态：示例正文随右上角唯一「保存」一起提交，这里不再给第二个保存入口 -->
+            <template v-if="canUpdate && !editing">
               <n-button size="small" @click="sampleName = ''; showSampleModal = true">{{ t('detail.sampleAdd') }}</n-button>
-              <n-button v-if="sampleId && !editing" size="small" :loading="sampleSaving" @click="persistSample">{{ t('common.save') }}</n-button>
+              <n-button v-if="sampleId" size="small" :loading="sampleSaving" @click="persistSample">{{ t('common.save') }}</n-button>
               <n-button v-if="sampleId" size="small" quaternary type="error" @click="removeSample">{{ t('detail.sampleDelete') }}</n-button>
             </template>
+            <span v-else-if="editing" class="meta">{{ t('detail.sampleSaveHint') }}</span>
           </div>
           <n-input
             v-if="canUpdate && sampleId"
@@ -1225,8 +1421,10 @@ function exportApi(key: string): void {
         </section>
 
 
-        <section v-if="!editing && hasScript" class="req-sec" data-sec="script">
-          <div class="sec-hd"><span class="sec-title">{{ t('detail.secScript') }}</span></div>
+        <!-- 变量 / 脚本 / 断言：只读展示（执行环境在桌面客户端，Web 不提供编辑与运行） -->
+        <section v-if="hasScript" class="req-sec" data-sec="runtime">
+          <div class="sec-hd"><span class="sec-title">{{ t('detail.secRuntime') }}</span></div>
+          <p class="sec-sub meta">{{ t('detail.runtimeHint') }}</p>
           <template v-if="str(scriptObj, 'preRequest')">
             <p class="sec-sub meta">{{ t('detail.scriptPre') }}</p>
             <json-block :raw="str(scriptObj, 'preRequest')" empty="" />
@@ -1235,19 +1433,18 @@ function exportApi(key: string): void {
             <p class="sec-sub meta">{{ t('detail.scriptPost') }}</p>
             <json-block :raw="str(scriptObj, 'postResponse')" empty="" />
           </template>
-          <dl v-if="varsRows.length" class="kv">
-            <div v-for="(v, i) in varsRows" :key="'v' + i" class="kv-row"><dt>{{ v.name }}</dt><dd>{{ v.value }}</dd></div>
-          </dl>
-          <dl v-if="assertRows.length" class="kv">
-            <div v-for="(a, i) in assertRows" :key="'a' + i" class="kv-row"><dt>{{ a.name }}</dt><dd>{{ a.expr }}</dd></div>
-          </dl>
-        </section>
-
-        <section v-if="!editing && form.develop_language" class="req-sec" data-sec="info">
-          <div class="sec-hd"><span class="sec-title">{{ t('detail.secInfo') }}</span></div>
-          <dl class="kv">
-            <div class="kv-row"><dt>{{ t('api.devLang') }}</dt><dd>{{ form.develop_language }}</dd></div>
-          </dl>
+          <template v-if="varsRows.length">
+            <p class="sec-sub meta">{{ t('detail.runtimeVars') }}</p>
+            <dl class="kv">
+              <div v-for="(v, i) in varsRows" :key="'v' + i" class="kv-row"><dt>{{ v.name }}</dt><dd>{{ v.value }}</dd></div>
+            </dl>
+          </template>
+          <template v-if="assertRows.length">
+            <p class="sec-sub meta">{{ t('detail.runtimeAsserts') }}</p>
+            <dl class="kv">
+              <div v-for="(a, i) in assertRows" :key="'a' + i" class="kv-row"><dt>{{ a.name }}</dt><dd>{{ a.expr }}</dd></div>
+            </dl>
+          </template>
         </section>
 
         <!-- 文档：该接口的 Markdown 文档（编辑态可写，查看态渲染） -->
@@ -1300,6 +1497,26 @@ function exportApi(key: string): void {
             </div>
           </template>
         <p v-if="!editing" class="meta">{{ t('detail.settingsHint') }}</p>
+      </n-modal>
+
+      <!-- 「生成数据表格」确认弹窗：已有字段行时二选一（新增 / 覆盖） -->
+      <n-modal
+        v-model:show="genFieldsShow"
+        preset="card"
+        :title="t('detail.bodyFieldsGenTitle')"
+        style="width: 460px"
+        data-testid="detail.bodyFieldsGenDialog"
+      >
+        <p class="meta gen-hint">{{ t('detail.bodyFieldsGenHint') }}</p>
+        <div class="gen-actions">
+          <n-button size="small" type="primary" data-testid="detail.genAppend" @click="applyGeneratedFields('append')">
+            {{ t('detail.genAppend') }}
+          </n-button>
+          <n-button size="small" data-testid="detail.genOverwrite" @click="applyGeneratedFields('overwrite')">
+            {{ t('detail.genOverwrite') }}
+          </n-button>
+          <n-button size="small" quaternary @click="genFieldsShow = false">{{ t('common.cancel') }}</n-button>
+        </div>
       </n-modal>
 
       <!-- 长页一键返回顶部 -->
@@ -1621,7 +1838,7 @@ function exportApi(key: string): void {
 }
 
 .sec-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
@@ -1660,37 +1877,121 @@ function exportApi(key: string): void {
   color: var(--app-text);
 }
 
-/* 请求体字段表格（5 列只读） */
-.bf-table {
+/* 查看态概述做成按钮：点文本即编辑（与客户端 RequestBar 同交互） */
+.req-summary-btn {
+  display: block;
   width: 100%;
-  border-collapse: collapse;
-  border: 1px solid var(--app-border);
-  border-radius: 4px;
-  overflow: hidden;
-  font-size: 13px;
-}
-
-.bf-table th,
-.bf-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--app-border);
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
   text-align: left;
-  vertical-align: top;
+  cursor: pointer;
 }
 
-.bf-table th {
-  background: var(--app-surface-2, var(--app-panel));
+.req-summary-btn:hover:not(:disabled) {
+  color: var(--app-accent);
+}
+
+/* 空值占位：弱化成「添加概要…」，避免看起来像已有内容 */
+.req-summary-btn--ph {
+  color: #a8b0b8;
+}
+
+.req-summary-btn:disabled {
+  cursor: default;
+}
+
+/* 段标题旁的补充徽标（请求体类型 / 返回类型） */
+.sec-badge {
+  padding: 0 6px;
+  border: 1px solid var(--app-border);
+  border-radius: 3px;
+  background: #f5f6f8;
   color: var(--app-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
+  line-height: 16px;
 }
 
-.bf-table tbody tr:last-child td {
-  border-bottom: none;
+/* 请求体：类型 + 格式化 / 复制 / 语法提示 */
+.body-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.bf-table .c {
-  text-align: center;
+.body-type {
+  width: 130px;
+  flex: 0 0 auto;
+}
+
+.fmtbad {
+  color: #d03050;
+  font-size: 11.5px;
+}
+
+/* form/multipart 按字段拼出的只读请求数据示例 */
+.body-example {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: #fafbfc;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 「生成数据表格」确认弹窗 */
+.gen-hint {
+  margin: 0 0 14px;
+  line-height: 1.7;
+}
+
+.gen-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 响应内容类型：段标题行右侧的内联下拉 */
+.ret-ct {
+  width: 200px;
+}
+
+/* 认证：最大宽 560，标签列 90px，类型下拉 160px（对齐客户端 auth 分段） */
+.auth-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.arow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.albl {
+  flex: 0 0 90px;
+  width: 90px;
+  color: var(--app-muted);
+  font-size: 12.5px;
+}
+
+.atype {
+  width: 160px;
+  flex: 0 0 auto;
+}
+
+.arow :deep(.n-input) {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .kv {

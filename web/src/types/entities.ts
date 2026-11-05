@@ -265,6 +265,11 @@ export interface ApiParam {
   required?: boolean
   description: string
   example?: string
+  /**
+   * 行级启用位（客户端 `KV.enabled` 的同步形态）：缺省 = 启用，只有显式 false 才停用。
+   * 停用的行不参与调试发送、文档导出与 OpenAPI，但本页仍展示（可再次勾选）。
+   */
+  enabled?: boolean
 }
 
 /** 接口请求头行。 */
@@ -272,6 +277,8 @@ export interface ApiHeader {
   name: string
   value: string
   description?: string
+  /** 行级启用位，语义同 ApiParam.enabled（缺省 = 启用）。 */
+  enabled?: boolean
 }
 
 /** 在线调试的请求头 / 查询参数 / 表单行。 */

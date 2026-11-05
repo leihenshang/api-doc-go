@@ -1,0 +1,102 @@
+/* 横向行表格公共样式：参数 / 请求头 / 请求体字段 / 响应字段四张表共用。
+ *
+ * 对齐客户端 `BodyFieldsTable.vue` / `ResponseFields.vue` / `KeyValueTable.vue`：
+ * div + grid（列宽由行内 `--rg-cols` 给出）、sticky 表头、行 hover、行尾常显操作列。
+ * 注意：祖先元素不要加 overflow（会新建滚动容器，sticky 表头随即失效）。
+ */
+
+.rg-wrap {
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-panel);
+}
+
+.rg-tr {
+  display: grid;
+  grid-template-columns: var(--rg-cols);
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-top: 1px solid var(--app-border);
+  color: var(--app-text);
+  font-size: 12px;
+}
+
+.rg-tr:first-child {
+  border-top: 0;
+}
+
+.rg-tr:not(.rg-th):hover {
+  background: #fafbfc;
+}
+
+/* 表头：滚动长表时贴住内容区顶部（滚动容器是 .req-body） */
+.rg-th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 8px;
+  border-top: 0;
+  border-radius: 6px 6px 0 0;
+  background: #f7f8fa;
+  color: var(--app-muted);
+  font-size: 11.5px;
+}
+
+/* 勾选 / 必填等居中格 */
+.rg-c {
+  display: flex;
+  justify-content: center;
+}
+
+/* 行尾操作列：常显（客户端删除按钮同样常显，hover 才出现的是列宽拖拽手柄） */
+.rg-ops {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.rg-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  color: #a8b0b8;
+  font-size: 12px;
+}
+
+.rg-foot {
+  display: flex;
+  justify-content: flex-start;
+  padding: 6px 8px;
+  border-top: 1px solid var(--app-border);
+}
+
+/* 行数徽标（标题旁）：与客户端 `.ft .num` 同观感 */
+.rg-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #f0f2f5;
+  color: var(--app-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* 窄屏：允许表格横向滚动（此时不再追求 sticky 表头） */
+@media (max-width: 900px) {
+  .rg-wrap {
+    overflow-x: auto;
+  }
+
+  .rg-tr {
+    gap: 6px;
+  }
+}

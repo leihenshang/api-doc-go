@@ -1,26 +1,49 @@
 <script setup lang="ts">
 // 接口参数表（Postman Query 表样式）：请求头部 / 请求参数 / 返回参数 三种形态共用查看态与编辑态。
 // 行数据统一为 ApiParam —— 请求头由 headersToParams 归一化（fieldName=头名、example=值）。
-// 类型列为 JSON 类型下拉（可自定义），对象/数组行可「加子字段」表达嵌套（data.list[].id）。
+//
+// 与客户端对齐的部分（见 doc/服务端API页对齐客户端实施清单.md §四）：
+// - div + grid 列宽（不随内容跳动）、sticky 表头、行 hover、行尾常显操作列；
+// - 请求参数 / 请求头有「启用」勾选（缺省启用，false 才停用），返回参数没有（客户端响应字段表本就无该位）；
+// - 编辑态末行一有输入就补一行空行；空行在保存前由 cleanParams 清掉，不会写进服务端。
+// 请求参数比客户端 query 表多「类型 / 必选」两列：Web 参数表承担文档语义，服务端行契约本身就有这两列。
 import VarText from '@/components/VarText.vue'
 import type { ApiParam } from '@/types/entities'
+import { rowEnabled } from '@/utils/api-params'
 import { jsonToParams, mergeParams } from '@/utils/json-params'
 import { AddOutline, GitBranchOutline, TrashOutline } from '@vicons/ionicons5'
 import { NButton, NCheckbox, NIcon, NInput, NModal, NRadio, NRadioGroup, NSelect, useMessage } from 'naive-ui'
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 type Kind = 'request' | 'response' | 'header'
 
 /**
- * 各形态的列配置：请求头无需类型与必填，返回参数需要必填（与客户端响应字段表同口径：
- * 生成时默认「是」，文档也按这个值输出 是/否）；color 用于计数圆标。
- * 文案存 labelKey，切语言时由 cfg 重新解析。
+ * 各形态的列配置：请求头无类型与必选、有启用；返回参数有必选、无启用。
+ * 文案存 labelKey，切语言时由 cfg 重新解析。color 不再用于计数圆标（统一中性徽标）。
  */
-const COLUMNS: Record<Kind, { titleKey: string; nameKey: string; valueKey: string; color: string; withRequired: boolean; withType: boolean }> = {
-  request: { titleKey: 'param.requestTitle', nameKey: 'param.name', valueKey: 'param.example', color: '#0cbb52', withRequired: true, withType: true },
-  response: { titleKey: 'param.responseTitle', nameKey: 'param.name', valueKey: 'param.example', color: '#8e44ad', withRequired: true, withType: true },
-  header: { titleKey: 'param.headerTitle', nameKey: 'param.headerName', valueKey: 'param.value', color: '#097bed', withRequired: false, withType: false },
+const COLUMNS: Record<Kind, {
+  titleKey: string; nameKey: string; valueKey: string; withEnabled: boolean; withRequired: boolean; withType: boolean
+}> = {
+  request: {
+    titleKey: 'param.requestTitle', nameKey: 'param.name', valueKey: 'param.example',
+    withEnabled: true, withRequired: true, withType: true,
+  },
+  response: {
+    titleKey: 'param.responseTitle', nameKey: 'param.name', valueKey: 'param.example',
+    withEnabled: false, withRequired: true, withType: true,
+  },
+  header: {
+    titleKey: 'param.headerTitle', nameKey: 'param.headerName', valueKey: 'param.value',
+    withEnabled: true, withRequired: false, withType: false,
+  },
+}
+
+/** 列宽：名称/值/说明按 fr 分享，勾选与操作列固定 px（与客户端同比例）。 */
+const GRIDS: Record<Kind, string> = {
+  request: '24px minmax(0,1.3fr) 108px 40px minmax(0,1fr) minmax(0,1.4fr) 56px',
+  response: 'minmax(0,1.3fr) 108px 44px minmax(0,1fr) minmax(0,1.4fr) 56px',
+  header: '24px minmax(0,1.1fr) minmax(0,1.4fr) minmax(0,1.4fr) 24px',
 }
 
 /** JSON 对应的类型枚举（filterable + tag，允许填自定义类型）。 */
@@ -51,10 +74,11 @@ const { t } = useI18n()
 /** 当前形态的列配置（文案按当前语言解析）。 */
 const cfg = computed(() => {
   const c = COLUMNS[props.kind]
-  return { ...c, title: t(c.titleKey), name: t(c.nameKey), value: t(c.valueKey) }
+  return { ...c, title: t(c.titleKey), nameLabel: t(c.nameKey), valueLabel: t(c.valueKey) }
 })
-/** 已命名的行数，用于标题旁计数圆标。 */
-const filled = computed(() => rows.value.filter((r) => r.fieldName.trim()).length)
+const gridCols = computed(() => GRIDS[props.kind])
+/** 已命名的行数，用于标题旁计数徽标（空行不算）。 */
+const filled = computed(() => rows.value.filter((r) => (r.fieldName ?? '').trim()).length)
 const showJson = ref(false)
 const jsonText = ref('')
 const jsonMode = ref<'merge' | 'replace'>('merge')
@@ -77,7 +101,7 @@ function writeRows(next: ApiParam[]): void {
 
 /** 对象/数组行可在其后追加子字段（用点号与 `[]` 表达嵌套层级）。 */
 function canAddChild(row: ApiParam): boolean {
-  return props.editable && props.kind !== 'header' && (row.type === 'object' || row.type === 'array')
+  return props.editable && cfg.value.withType && (row.type === 'object' || row.type === 'array')
 }
 
 /** 新增行的必填默认值：返回参数按产品口径默认「是」，请求参数默认「否」。 */
@@ -85,19 +109,53 @@ function defaultRequired(): boolean {
   return props.kind === 'response'
 }
 
+/** 一行空数据（新建 / 末尾占位）。 */
+function blankRow(): ApiParam {
+  return {
+    fieldName: '',
+    type: props.kind === 'header' ? '' : 'string',
+    required: defaultRequired(),
+    description: '',
+    example: '',
+  }
+}
+
+/** 该行是否已有输入：名称 / 示例值 / 说明任一非空（只有说明也算，别把已写的备注当空行覆盖掉）。 */
+function hasInput(row: ApiParam): boolean {
+  return (row.fieldName ?? '').trim() !== '' ||
+    (row.example ?? '').trim() !== '' ||
+    (row.description ?? '').trim() !== ''
+}
+
+/**
+ * 编辑态末尾始终留一行空行（对齐客户端 KeyValueTable 的 ensureTrailingBlank）：
+ * 末行一有输入就补一行，省去每次手动点「添加一行」。补出来的空行不参与命名计数，
+ * 保存前由 `cleanParams` 过滤，不会写进服务端或集合文件。
+ */
+function ensureTrailingBlank(): void {
+  if (!props.editable) return
+  const last = rows.value[rows.value.length - 1]
+  if (last && !hasInput(last)) return
+  rows.value.push(blankRow())
+}
+
+onMounted(ensureTrailingBlank)
+watch(() => props.editable, ensureTrailingBlank)
+watch(rows, ensureTrailingBlank, { deep: true })
+
 function add(): void {
-  writeRows([
-    ...rows.value,
-    { fieldName: '', type: props.kind === 'header' ? '' : 'string', required: defaultRequired(), description: '', example: '' },
-  ])
+  rows.value.push(blankRow())
   void nextTick(() => nameRefs.value[rows.value.length - 1]?.focus())
 }
 
 function addChild(i: number): void {
   const parent = rows.value[i]
-  const prefix = parent.type === 'array' ? `${parent.fieldName}[]` : parent.fieldName
+  const name = parent.fieldName ?? ''
+  const prefix = parent.type === 'array' ? `${name}[]` : name
   const next = [...rows.value]
-  next.splice(i + 1, 0, { fieldName: `${prefix}.`, type: 'string', required: defaultRequired(), description: '', example: '' })
+  next.splice(i + 1, 0, {
+    fieldName: `${prefix}.`, type: 'string', required: defaultRequired(), description: '', example: '',
+  })
   writeRows(next)
   void nextTick(() => nameRefs.value[i + 1]?.focus())
 }
@@ -110,8 +168,15 @@ function setRequired(row: ApiParam, checked: boolean): void {
   row.required = checked
 }
 
+/** 启用位：只在显式 false 时写键（缺省 = 启用），与客户端同步契约一致。 */
+function setEnabled(row: ApiParam, checked: boolean): void {
+  if (checked) delete row.enabled
+  else row.enabled = false
+}
+
 async function copyJson(): Promise<void> {
-  const text = JSON.stringify(rows.value, null, 2)
+  // 只导出已命名的行：编辑态末尾的占位空行不写进剪贴板。
+  const text = JSON.stringify(rows.value.filter((r) => (r.fieldName ?? '').trim()), null, 2)
   try {
     await navigator.clipboard.writeText(text)
     message.success(t('param.jsonCopied'))
@@ -148,121 +213,125 @@ function applyJson(): void {
     <div class="pt-bar">
       <span class="pt-title">
         {{ cfg.title }}
-        <span
-          v-if="filled"
-          class="pt-count"
-          :style="{ color: cfg.color, borderColor: cfg.color, background: `${cfg.color}1a` }"
-        >{{ filled }}</span>
+        <span v-if="filled" class="rg-num" data-testid="param.count">{{ filled }}</span>
         <span v-if="titleExtra" class="pt-extra">{{ titleExtra }}</span>
       </span>
       <div class="pt-ops">
+        <slot name="actions" />
         <n-button v-if="editable" text size="tiny" @click="openJson">{{ t('param.jsonToTable') }}</n-button>
-        <n-button v-if="editable" text size="tiny" @click="add">
-          <template #icon><n-icon :component="AddOutline" /></template>
-          {{ t('param.addRow') }}
-        </n-button>
-        <n-button v-if="rows.length" text size="tiny" @click="copyJson">{{ t('param.copyJson') }}</n-button>
+        <n-button v-if="filled" text size="tiny" @click="copyJson">{{ t('param.copyJson') }}</n-button>
       </div>
     </div>
 
-    <div v-if="!rows.length && !editable" class="pt-empty">
-      <span class="meta">{{ t('param.empty', { title: cfg.title }) }}</span>
-      <n-button text size="tiny" type="primary" data-testid="param.emptyEdit" @click="emit('edit')">
-        ＋ {{ t('param.addRow') }}
-      </n-button>
-    </div>
+    <div class="rg-wrap" :style="`--rg-cols: ${gridCols}`">
+      <template v-if="rows.length">
+        <div class="rg-tr rg-th">
+          <span v-if="cfg.withEnabled" class="rg-c" />
+          <span>{{ cfg.nameLabel }}</span>
+          <span v-if="cfg.withType">{{ t('param.type') }}</span>
+          <span v-if="cfg.withRequired" class="rg-c">{{ t('detail.colRequired') }}</span>
+          <span>{{ cfg.valueLabel }}</span>
+          <span>{{ t('param.desc') }}</span>
+          <span />
+        </div>
 
-    <div v-else class="pt-wrap">
-      <table class="pt-table">
-        <thead>
-          <tr>
-            <th v-if="cfg.withRequired" class="c-chk" />
-            <th class="c-name">{{ cfg.name }}</th>
-            <th v-if="cfg.withType" class="c-type">{{ t('param.type') }}</th>
-            <th class="c-value">{{ cfg.value }}</th>
-            <th class="c-desc">{{ t('param.desc') }}</th>
-            <th v-if="editable" class="c-del" />
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, i) in rows" :key="i">
-            <td v-if="cfg.withRequired" class="c-chk">
-              <n-checkbox
-                :checked="row.required === true"
-                :disabled="!editable"
-                size="small"
-                @update:checked="(v) => setRequired(row, v)"
-              />
-            </td>
-            <td class="c-name">
-              <n-input
-                v-if="editable"
-                :ref="(el) => bindNameInput(el, i)"
-                v-model:value="row.fieldName"
+        <div
+          v-for="(row, i) in rows"
+          :key="i"
+          class="rg-tr"
+          data-testid="param.row"
+          :data-path="row.fieldName"
+        >
+          <span v-if="cfg.withEnabled" class="rg-c">
+            <n-checkbox
+              :checked="rowEnabled(row)"
+              :disabled="!editable"
+              size="small"
+              :title="t('param.disabledHint')"
+              data-testid="param.enabled"
+              @update:checked="(v: boolean) => setEnabled(row, v)"
+            />
+          </span>
+          <n-input
+            v-if="editable"
+            :ref="(el) => bindNameInput(el, i)"
+            v-model:value="row.fieldName"
+            size="tiny"
+            :placeholder="cfg.nameLabel"
+            data-testid="param.name"
+          />
+          <span v-else class="row-mono">{{ row.fieldName || '—' }}</span>
+
+          <template v-if="cfg.withType">
+            <n-select
+              v-if="editable"
+              v-model:value="row.type"
+              :options="TYPE_OPTIONS"
+              size="tiny"
+              filterable
+              tag
+              :placeholder="t('param.type')"
+            />
+            <span v-else class="muted">{{ row.type || '—' }}</span>
+          </template>
+
+          <span v-if="cfg.withRequired" class="rg-c">
+            <n-checkbox
+              :checked="row.required === true"
+              :disabled="!editable"
+              size="small"
+              @update:checked="(v: boolean) => setRequired(row, v)"
+            />
+          </span>
+
+          <n-input v-if="editable" v-model:value="row.example" size="tiny" />
+          <span v-else class="row-mono muted">
+            <var-text
+              v-if="row.example"
+              :text="row.example"
+              :project-id="props.projectId"
+              :api-id="props.apiId"
+            />
+            <template v-else>—</template>
+          </span>
+
+          <n-input v-if="editable" v-model:value="row.description" size="tiny" />
+          <span v-else>{{ row.description || '—' }}</span>
+
+          <span class="rg-ops">
+            <template v-if="editable">
+              <n-button
+                v-if="canAddChild(row)"
+                text
                 size="tiny"
-                :placeholder="cfg.name"
-              />
-              <span v-else class="row-mono">{{ row.fieldName || '—' }}</span>
-            </td>
-            <td v-if="cfg.withType" class="c-type">
-              <n-select
-                v-if="editable"
-                v-model:value="row.type"
-                :options="TYPE_OPTIONS"
-                size="tiny"
-                filterable
-                tag
-                :placeholder="t('param.type')"
-              />
-              <span v-else class="muted">{{ row.type || '—' }}</span>
-            </td>
-            <td class="c-value">
-              <n-input v-if="editable" v-model:value="row.example" size="tiny" />
-              <span v-else class="row-mono muted">
-                <var-text
-                  v-if="row.example"
-                  :text="row.example"
-                  :project-id="props.projectId"
-                  :api-id="props.apiId"
-                />
-                <template v-else>—</template>
-              </span>
-            </td>
-            <td class="c-desc">
-              <n-input v-if="editable" v-model:value="row.description" size="tiny" />
-              <span v-else>{{ row.description || '—' }}</span>
-            </td>
-            <td v-if="editable" class="c-del">
-              <span class="pt-row-ops">
-                <n-button
-                  v-if="canAddChild(row)"
-                  text
-                  size="tiny"
-                  class="pt-child"
-                  :title="t('param.addChild')"
-                  @click="addChild(i)"
-                >
-                  <template #icon><n-icon :component="GitBranchOutline" /></template>
-                </n-button>
-                <n-button text size="tiny" class="pt-del" :title="t('param.delRow')" @click="remove(i)">
-                  <template #icon><n-icon :component="TrashOutline" /></template>
-                </n-button>
-              </span>
-            </td>
-          </tr>
-          <tr v-if="editable" class="pt-add" @click="add">
-            <td v-if="cfg.withRequired" class="c-chk" />
-            <td class="c-name"><span class="ph">{{ cfg.name }}</span></td>
-            <td v-if="cfg.withType" class="c-type"><span class="ph">string</span></td>
-            <td class="c-value"><span class="ph">{{ cfg.value }}</span></td>
-            <td class="c-desc"><span class="ph">{{ t('param.desc') }}</span></td>
-            <td class="c-del" />
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="editable && cfg.withType" class="pt-hint meta">
-        {{ t('param.typeTipBefore') }}<code>data.list[].id</code>{{ t('param.typeTipAfter') }}
+                class="pt-child"
+                :title="t('param.addChild')"
+                @click="addChild(i)"
+              >
+                <template #icon><n-icon :component="GitBranchOutline" /></template>
+              </n-button>
+              <n-button text size="tiny" class="pt-del" :title="t('param.delRow')" @click="remove(i)">
+                <template #icon><n-icon :component="TrashOutline" /></template>
+              </n-button>
+            </template>
+          </span>
+        </div>
+      </template>
+
+      <!-- 查看态空表：边框内一行灰字 + 切到编辑态（对齐客户端空态文案的观感） -->
+      <p v-else class="rg-empty">
+        <span>{{ t('param.empty', { title: cfg.title }) }}</span>
+        <n-button text size="tiny" type="primary" data-testid="param.emptyEdit" @click="emit('edit')">
+          ＋ {{ t('param.addRow') }}
+        </n-button>
       </p>
+
+      <div v-if="editable" class="rg-foot">
+        <n-button text size="tiny" type="primary" data-testid="param.add" @click="add">
+          <template #icon><n-icon :component="AddOutline" /></template>
+          {{ t('param.addRow') }}
+        </n-button>
+      </div>
     </div>
 
     <n-modal v-model:show="showJson" preset="card" :title="t('param.jsonTitle', { title: cfg.title })" style="width: 620px">
@@ -317,23 +386,8 @@ function applyJson(): void {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-}
-
-/* 计数：圆圈 + 居中数字，颜色随所属模块 */
-.pt-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  border: 1px solid;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
 }
 
 /* 段标题旁的补充徽标（如返回参数旁的返回类型） */
@@ -352,109 +406,7 @@ function applyJson(): void {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-
-.pt-empty {
-  /* 空态压到一行高：三个「暂无」区块各占 100px 时，新建接口的首屏几乎是空白（UI-08）。 */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 0;
-  padding: 10px 0;
-  border: 1px dashed var(--app-border);
-  border-radius: 4px;
-}
-
-.pt-wrap {
-  border: 1px solid var(--app-border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.pt-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  table-layout: fixed;
-}
-
-.pt-table th,
-.pt-table td {
-  padding: 5px 10px;
-  text-align: left;
-  border-right: 1px solid var(--app-border);
-  border-bottom: 1px solid var(--app-border);
-  vertical-align: middle;
-}
-
-.pt-table th {
-  padding: 7px 10px;
-  background: #f7f8fa;
-  color: var(--app-muted);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.pt-table th:last-child,
-.pt-table td:last-child {
-  border-right: 0;
-}
-
-.pt-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.pt-table tbody tr:hover {
-  background: #fafbfc;
-}
-
-/* 表格下方的类型/嵌套说明条 */
-.pt-hint {
-  margin: 0;
-  padding: 6px 10px;
-  border-top: 1px solid var(--app-border);
-  background: #fafbfc;
-}
-
-.pt-hint code {
-  padding: 0 3px;
-  border-radius: 3px;
-  background: #eef0f3;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.c-chk {
-  width: 34px;
-  padding-left: 8px;
-  padding-right: 0;
-  text-align: center;
-}
-
-.c-name {
-  width: 26%;
-}
-
-.c-type {
-  width: 108px;
-}
-
-.c-desc {
-  width: 28%;
-}
-
-.c-del {
-  width: 56px;
-  padding-left: 0;
-  padding-right: 6px;
-  text-align: center;
-}
-
-.pt-row-ops {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
+  gap: 6px;
 }
 
 .pt-del {
@@ -471,15 +423,6 @@ function applyJson(): void {
 
 .pt-child:hover {
   color: var(--app-accent);
-}
-
-.pt-add {
-  cursor: pointer;
-}
-
-.ph {
-  color: #c2c8ce;
-  font-size: 12px;
 }
 
 /* ---- JSON 转表格弹窗 ---- */
